@@ -801,6 +801,86 @@ body { display: block; width: 100%; min-height: 0; overflow-x: hidden; }
   width: 900px;
   height: 900px;
 }
+
+/* Final layout fixes. */
+html, body {
+  overflow: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+#t2048 .arrow-pad {
+  margin-left: auto;
+  margin-right: auto;
+  text-align: center;
+}
+#t2048 .arr {
+  display: block;
+  float: left;
+}
+#tsudoku #s-check {
+  background: #fff;
+  color: #000;
+}
+#tsudoku .actions {
+  display: block;
+  overflow: hidden;
+}
+#tsudoku .actions .act-btn,
+#tsudoku .actions .timer-box {
+  display: block;
+  float: left;
+  width: 33.333%;
+  margin: 0;
+}
+#tmine .header {
+  clear: both;
+  float: none;
+  width: 900px;
+  max-width: none;
+  margin-left: auto;
+  margin-right: auto;
+  overflow: hidden;
+}
+#tmine .header .level-box,
+#tmine .header .btn,
+#tmine .header .stat-box {
+  float: left;
+  width: 20%;
+  height: 58px;
+  margin: 0;
+  border: 2px solid #000;
+  padding: 2px 1px;
+  line-height: 1.1;
+  text-align: center;
+  font-size: 0.66rem;
+}
+#tmine .mode-bar {
+  clear: both;
+  display: block;
+  overflow: hidden;
+  width: 900px;
+}
+#tmine .mode-btn {
+  float: left;
+  width: 33.333%;
+}
+#tmine .mode-bar .stat-box {
+  float: left;
+  width: 16.667%;
+  height: 102px;
+  margin: 0;
+  border: 3px solid #000;
+  padding: 10px 1px 0;
+  text-align: center;
+}
+#tmine .mode-bar .stat-label {
+  font-size: 0.45rem;
+}
+#tmine .mode-bar .stat-value {
+  font-size: 0.85rem;
+}
+#tmine .stats {
+  display: none;
+}
 </style>
 </head>
 <body>
@@ -869,10 +949,10 @@ body { display: block; width: 100%; min-height: 0; overflow-x: hidden; }
 
   <div class="actions">
     <button class="act-btn" id="s-erase" onclick="sErase()">✕ Xóa</button>
-    <button class="act-btn" id="s-notes" onclick="sToggleNotes()">✎ Nháp</button>
     <div class="timer-box">
       <div class="timer-value" id="s-timer">00:00</div>
     </div>
+    <button class="act-btn" id="s-notes" onclick="sToggleNotes()">✎ Nháp</button>
   </div>
 
   <div class="msg" id="s-msg"></div>
@@ -889,13 +969,25 @@ body { display: block; width: 100%; min-height: 0; overflow-x: hidden; }
     <div class="level-box"        id="m-lvl-medium" onclick="mSetLevel('medium')">Vừa</div>
     <div class="level-box"        id="m-lvl-hard"   onclick="mSetLevel('hard')">Khó</div>
     <button class="btn" onclick="mNewGame()">Mới</button>
-  </div>
-
-  <div class="stats">
     <div class="stat-box">
       <span class="stat-label">💣 Còn lại</span>
       <div class="stat-value" id="m-count">0</div>
     </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat-box">
+      <span class="stat-label">⏱ Thời gian</span>
+      <div class="stat-value">00:00</div>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">🏆 Kỷ lục</span>
+      <div class="stat-value">--:--</div>
+    </div>
+  </div>
+
+  <div class="mode-bar">
+    <button class="mode-btn active" id="m-mode-dig"  onclick="mSetMode('dig')">⛏ Đào ô</button>
     <div class="stat-box">
       <span class="stat-label">⏱ Thời gian</span>
       <div class="stat-value" id="m-timer">00:00</div>
@@ -904,10 +996,6 @@ body { display: block; width: 100%; min-height: 0; overflow-x: hidden; }
       <span class="stat-label">🏆 Kỷ lục</span>
       <div class="stat-value" id="m-best">--:--</div>
     </div>
-  </div>
-
-  <div class="mode-bar">
-    <button class="mode-btn active" id="m-mode-dig"  onclick="mSetMode('dig')">⛏ Đào ô</button>
     <button class="mode-btn"        id="m-mode-flag" onclick="mSetMode('flag')">🚩 Đặt cờ</button>
   </div>
 
@@ -1101,9 +1189,20 @@ gAddHandler(g2Grid,'mouseup',gSwipeEnd);
 gAddHandler(document,'dblclick',function(e){return gStopEvent(e);});
 
 var gButtons=[document.getElementById('g-up'),document.getElementById('g-down'),document.getElementById('g-left'),document.getElementById('g-right')];
-for(var gb=0;gb<gButtons.length;gb++){
-  gAddHandler(gButtons[gb],'touchend',gBlockDoubleTap);
+function gBindTouchButton(id,dir){
+  var b=document.getElementById(id);
+  gAddHandler(b,'touchstart',function(e){return gStopEvent(e);});
+  gAddHandler(b,'touchend',function(e){gMove(dir);return gStopEvent(e);});
 }
+gBindTouchButton('g-up','up');
+gBindTouchButton('g-down','down');
+gBindTouchButton('g-left','left');
+gBindTouchButton('g-right','right');
+gAddHandler(document,'gesturestart',function(e){return gStopEvent(e);});
+gAddHandler(document,'gesturechange',function(e){return gStopEvent(e);});
+gAddHandler(document,'touchstart',function(e){
+  if(hasClass(document.getElementById('t2048'),'active'))return gBlockDoubleTap(e);
+});
 document.getElementById('g-up').addEventListener('click',    function(){gMove('up');});
 document.getElementById('g-down').addEventListener('click',  function(){gMove('down');});
 document.getElementById('g-left').addEventListener('click',  function(){gMove('left');});
