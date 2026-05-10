@@ -895,6 +895,9 @@ html, body {
 #tmine .stats {
   display: none;
 }
+#tmine .legend {
+  display: none;
+}
 #tmine {
   position: relative;
 }
@@ -921,13 +924,6 @@ html, body {
   margin: 0;
   padding: 0;
   overflow: hidden;
-}
-body {
-  zoom: 0.95;
-  -webkit-transform: scale(0.95);
-  -webkit-transform-origin: 0 0;
-  transform: scale(0.95);
-  transform-origin: 0 0;
 }
 .panel {
   padding-bottom: 0;
@@ -1692,14 +1688,13 @@ function kindleSizeSquares() {
 if (window.addEventListener) window.addEventListener('resize', kindleSizeSquares, false);
 
 function lockPageScroll(){
-  var scale=0.95;
   var active=null;
   for(var i=0;i<tabs.length;i++){
     var p=document.getElementById(tabs[i]);
     if(hasClass(p,'active')){active=p;break;}
   }
   if(!active)return;
-  var h=Math.ceil((active.offsetTop+active.offsetHeight)*scale);
+  var h=active.offsetTop+active.offsetHeight;
   document.documentElement.style.height=h+'px';
   document.body.style.height=h+'px';
   document.documentElement.style.maxHeight=h+'px';
