@@ -577,6 +577,191 @@ body { display: block; width: 100%; min-height: 0; overflow-x: hidden; }
 .mine-grid-wrap {
   overflow: hidden;
 }
+
+/* 2048 tuning: Kindle swipe is unreliable, so make click controls practical. */
+#t2048 .g-score-row {
+  width: 800px;
+  max-width: none;
+  margin-left: auto;
+  margin-right: auto;
+}
+#t2048 .g-score-row .score-box,
+#t2048 .g-score-row .btn {
+  float: left;
+  width: 33.333%;
+  height: 58px;
+  margin: 0;
+  border-width: 2px;
+}
+#t2048 .g-score-row .btn {
+  padding: 0;
+  line-height: 54px;
+  text-align: center;
+}
+#t2048 .score-label {
+  font-size: 0.62rem;
+}
+#t2048 .score-value {
+  font-size: 1.55rem;
+}
+#t2048 .grid-2048-wrap,
+#t2048 .grid-2048 {
+  width: 800px;
+  height: 800px;
+}
+#t2048 .grid-2048 {
+  border-width: 3px;
+}
+#t2048 .cell-2048 {
+  border-width: 1px;
+}
+#t2048 .t-2,
+#t2048 .t-4,
+#t2048 .t-8 { font-size: 112px; }
+#t2048 .t-16,
+#t2048 .t-32,
+#t2048 .t-64 { font-size: 96px; }
+#t2048 .t-128,
+#t2048 .t-256,
+#t2048 .t-512 { font-size: 78px; }
+#t2048 .t-1024,
+#t2048 .t-2048 { font-size: 62px; }
+#t2048 .t-big { font-size: 52px; }
+#t2048 .arrow-pad {
+  width: 800px;
+  margin-top: 8px;
+}
+#t2048 .arr {
+  width: 266px;
+  height: 112px;
+  line-height: 108px;
+  font-size: 3.2rem;
+  border-width: 3px;
+}
+#t2048 .hint-2048 {
+  display: none;
+}
+
+/* Sudoku tuning: equal top controls and larger bottom buttons. */
+#tsudoku .sudoku-header {
+  width: 900px;
+  max-width: none;
+  margin-left: auto;
+  margin-right: auto;
+}
+#tsudoku .sudoku-header .level-box,
+#tsudoku .sudoku-header .btn,
+#tsudoku .sudoku-header .timer-box {
+  float: left;
+  width: 20%;
+  height: 58px;
+  margin: 0;
+  border-width: 2px;
+  padding: 0;
+  line-height: 54px;
+  text-align: center;
+  font-size: 0.9rem;
+}
+#tsudoku .timer-label {
+  display: none;
+}
+#tsudoku .timer-value {
+  font-size: 1rem;
+  line-height: 54px;
+}
+#tsudoku .sudoku-grid-wrap,
+#tsudoku .sudoku-grid {
+  width: 900px;
+  height: 900px;
+}
+#tsudoku .sq {
+  font-size: 44px;
+}
+#tsudoku .note-num {
+  font-size: 14px;
+}
+#tsudoku .numpad,
+#tsudoku .actions {
+  width: 900px;
+  max-width: none;
+}
+#tsudoku .num-btn {
+  height: 78px;
+  line-height: 74px;
+  font-size: 34px;
+  border-width: 2px;
+}
+#tsudoku .act-btn {
+  height: 68px;
+  line-height: 64px;
+  padding: 0;
+  font-size: 0.95rem;
+  border-width: 2px;
+}
+
+/* Minesweeper tuning: one compact top row and a 900px board. */
+#tmine .header,
+#tmine .stats {
+  clear: none;
+  float: left;
+  height: 58px;
+  margin-bottom: 4px;
+}
+#tmine .header {
+  width: 57.143%;
+}
+#tmine .stats {
+  width: 42.857%;
+}
+#tmine .header .level-box,
+#tmine .header .btn {
+  float: left;
+  width: 25%;
+  height: 58px;
+  margin: 0;
+  border-width: 2px;
+  padding: 0;
+  line-height: 54px;
+  text-align: center;
+  font-size: 0.66rem;
+}
+#tmine .stats .stat-box {
+  float: left;
+  width: 33.333%;
+  height: 58px;
+  margin: 0;
+  border-width: 2px;
+  padding: 2px 1px;
+}
+#tmine .stat-label {
+  font-size: 0.42rem;
+  letter-spacing: 0;
+}
+#tmine .stat-value {
+  font-size: 0.82rem;
+  line-height: 1.1;
+}
+#tmine .mode-bar {
+  clear: both;
+  width: 900px;
+  max-width: none;
+  margin-left: auto;
+  margin-right: auto;
+  margin-bottom: 6px;
+}
+#tmine .mode-btn {
+  width: 50%;
+  height: 102px;
+  line-height: 98px;
+  padding: 0;
+  font-size: 1.05rem;
+  border-width: 3px;
+}
+#tmine .mine-grid-wrap,
+#tmine .mine-grid {
+  width: 900px;
+  height: 900px;
+}
 </style>
 </head>
 <body>
@@ -823,16 +1008,50 @@ function gCheckOver() {
 }
 function gShowMsg(t,win){var m=document.getElementById('g-msg');m.textContent=t;m.className='msg show'+(win?' win':'');}
 
-// Touch
-var gSX,gSY;
+// Touch / drag. Kindle PPW3 may scroll unless touchmove is cancelled on the board.
+var gSX=0,gSY=0,gDragging=false;
 var g2Grid=document.getElementById('grid-2048');
-g2Grid.addEventListener('touchstart',function(e){gSX=e.touches[0].clientX;gSY=e.touches[0].clientY;e.preventDefault();},false);
-g2Grid.addEventListener('touchend',function(e){
-  var dx=e.changedTouches[0].clientX-gSX, dy=e.changedTouches[0].clientY-gSY;
-  if(Math.abs(dx)<15&&Math.abs(dy)<15) return;
-  gMove(Math.abs(dx)>Math.abs(dy)?(dx>0?'right':'left'):(dy>0?'down':'up'));
-  e.preventDefault();
-},false);
+function gAddHandler(el,type,fn){
+  if(el.addEventListener) el.addEventListener(type,fn,false);
+  else if(el.attachEvent) el.attachEvent('on'+type,fn);
+  else el['on'+type]=fn;
+}
+function gStopEvent(e){
+  e=e||window.event;
+  if(e.preventDefault)e.preventDefault();
+  e.returnValue=false;
+  return false;
+}
+function gPoint(e){
+  e=e||window.event;
+  if(e.touches&&e.touches.length)return e.touches[0];
+  if(e.changedTouches&&e.changedTouches.length)return e.changedTouches[0];
+  return e;
+}
+function gSwipeStart(e){
+  var p=gPoint(e);
+  gSX=p.clientX;gSY=p.clientY;gDragging=true;
+  return gStopEvent(e);
+}
+function gSwipeMove(e){
+  if(gDragging)return gStopEvent(e);
+}
+function gSwipeEnd(e){
+  if(!gDragging)return;
+  gDragging=false;
+  var p=gPoint(e);
+  var dx=p.clientX-gSX, dy=p.clientY-gSY;
+  if(Math.abs(dx)>=20||Math.abs(dy)>=20){
+    gMove(Math.abs(dx)>Math.abs(dy)?(dx>0?'right':'left'):(dy>0?'down':'up'));
+  }
+  return gStopEvent(e);
+}
+gAddHandler(g2Grid,'touchstart',gSwipeStart);
+gAddHandler(g2Grid,'touchmove',gSwipeMove);
+gAddHandler(g2Grid,'touchend',gSwipeEnd);
+gAddHandler(g2Grid,'mousedown',gSwipeStart);
+gAddHandler(g2Grid,'mousemove',gSwipeMove);
+gAddHandler(g2Grid,'mouseup',gSwipeEnd);
 
 document.getElementById('g-up').addEventListener('click',    function(){gMove('up');});
 document.getElementById('g-down').addEventListener('click',  function(){gMove('down');});
@@ -1164,34 +1383,37 @@ function kindleSizeSquares() {
   var boardSize = 1000;
   var g = document.getElementById('grid-2048');
   if (g) {
-    g.style.width = boardSize + 'px';
-    g.style.height = boardSize + 'px';
-    var size = Math.floor(boardSize / 4);
+    var gBoardSize = 800;
+    g.style.width = gBoardSize + 'px';
+    g.style.height = gBoardSize + 'px';
+    var size = Math.floor(gBoardSize / 4);
     var cells = g.getElementsByTagName('div');
     for (var i=0;i<cells.length;i++){cells[i].style.width='25%';cells[i].style.height=size+'px';cells[i].style.lineHeight=size+'px';}
   }
   var sg = document.getElementById('sudoku-grid');
   if (sg) {
-    sg.style.width = boardSize + 'px';
-    sg.style.height = boardSize + 'px';
-    var ssize = Math.floor(boardSize / 9);
+    var sBoardSize = 900;
+    sg.style.width = sBoardSize + 'px';
+    sg.style.height = sBoardSize + 'px';
+    var ssize = Math.floor(sBoardSize / 9);
     var sqs = sg.getElementsByTagName('div');
     for (var j=0;j<sqs.length;j++) if((' '+sqs[j].className+' ').indexOf(' sq ')>=0){sqs[j].style.width='11.111%';sqs[j].style.height=ssize+'px';sqs[j].style.lineHeight=ssize+'px';}
   }
   var pad = document.getElementById('s-numpad');
   if (pad) {
-    var pw = pad.clientWidth || 320;
+    var pw = pad.clientWidth || 900;
     var psize = Math.floor(pw / 9);
-    if (psize > 42) psize = 42;
+    if (psize < 78) psize = 78;
     var btns = pad.getElementsByTagName('button');
     for (var k=0;k<btns.length;k++){btns[k].style.height=psize+'px';btns[k].style.lineHeight=psize+'px';}
   }
   var mg = document.getElementById('mine-grid');
   if (mg && mCols) {
-    mg.style.width = boardSize + 'px';
-    mg.style.height = boardSize + 'px';
-    var mW = Math.floor(boardSize / mCols);
-    var mH = Math.floor(boardSize / mRows);
+    var mBoardSize = 900;
+    mg.style.width = mBoardSize + 'px';
+    mg.style.height = mBoardSize + 'px';
+    var mW = Math.floor(mBoardSize / mCols);
+    var mH = Math.floor(mBoardSize / mRows);
     var mcells = mg.getElementsByTagName('div');
     for (var m=0;m<mcells.length;m++){mcells[m].style.width=mW+'px';mcells[m].style.height=mH+'px';mcells[m].style.lineHeight=mH+'px';}
   }
