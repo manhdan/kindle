@@ -27,7 +27,7 @@ body {
 }
 /* ── CONTROLS ── */
 .ctrl-row {
-  width: 100%; max-width: 950px;
+  width: 100%; max-width: 1000px;
   display: -webkit-box;
   display: -webkit-flex;
   display: flex;
@@ -55,29 +55,19 @@ body {
 }
 .btn:last-child { margin-right: 0; }
 .btn:active { background: #444; }
-.color-row {
-  width: 100%; max-width: 950px;
-  display: -webkit-box;
-  display: -webkit-flex;
-  display: flex;
-  margin-bottom: 8px;
-}
 .clr-btn {
-  -webkit-box-flex: 1;
-  -webkit-flex: 1;
-  flex: 1;
   border: 3px solid #000; background: #fff;
   font-family: Georgia, serif; font-size: 1rem; font-weight: bold;
-  text-transform: uppercase; padding: 12px 4px; cursor: pointer; text-align: center;
+  text-transform: uppercase; padding: 12px 10px; cursor: pointer; text-align: center;
+  white-space: nowrap;
   margin-right: 6px;
 }
-.clr-btn:last-child { margin-right: 0; }
 .clr-btn.active { background: #000; color: #fff; }
 .clr-btn:active { opacity: 0.7; }
 
 /* ── STATUS ── */
 .status {
-  width: 100%; max-width: 950px;
+  width: 100%; max-width: 1000px;
   font-size: 1rem; font-weight: bold; text-align: center;
   margin-bottom: 6px; min-height: 36px; line-height: 1.4;
 }
@@ -86,7 +76,7 @@ body {
 .status.thinking { background: #ddd; }
 
 /* ── BOARD ── */
-.board-outer { width: 100%; max-width: 950px; }
+.board-outer { width: 100%; max-width: 1000px; }
 .board {
   display: block;
   overflow: hidden;
@@ -136,7 +126,7 @@ body {
 
 /* ── MOVE HISTORY ── */
 .history {
-  width: 100%; max-width: 950px;
+  width: 100%; max-width: 1000px;
   padding: 6px 10px; font-size: 0.75rem;
   font-family: 'Courier New', monospace;
   min-height: 32px; color: #333;
@@ -202,13 +192,9 @@ body {
     <option value="2000">ELO 1200 — Tạm</option>
     <option value="2200" selected>ELO 1400 — Khá</option>
   </select>
-  <button class="btn" onclick="newGame()">Mới</button>
-  <button class="btn" onclick="flipBoard()">Lật</button>
-</div>
-
-<div class="color-row">
   <button class="clr-btn active" id="cw" onclick="setColor(1)">&#9812; Quân Trắng</button>
   <button class="clr-btn"        id="cb" onclick="setColor(-1)">&#9818; Quân Đen</button>
+  <button class="btn" onclick="newGame()">Ván mới</button>
 </div>
 
 <div class="status" id="status">Lượt của bạn — Trắng</div>
@@ -632,8 +618,6 @@ function setColor(c){
   gFlip=(c===B);
   newGame();
 }
-
-function flipBoard(){gFlip=!gFlip; renderBoard();}
 
 /* ═══════════════════════════════════════════════════
    BOARD SIZING — fix height after float layout
