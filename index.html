@@ -922,6 +922,13 @@ html, body {
   padding: 0;
   overflow: hidden;
 }
+body {
+  zoom: 0.95;
+  -webkit-transform: scale(0.95);
+  -webkit-transform-origin: 0 0;
+  transform: scale(0.95);
+  transform-origin: 0 0;
+}
 .panel {
   padding-bottom: 0;
   margin-bottom: 0;
@@ -1685,15 +1692,18 @@ function kindleSizeSquares() {
 if (window.addEventListener) window.addEventListener('resize', kindleSizeSquares, false);
 
 function lockPageScroll(){
+  var scale=0.95;
   var active=null;
   for(var i=0;i<tabs.length;i++){
     var p=document.getElementById(tabs[i]);
     if(hasClass(p,'active')){active=p;break;}
   }
   if(!active)return;
-  var h=active.offsetTop+active.offsetHeight;
+  var h=Math.ceil((active.offsetTop+active.offsetHeight)*scale);
   document.documentElement.style.height=h+'px';
   document.body.style.height=h+'px';
+  document.documentElement.style.maxHeight=h+'px';
+  document.body.style.maxHeight=h+'px';
   document.documentElement.style.overflow='hidden';
   document.body.style.overflow='hidden';
   if(window.scrollTo)window.scrollTo(0,0);
