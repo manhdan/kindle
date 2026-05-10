@@ -912,6 +912,87 @@ html, body {
   background: #000;
   color: #fff;
 }
+
+/* Final spacing and scroll lock pass. */
+html, body {
+  position: static;
+  height: auto;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.panel {
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+#t2048 .g-score-row {
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+#t2048 .g-score-row .score-box,
+#t2048 .g-score-row .btn {
+  width: 258px;
+  margin-left: 4px;
+  margin-right: 4px;
+}
+#t2048 .arrow-pad {
+  overflow: hidden;
+  margin-top: 8px;
+}
+#t2048 .arr {
+  width: 258px;
+  margin-left: 4px;
+  margin-right: 4px;
+  margin-bottom: 8px;
+}
+#tsudoku .sudoku-header {
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+#tsudoku .sudoku-header .level-box,
+#tsudoku .sudoku-header .btn {
+  width: 172px;
+  margin-left: 4px;
+  margin-right: 4px;
+}
+#tsudoku .numpad {
+  overflow: hidden;
+}
+#tsudoku .num-btn {
+  width: 92px;
+  margin-left: 4px;
+  margin-right: 4px;
+}
+#tsudoku .actions {
+  overflow: hidden;
+}
+#tsudoku .actions .act-btn,
+#tsudoku .actions .timer-box {
+  width: 292px;
+  margin-left: 4px;
+  margin-right: 4px;
+}
+#tmine .header {
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+#tmine .header .level-box,
+#tmine .header .btn {
+  width: 217px;
+  margin-left: 4px;
+  margin-right: 4px;
+}
+#tmine .mode-bar {
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+#tmine .mode-btn,
+#tmine .mode-bar .stat-box {
+  width: 292px;
+  margin-left: 4px;
+  margin-right: 4px;
+}
 </style>
 </head>
 <body>
@@ -1062,6 +1143,8 @@ function switchTab(id) {
     setActiveClass(p, t === id);
     setActiveClass(tabEls[i], t === id);
   }
+  kindleSizeSquares();
+  lockPageScroll();
 }
 
 /* ═══════════════════════════════════════════════════
@@ -1582,11 +1665,10 @@ function kindleSizeSquares() {
   }
   var pad = document.getElementById('s-numpad');
   if (pad) {
-    var pw = pad.clientWidth || 900;
-    var psize = Math.floor(pw / 9);
+    var psize = 78;
     if (psize < 78) psize = 78;
     var btns = pad.getElementsByTagName('button');
-    for (var k=0;k<btns.length;k++){btns[k].style.height=psize+'px';btns[k].style.lineHeight=psize+'px';}
+    for (var k=0;k<btns.length;k++){btns[k].style.width='92px';btns[k].style.height=psize+'px';btns[k].style.lineHeight=psize+'px';}
   }
   var mg = document.getElementById('mine-grid');
   if (mg && mCols) {
@@ -1598,8 +1680,26 @@ function kindleSizeSquares() {
     var mcells = mg.getElementsByTagName('div');
     for (var m=0;m<mcells.length;m++){mcells[m].style.width=mW+'px';mcells[m].style.height=mH+'px';mcells[m].style.lineHeight=mH+'px';}
   }
+  lockPageScroll();
 }
 if (window.addEventListener) window.addEventListener('resize', kindleSizeSquares, false);
+
+function lockPageScroll(){
+  var active=null;
+  for(var i=0;i<tabs.length;i++){
+    var p=document.getElementById(tabs[i]);
+    if(hasClass(p,'active')){active=p;break;}
+  }
+  if(!active)return;
+  var h=active.offsetTop+active.offsetHeight;
+  document.documentElement.style.height=h+'px';
+  document.body.style.height=h+'px';
+  document.documentElement.style.overflow='hidden';
+  document.body.style.overflow='hidden';
+  if(window.scrollTo)window.scrollTo(0,0);
+  document.documentElement.scrollTop=0;
+  document.body.scrollTop=0;
+}
 /* ── INIT ─────────────────────────────────────── */
 gNewGame();
 sNewGame();
