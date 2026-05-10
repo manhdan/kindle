@@ -14,7 +14,6 @@ body {
 }
 .title { font-size: 2rem; font-weight: bold; margin-bottom: 10px; }
 
-/* ── CONTROLS ── */
 .ctrl-row {
   width: 100%; max-width: 520px;
   margin: 0 auto 8px;
@@ -39,7 +38,6 @@ body {
 }
 .color-row button {
   display: inline-block;
-  flex: 1;
   border: 3px solid #000;
   background: #fff;
   font-family: Georgia, serif;
@@ -54,7 +52,6 @@ body {
 .color-row button.active { background: #000; color: #fff; }
 .color-row button:active { opacity: 0.7; }
 
-/* ── STATUS ── */
 .status {
   width: 100%; max-width: 520px;
   margin: 0 auto 8px;
@@ -71,7 +68,6 @@ body {
 .status.gameover { background: #000; color: #fff; }
 .status.thinking { background: #ddd; }
 
-/* ── BOARD ── */
 .board-outer {
   width: 100%;
   max-width: 520px;
@@ -103,7 +99,6 @@ body {
 .board td.sel  { background: #555 !important; }
 .board td.sel .piece { color: #fff !important; }
 
-/* legal move dot */
 .board td.dot::after {
   content: '•';
   opacity: 0.4;
@@ -114,20 +109,16 @@ body {
   transform: translate(-50%, -50%);
 }
 
-/* legal capture ring */
 .board td.ring::before {
   content: '';
   position: absolute;
-  inset: 5px;
+  top: 5px; left: 5px; right: 5px; bottom: 5px;
   border: 2px solid rgba(0,0,0,0.5);
   border-radius: 50%;
 }
 
-.piece {
-  color: #000;
-}
+.piece { color: #000; }
 
-/* ── MOVE HISTORY ── */
 .history {
   width: 100%; max-width: 520px;
   margin: 8px auto 0;
@@ -141,7 +132,6 @@ body {
   background: #fff;
 }
 
-/* ── PROMO DIALOG ── */
 .promo-bg {
   position: fixed; inset: 0;
   background: rgba(0,0,0,0.78);
@@ -159,9 +149,7 @@ body {
   text-align: center;
 }
 .promo-box p { font-size: 1rem; font-weight: bold; margin-bottom: 12px; }
-.promo-row {
-  text-align: center;
-}
+.promo-row { text-align: center; }
 .promo-btn {
   display: inline-block;
   width: 70px;
@@ -215,9 +203,6 @@ body {
 </div>
 
 <script>
-/* ═══════════════════════════════════════════════════
-   CONSTANTS
-   ═══════════════════════════════════════════════════ */
 var E=0, WP=1,WN=2,WB=3,WR=4,WQ=5,WK=6;
 var BP=-1,BN=-2,BB=-3,BR=-4,BQ=-5,BK=-6;
 var W=1, B=-1;
@@ -443,7 +428,9 @@ function sortMvs(mvs, board) {
   });
 }
 
+var gSearchLimit=50000;var gNodeCount=0;
 function qsearch(board, turn, ep, cas, alpha, beta) {
+  if(gNodeCount++>gSearchLimit) return evaluate(board,turn);
   var stand=evaluate(board,turn);
   if(stand>=beta) return beta;
   if(stand>alpha) alpha=stand;
@@ -464,6 +451,7 @@ function qsearch(board, turn, ep, cas, alpha, beta) {
 }
 
 function negamax(board, turn, ep, cas, depth, alpha, beta) {
+  if(gNodeCount>gSearchLimit) return evaluate(board,turn);
   if(depth===0) return qsearch(board,turn,ep,cas,alpha,beta);
   var mvs=legalMoves(board,turn,ep,cas);
   if(!mvs.length) return inCheck(board,turn)?-(MATE-depth):0;
@@ -478,6 +466,7 @@ function negamax(board, turn, ep, cas, depth, alpha, beta) {
 }
 
 function bestMove(board, turn, ep, cas, depth, rnd) {
+  gNodeCount=0;
   var mvs=legalMoves(board,turn,ep,cas);
   if(!mvs.length) return null;
   if(Math.random()<rnd) return mvs[Math.floor(Math.random()*mvs.length)];
@@ -514,7 +503,7 @@ function newGame(){
   gHist=[]; gMoveNum=1;
   document.getElementById('history').textContent='—';
   renderBoard(); setStatus();
-  if(gPC===B) setTimeout(aiMove,80);
+  if(gPC===B) setTimeout(aiMove,200);
 }
 
 function setColor(c){
@@ -648,7 +637,7 @@ function execMove(mv){
   gTurn=-gTurn;
   gSel=-1; gLegal=[];
   renderBoard(); setStatus();
-  if(gActive) setTimeout(aiMove,80);
+  if(gActive) setTimeout(aiMove,200);
 }
 
 function aiMove(){
@@ -670,7 +659,7 @@ function aiMove(){
     gTurn=-gTurn;
     gSel=-1; gLegal=[];
     renderBoard(); setStatus();
-  }, 55);
+  }, 100);
 }
 
 function showPromo(targets){
