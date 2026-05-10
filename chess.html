@@ -42,11 +42,14 @@ body {
   align-items: stretch;
 }
 /* ── CONTROLS: dùng table layout thay flexbox cho tương thích tối đa ── */
-.ctrl-row {
-  display: table;
+.ctrl-wrap {
   width: 100%;
   max-width: 1000px;
   margin: 0 auto 8px auto;
+}
+.ctrl-row {
+  display: table;
+  width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
 }
@@ -59,32 +62,35 @@ body {
 .ctrl-cell.cell-new   { width: 30%; }
 .elo-sel {
   width: 100%;
+  height: 48px;
   -webkit-box-sizing: border-box;
   box-sizing: border-box;
-  border: 3px solid #000; padding: 9px 8px;
+  border: 3px solid #000; padding: 0 8px;
   font-family: Georgia, serif; font-size: 1rem; font-weight: bold;
   background: #fff; cursor: pointer;
   -webkit-appearance: none; appearance: none;
 }
 .btn {
   width: 100%;
+  height: 48px;
   -webkit-box-sizing: border-box;
   box-sizing: border-box;
   border: 3px solid #000; border-left: none;
   background: #000; color: #fff;
-  font-size: 1rem; font-weight: bold; padding: 12px 4px;
+  font-size: 1rem; font-weight: bold; padding: 0 4px;
   cursor: pointer; font-family: Georgia, serif;
   text-transform: uppercase; text-align: center;
 }
 .btn:active { background: #444; }
 .clr-btn {
   width: 100%;
+  height: 48px;
   -webkit-box-sizing: border-box;
   box-sizing: border-box;
   border: 3px solid #000; border-left: none;
   background: #fff;
   font-family: Georgia, serif; font-size: 1rem; font-weight: bold;
-  text-transform: uppercase; padding: 12px 4px; cursor: pointer; text-align: center;
+  text-transform: uppercase; padding: 0 4px; cursor: pointer; text-align: center;
 }
 .clr-btn.active { background: #000; color: #fff; }
 .clr-btn:active { opacity: 0.7; }
@@ -207,6 +213,7 @@ body {
 </head>
 <body>
 
+<div class="ctrl-wrap">
 <div class="ctrl-row">
   <div class="ctrl-cell cell-elo">
     <select class="elo-sel" id="elo">
@@ -224,6 +231,7 @@ body {
   <div class="ctrl-cell cell-new">
     <button class="btn" onclick="newGame()">Ván mới</button>
   </div>
+</div>
 </div>
 
 <div class="status" id="status">Lượt của bạn — Trắng</div>
