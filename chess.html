@@ -278,36 +278,44 @@ function genPseudo(board, turn, ep, cas) {
       if(ob(r1,f)&&!board[sq(r1,f)]){
         var to=sq(r1,f);
         if(r1===pr){
-          [WQ,WR,WB,WN].forEach(function(pt){mv.push([from,to,0,turn*pt,0,-1,-1]);});
+          var promoTypes=[WQ,WR,WB,WN];
+          for(var pi=0;pi<promoTypes.length;pi++){
+            mv.push([from,to,0,turn*promoTypes[pi],0,-1,-1]);
+          }
         } else {
           mv.push([from,to,0,0,0,-1,-1]);
           if(r===sr&&!board[sq(r1+dir,f)])
             mv.push([from,sq(r1+dir,f),0,0,0,-1,to]);
         }
       }
-      [-1,1].forEach(function(df){
-        if(!ob(r1,f+df)) return;
+      for(var df=-1;df<=1;df+=2){
+        if(!ob(r1,f+df)) continue;
         var to2=sq(r1,f+df), cap=board[to2], isEP=(to2===ep);
         if((cap&&col(cap)===-turn)||isEP){
           var epc=isEP?sq(r,f+df):-1, ecap=isEP?board[sq(r,f+df)]:cap;
           if(r1===pr){
-            [WQ,WR,WB,WN].forEach(function(pt){mv.push([from,to2,ecap,turn*pt,0,epc,-1]);});
+            var promoTypes=[WQ,WR,WB,WN];
+            for(var pi=0;pi<promoTypes.length;pi++){
+              mv.push([from,to2,ecap,turn*promoTypes[pi],0,epc,-1]);
+            }
           } else {
             mv.push([from,to2,ecap,0,0,epc,-1]);
           }
         }
-      });
+      }
     } else if(t===2){ // Knight
-      [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]].forEach(function(d){
-        var nr=r+d[0],nf=f+d[1];
+      var kd=[[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
+      for(var ki=0;ki<kd.length;ki++){
+        var nr=r+kd[ki][0],nf=f+kd[ki][1];
         if(ob(nr,nf)&&col(board[sq(nr,nf)])!==turn)
           mv.push([from,sq(nr,nf),board[sq(nr,nf)],0,0,-1,-1]);
-      });
+      }
     } else if(t>=3&&t<=5){ // Bishop / Rook / Queen
       var dirs=[];
       if(t!==4) dirs=dirs.concat([[-1,-1],[-1,1],[1,-1],[1,1]]);
       if(t!==3) dirs=dirs.concat([[-1,0],[1,0],[0,-1],[0,1]]);
-      dirs.forEach(function(d){
+      for(var di=0;di<dirs.length;di++){
+        var d=dirs[di];
         var nr=r+d[0],nf=f+d[1];
         while(ob(nr,nf)){
           var to2=sq(nr,nf),tgt=board[to2];
@@ -316,13 +324,14 @@ function genPseudo(board, turn, ep, cas) {
           if(tgt) break;
           nr+=d[0]; nf+=d[1];
         }
-      });
+      }
     } else { // King
-      [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]].forEach(function(d){
-        var nr=r+d[0],nf=f+d[1];
+      var kd=[[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+      for(var ki=0;ki<kd.length;ki++){
+        var nr=r+kd[ki][0],nf=f+kd[ki][1];
         if(ob(nr,nf)&&col(board[sq(nr,nf)])!==turn)
           mv.push([from,sq(nr,nf),board[sq(nr,nf)],0,0,-1,-1]);
-      });
+      }
       if(turn===W&&from===4){
         if(cas.WK&&!board[5]&&!board[6]&&board[7]===WR) mv.push([4,6,0,0,'WK',-1,-1]);
         if(cas.WQ&&!board[3]&&!board[2]&&!board[1]&&board[0]===WR) mv.push([4,2,0,0,'WQ',-1,-1]);
@@ -398,14 +407,20 @@ function applyMv(board, mv) {
 }
 
 function legalMoves(board, turn, ep, cas) {
-  return genPseudo(board,turn,ep,cas).filter(function(mv){
+  var all=genPseudo(board,turn,ep,cas);
+  var legal=[];
+  for(var i=0;i<all.length;i++){
+    var mv=all[i];
     // Castling: king must not pass through attacked square
     if(mv[4]){
       var pass=mv[4]==='WK'?[4,5]:mv[4]==='WQ'?[4,3]:mv[4]==='BK'?[60,61]:[60,59];
-      for(var i=0;i<pass.length;i++) if(attacked(board,pass[i],-turn)) return false;
+      var ok=true;
+      for(var j=0;j<pass.length;j++) if(attacked(board,pass[j],-turn)){ok=false;break;}
+      if(!ok) continue;
     }
-    return !inCheck(applyMv(board,mv),turn);
-  });
+    if(!inCheck(applyMv(board,mv),turn)) legal.push(mv);
+  }
+  return legal;
 }
 
 function newCas(cas, board, mv, turn) {
@@ -450,7 +465,12 @@ function qsearch(board, turn, ep, cas, alpha, beta) {
   var stand=evaluate(board,turn);
   if(stand>=beta) return beta;
   if(stand>alpha) alpha=stand;
-  var caps=legalMoves(board,turn,ep,cas).filter(function(m){return m[2]||m[5]>=0;});
+  var allMoves=legalMoves(board,turn,ep,cas);
+  var caps=[];
+  for(var i=0;i<allMoves.length;i++){
+    var m=allMoves[i];
+    if(m[2]||m[5]>=0) caps.push(m);
+  }
   sortMvs(caps,board);
   for(var i=0;i<caps.length;i++){
     var m=caps[i],nb=applyMv(board,m);
@@ -493,7 +513,8 @@ function bestMove(board, turn, ep, cas, depth, rnd) {
    GAME STATE
    ═══════════════════════════════════════════════════ */
 function makeBoard() {
-  var b=new Array(64).fill(E);
+  var b=new Array(64);
+  for(var i=0;i<64;i++) b[i]=E;
   b[0]=WR;b[1]=WN;b[2]=WB;b[3]=WQ;b[4]=WK;b[5]=WB;b[6]=WN;b[7]=WR;
   for(var f=0;f<8;f++) b[8+f]=WP;
   b[56]=BR;b[57]=BN;b[58]=BB;b[59]=BQ;b[60]=BK;b[61]=BB;b[62]=BN;b[63]=BR;
@@ -519,8 +540,15 @@ function newGame(){
 
 function setColor(c){
   gPC=c;
-  document.getElementById('cw').classList.toggle('active',c===W);
-  document.getElementById('cb').classList.toggle('active',c===B);
+  var cwBtn=document.getElementById('cw');
+  var cbBtn=document.getElementById('cb');
+  if(c===W){
+    cwBtn.className='clr-btn active';
+    cbBtn.className='clr-btn';
+  } else {
+    cwBtn.className='clr-btn';
+    cbBtn.className='clr-btn active';
+  }
   gFlip=(c===B);
   newGame();
 }
@@ -557,14 +585,14 @@ function renderBoard(){
       }
       var cell=document.createElement('div');
       cell.className=cls.trim();
-      cell.dataset.s=s;
+      cell.setAttribute('data-s',s);
       if(p){
         var sp=document.createElement('span');
         sp.className='piece';
         sp.textContent=SYM[typ(p)][col(p)===W?0:1];
         cell.appendChild(sp);
       }
-      cell.addEventListener('click',onSqClick);
+      cell.onclick=onSqClick;
       bd.appendChild(cell);
     }
   }
@@ -606,11 +634,14 @@ function setStatus(){
    ═══════════════════════════════════════════════════ */
 function onSqClick(e){
   if(!gActive||gTurn!==gPC) return;
-  var s=parseInt(e.currentTarget.dataset.s);
+  var s=parseInt(e.target.getAttribute('data-s'));
   var p=gB[s];
   if(gSel>=0){
     // Check legal moves to this square
-    var targets=gLegal.filter(function(m){return m[1]===s;});
+    var targets=[];
+    for(var i=0;i<gLegal.length;i++){
+      if(gLegal[i][1]===s) targets.push(gLegal[i]);
+    }
     if(targets.length){
       if(targets[0][3]) showPromo(targets); // promotion
       else execMove(targets[0]);
@@ -621,7 +652,10 @@ function onSqClick(e){
   if(p&&col(p)===gPC){
     gSel=s;
     var all=legalMoves(gB,gTurn,gEP,gCas);
-    gLegal=all.filter(function(m){return m[0]===s;});
+    gLegal=[];
+    for(var i=0;i<all.length;i++){
+      if(all[i][0]===s) gLegal.push(all[i]);
+    }
     renderBoard();
   } else {
     gSel=-1; gLegal=[];
@@ -673,14 +707,16 @@ function showPromo(targets){
   var overlay=document.getElementById('promo-bg');
   var row=document.getElementById('promo-row');
   row.innerHTML='';
-  targets.forEach(function(mv){
-    var btn=document.createElement('div');
-    btn.className='promo-btn';
-    btn.textContent=SYM[typ(mv[3])][col(mv[3])===W?0:1];
-    btn.onclick=function(){overlay.classList.remove('show');execMove(mv);};
-    row.appendChild(btn);
-  });
-  overlay.classList.add('show');
+  for(var i=0;i<targets.length;i++){
+    (function(mv){
+      var btn=document.createElement('div');
+      btn.className='promo-btn';
+      btn.textContent=SYM[typ(mv[3])][col(mv[3])===W?0:1];
+      btn.onclick=function(){overlay.className='promo-bg';execMove(mv);};
+      row.appendChild(btn);
+    })(targets[i]);
+  }
+  overlay.className='promo-bg show';
 }
 
 /* ═══════════════════════════════════════════════════
