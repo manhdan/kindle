@@ -805,7 +805,20 @@ body { display: block; width: 100%; min-height: 0; overflow-x: hidden; }
 /* Final layout fixes. */
 html, body {
   overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  height: 100%;
+  max-height: 1448px;
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
   -webkit-text-size-adjust: 100%;
+}
+.panel {
+  max-height: 1390px;
+  overflow: hidden;
 }
 #t2048 .arrow-pad {
   margin-left: auto;
@@ -841,10 +854,9 @@ html, body {
   overflow: hidden;
 }
 #tmine .header .level-box,
-#tmine .header .btn,
-#tmine .header .stat-box {
+#tmine .header .btn {
   float: left;
-  width: 20%;
+  width: 25%;
   height: 58px;
   margin: 0;
   border: 2px solid #000;
@@ -865,21 +877,40 @@ html, body {
 }
 #tmine .mode-bar .stat-box {
   float: left;
-  width: 16.667%;
+  width: 33.333%;
   height: 102px;
   margin: 0;
   border: 3px solid #000;
-  padding: 10px 1px 0;
+  padding: 0;
+  line-height: 98px;
   text-align: center;
 }
 #tmine .mode-bar .stat-label {
-  font-size: 0.45rem;
+  display: none;
 }
 #tmine .mode-bar .stat-value {
-  font-size: 0.85rem;
+  font-size: 1.05rem;
+  line-height: 98px;
 }
 #tmine .stats {
   display: none;
+}
+#tmine {
+  position: relative;
+}
+#tmine #m-msg {
+  position: absolute;
+  left: 50%;
+  top: 565px;
+  width: 760px;
+  margin-left: -380px;
+  z-index: 20;
+  font-size: 1.25rem;
+  background: #fff;
+}
+#tmine #m-msg.win {
+  background: #000;
+  color: #fff;
 }
 </style>
 </head>
@@ -969,10 +1000,6 @@ html, body {
     <div class="level-box"        id="m-lvl-medium" onclick="mSetLevel('medium')">Vừa</div>
     <div class="level-box"        id="m-lvl-hard"   onclick="mSetLevel('hard')">Khó</div>
     <button class="btn" onclick="mNewGame()">Mới</button>
-    <div class="stat-box">
-      <span class="stat-label">💣 Còn lại</span>
-      <div class="stat-value" id="m-count">0</div>
-    </div>
   </div>
 
   <div class="stats">
@@ -991,10 +1018,6 @@ html, body {
     <div class="stat-box">
       <span class="stat-label">⏱ Thời gian</span>
       <div class="stat-value" id="m-timer">00:00</div>
-    </div>
-    <div class="stat-box">
-      <span class="stat-label">🏆 Kỷ lục</span>
-      <div class="stat-value" id="m-best">--:--</div>
     </div>
     <button class="mode-btn"        id="m-mode-flag" onclick="mSetMode('flag')">🚩 Đặt cờ</button>
   </div>
@@ -1200,6 +1223,9 @@ gBindTouchButton('g-left','left');
 gBindTouchButton('g-right','right');
 gAddHandler(document,'gesturestart',function(e){return gStopEvent(e);});
 gAddHandler(document,'gesturechange',function(e){return gStopEvent(e);});
+gAddHandler(document,'touchmove',function(e){return gStopEvent(e);});
+gAddHandler(document,'mousewheel',function(e){return gStopEvent(e);});
+gAddHandler(document,'DOMMouseScroll',function(e){return gStopEvent(e);});
 gAddHandler(document,'touchstart',function(e){
   if(hasClass(document.getElementById('t2048'),'active'))return gBlockDoubleTap(e);
 });
@@ -1499,9 +1525,9 @@ function mEndGame(won){
   mRenderGrid();
 }
 function mCheckWin(){for(var i=0;i<mRows*mCols;i++)if(!mBoard[i].mine&&!mBoard[i].revealed)return;mEndGame(true);}
-function mUpdateCount(){var f=0;for(var i=0;i<mBoard.length;i++)if(mBoard[i].flagged)f++;document.getElementById('m-count').textContent=mMines-f;}
+function mUpdateCount(){var el=document.getElementById('m-count');if(!el)return;var f=0;for(var i=0;i<mBoard.length;i++)if(mBoard[i].flagged)f++;el.textContent=mMines-f;}
 function mUpdateTimer(){var m=Math.floor(mTimerSec/60),s=mTimerSec%60;document.getElementById('m-timer').textContent=(m<10?'0':'')+m+':'+(s<10?'0':'')+s;}
-function mUpdateBest(){var b=mBest[mLevel];if(!b&&b!==0){document.getElementById('m-best').textContent='--:--';return;}var m=Math.floor(b/60),s=b%60;document.getElementById('m-best').textContent=(m<10?'0':'')+m+':'+(s<10?'0':'')+s;}
+function mUpdateBest(){var el=document.getElementById('m-best');if(!el)return;var b=mBest[mLevel];if(!b&&b!==0){el.textContent='--:--';return;}var m=Math.floor(b/60),s=b%60;el.textContent=(m<10?'0':'')+m+':'+(s<10?'0':'')+s;}
 function mShowMsg(t,win){var m=document.getElementById('m-msg');m.textContent=t;m.className='msg show'+(win?' win':'');}
 
 /* ═══════════════════════════════════════════════════
