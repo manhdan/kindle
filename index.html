@@ -561,6 +561,22 @@ body { display: block; width: 100%; min-height: 0; overflow-x: hidden; }
 .g-score-row .score-box { width: 36%; }
 .g-score-row .btn { width: 25%; }
 .mode-btn { width: 49%; }
+
+/* Fixed Paperwhite 3 board size requested by user. */
+.grid-2048-wrap, .sudoku-grid-wrap, .mine-grid-wrap {
+  width: 1000px;
+  height: 1000px;
+  max-width: none;
+  margin-left: auto;
+  margin-right: auto;
+}
+.grid-2048, .sudoku-grid, .mine-grid {
+  width: 1000px;
+  height: 1000px;
+}
+.mine-grid-wrap {
+  overflow: hidden;
+}
 </style>
 </head>
 <body>
@@ -1145,19 +1161,22 @@ document.addEventListener('keydown', function(e) {
 });
 
 function kindleSizeSquares() {
+  var boardSize = 1000;
   var g = document.getElementById('grid-2048');
   if (g) {
-    var gw = g.clientWidth || 320;
-    var size = Math.floor(gw / 4);
+    g.style.width = boardSize + 'px';
+    g.style.height = boardSize + 'px';
+    var size = Math.floor(boardSize / 4);
     var cells = g.getElementsByTagName('div');
-    for (var i=0;i<cells.length;i++){cells[i].style.height=size+'px';cells[i].style.lineHeight=size+'px';}
+    for (var i=0;i<cells.length;i++){cells[i].style.width='25%';cells[i].style.height=size+'px';cells[i].style.lineHeight=size+'px';}
   }
   var sg = document.getElementById('sudoku-grid');
   if (sg) {
-    var sw = sg.clientWidth || 320;
-    var ssize = Math.floor(sw / 9);
+    sg.style.width = boardSize + 'px';
+    sg.style.height = boardSize + 'px';
+    var ssize = Math.floor(boardSize / 9);
     var sqs = sg.getElementsByTagName('div');
-    for (var j=0;j<sqs.length;j++) if((' '+sqs[j].className+' ').indexOf(' sq ')>=0){sqs[j].style.height=ssize+'px';sqs[j].style.lineHeight=ssize+'px';}
+    for (var j=0;j<sqs.length;j++) if((' '+sqs[j].className+' ').indexOf(' sq ')>=0){sqs[j].style.width='11.111%';sqs[j].style.height=ssize+'px';sqs[j].style.lineHeight=ssize+'px';}
   }
   var pad = document.getElementById('s-numpad');
   if (pad) {
@@ -1169,10 +1188,12 @@ function kindleSizeSquares() {
   }
   var mg = document.getElementById('mine-grid');
   if (mg && mCols) {
-    var mw = mg.clientWidth || 320;
-    var msize = Math.floor(mw / mCols);
+    mg.style.width = boardSize + 'px';
+    mg.style.height = boardSize + 'px';
+    var mW = Math.floor(boardSize / mCols);
+    var mH = Math.floor(boardSize / mRows);
     var mcells = mg.getElementsByTagName('div');
-    for (var m=0;m<mcells.length;m++){mcells[m].style.width=(100/mCols)+'%';mcells[m].style.height=msize+'px';mcells[m].style.lineHeight=msize+'px';}
+    for (var m=0;m<mcells.length;m++){mcells[m].style.width=mW+'px';mcells[m].style.height=mH+'px';mcells[m].style.lineHeight=mH+'px';}
   }
 }
 if (window.addEventListener) window.addEventListener('resize', kindleSizeSquares, false);
