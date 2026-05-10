@@ -462,6 +462,105 @@ body {
 .note-num { width: 33.333%; height: 33.333%; line-height: 1.2; font-size: 9px; }
 .arrow-pad { width: 240px; }
 .mine-grid { clear: both; }
+
+/* Compact Kindle layout: spend the screen on the playable boards. */
+body { display: block; width: 100%; min-height: 0; overflow-x: hidden; }
+.tab-bar { border-bottom-width: 2px; }
+.tab {
+  padding: 8px 2px;
+  font-size: 0.82rem;
+  letter-spacing: 0;
+  border-right-width: 2px;
+}
+.panel { padding: 4px 3px 12px; }
+.title { display: none; }
+
+.header, .g-score-row, .sudoku-header, .stats, .mode-bar, .actions,
+.grid-2048-wrap, .sudoku-grid-wrap, .mine-grid-wrap, .numpad, .msg, .legend {
+  width: 100%;
+  max-width: none;
+}
+
+.g-score-row, .sudoku-header, .header, .stats, .mode-bar {
+  margin-bottom: 4px;
+}
+.score-box, .stat-box, .timer-box {
+  border-width: 2px;
+  padding: 2px 3px;
+}
+.score-label, .stat-label, .timer-label {
+  font-size: 0.48rem;
+  letter-spacing: 0;
+  margin-bottom: 0;
+}
+.score-value, .stat-value, .timer-value {
+  font-size: 0.95rem;
+  line-height: 1.05;
+}
+.btn, .level-box, .mode-btn, .act-btn {
+  border-width: 2px;
+  padding: 5px 2px;
+  font-size: 0.66rem;
+  letter-spacing: 0;
+}
+
+.grid-2048 {
+  border-width: 3px;
+  gap: 0;
+}
+.cell-2048 {
+  border-width: 1px;
+}
+.sudoku-grid {
+  border-top-width: 3px;
+  border-left-width: 3px;
+}
+.sq.br3 { border-right-width: 3px; }
+.sq.bb3 { border-bottom-width: 3px; }
+.mine-grid-wrap {
+  border-width: 3px;
+}
+
+.arrow-pad {
+  width: 162px;
+  margin-top: 5px;
+}
+.arr {
+  width: 54px;
+  height: 40px;
+  line-height: 36px;
+  font-size: 1.2rem;
+  border-width: 2px;
+}
+.hint-2048, .legend {
+  margin-top: 4px;
+  font-size: 0.58rem;
+  line-height: 1.25;
+}
+.numpad {
+  margin-top: 5px;
+}
+.num-btn {
+  border-width: 2px;
+}
+.actions {
+  margin-top: 5px;
+}
+.msg {
+  margin-top: 5px;
+  border-width: 2px;
+  padding: 5px 8px;
+  font-size: 0.9rem;
+}
+
+.header .level-box { width: 20%; }
+.header .btn { width: 17%; }
+.sudoku-header .level-box { width: 18%; }
+.sudoku-header .btn { width: 16%; }
+.sudoku-header .timer-box { width: 24%; }
+.g-score-row .score-box { width: 36%; }
+.g-score-row .btn { width: 25%; }
+.mode-btn { width: 49%; }
 </style>
 </head>
 <body>
@@ -1049,28 +1148,29 @@ function kindleSizeSquares() {
   var g = document.getElementById('grid-2048');
   if (g) {
     var gw = g.clientWidth || 320;
-    var size = Math.floor((gw - 14) / 4);
+    var size = Math.floor(gw / 4);
     var cells = g.getElementsByTagName('div');
     for (var i=0;i<cells.length;i++){cells[i].style.height=size+'px';cells[i].style.lineHeight=size+'px';}
   }
   var sg = document.getElementById('sudoku-grid');
   if (sg) {
     var sw = sg.clientWidth || 320;
-    var ssize = Math.floor((sw - 8) / 9);
+    var ssize = Math.floor(sw / 9);
     var sqs = sg.getElementsByTagName('div');
     for (var j=0;j<sqs.length;j++) if((' '+sqs[j].className+' ').indexOf(' sq ')>=0){sqs[j].style.height=ssize+'px';sqs[j].style.lineHeight=ssize+'px';}
   }
   var pad = document.getElementById('s-numpad');
   if (pad) {
     var pw = pad.clientWidth || 320;
-    var psize = Math.floor((pw - 10) / 9);
+    var psize = Math.floor(pw / 9);
+    if (psize > 42) psize = 42;
     var btns = pad.getElementsByTagName('button');
     for (var k=0;k<btns.length;k++){btns[k].style.height=psize+'px';btns[k].style.lineHeight=psize+'px';}
   }
   var mg = document.getElementById('mine-grid');
   if (mg && mCols) {
     var mw = mg.clientWidth || 320;
-    var msize = Math.floor((mw - 2) / mCols);
+    var msize = Math.floor(mw / mCols);
     var mcells = mg.getElementsByTagName('div');
     for (var m=0;m<mcells.length;m++){mcells[m].style.width=(100/mCols)+'%';mcells[m].style.height=msize+'px';mcells[m].style.lineHeight=msize+'px';}
   }
