@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Kindle Games</title>
 <style>
 /* ═══════════════════════════════════════════════════
@@ -589,14 +589,15 @@ body { display: block; width: 100%; min-height: 0; overflow-x: hidden; }
 #t2048 .g-score-row .btn {
   float: left;
   width: 33.333%;
-  height: 58px;
+  height: 76px;
   margin: 0;
   border-width: 2px;
 }
 #t2048 .g-score-row .btn {
   padding: 0;
-  line-height: 54px;
+  line-height: 72px;
   text-align: center;
+  font-size: 1.32rem;
 }
 #t2048 .score-label {
   font-size: 0.62rem;
@@ -632,7 +633,7 @@ body { display: block; width: 100%; min-height: 0; overflow-x: hidden; }
   margin-top: 8px;
 }
 #t2048 .arr {
-  width: 266px;
+  width: 33.333%;
   height: 112px;
   line-height: 108px;
   font-size: 3.2rem;
@@ -640,6 +641,23 @@ body { display: block; width: 100%; min-height: 0; overflow-x: hidden; }
 }
 #t2048 .hint-2048 {
   display: none;
+}
+#t2048 {
+  position: relative;
+}
+#t2048 #g-msg {
+  position: absolute;
+  left: 50%;
+  top: 455px;
+  width: 700px;
+  margin-left: -350px;
+  z-index: 20;
+  font-size: 1.4rem;
+  background: #fff;
+}
+#t2048 #g-msg.win {
+  background: #000;
+  color: #fff;
 }
 
 /* Sudoku tuning: equal top controls and larger bottom buttons. */
@@ -685,6 +703,22 @@ body { display: block; width: 100%; min-height: 0; overflow-x: hidden; }
   width: 900px;
   max-width: none;
 }
+#tsudoku .actions .act-btn,
+#tsudoku .actions .timer-box {
+  float: left;
+  width: 33.333%;
+}
+#tsudoku .actions .timer-box {
+  height: 68px;
+  border-width: 2px;
+  padding: 0;
+  text-align: center;
+}
+#tsudoku .actions .timer-value {
+  line-height: 1.15;
+  padding: 8px 4px 0;
+  font-size: 0.78rem;
+}
 #tsudoku .num-btn {
   height: 78px;
   line-height: 74px;
@@ -697,6 +731,9 @@ body { display: block; width: 100%; min-height: 0; overflow-x: hidden; }
   padding: 0;
   font-size: 0.95rem;
   border-width: 2px;
+}
+#tsudoku .msg {
+  display: none;
 }
 
 /* Minesweeper tuning: one compact top row and a 900px board. */
@@ -750,7 +787,9 @@ body { display: block; width: 100%; min-height: 0; overflow-x: hidden; }
   margin-bottom: 6px;
 }
 #tmine .mode-btn {
+  float: left;
   width: 50%;
+  margin: 0;
   height: 102px;
   line-height: 98px;
   padding: 0;
@@ -819,10 +858,7 @@ body { display: block; width: 100%; min-height: 0; overflow-x: hidden; }
     <div class="level-box"        id="s-lvl-medium" onclick="sSetLevel('medium')">Vừa</div>
     <div class="level-box"        id="s-lvl-hard"   onclick="sSetLevel('hard')">Khó</div>
     <button class="btn" onclick="sNewGame()">Mới</button>
-    <div class="timer-box">
-      <span class="timer-label">Giờ</span>
-      <div class="timer-value" id="s-timer">00:00</div>
-    </div>
+    <button class="btn" id="s-check" onclick="sCheckAll()">Kiểm tra</button>
   </div>
 
   <div class="sudoku-grid-wrap">
@@ -834,8 +870,9 @@ body { display: block; width: 100%; min-height: 0; overflow-x: hidden; }
   <div class="actions">
     <button class="act-btn" id="s-erase" onclick="sErase()">✕ Xóa</button>
     <button class="act-btn" id="s-notes" onclick="sToggleNotes()">✎ Nháp</button>
-    <button class="act-btn" id="s-hint"  onclick="sHint()">? Gợi ý</button>
-    <button class="act-btn" id="s-check" onclick="sCheckAll()">✓ Kiểm tra</button>
+    <div class="timer-box">
+      <div class="timer-value" id="s-timer">00:00</div>
+    </div>
   </div>
 
   <div class="msg" id="s-msg"></div>
@@ -1046,13 +1083,27 @@ function gSwipeEnd(e){
   }
   return gStopEvent(e);
 }
+var gLastTap=0;
+function gBlockDoubleTap(e){
+  var now=(new Date()).getTime();
+  if(now-gLastTap<550){
+    gLastTap=0;
+    return gStopEvent(e);
+  }
+  gLastTap=now;
+}
 gAddHandler(g2Grid,'touchstart',gSwipeStart);
 gAddHandler(g2Grid,'touchmove',gSwipeMove);
 gAddHandler(g2Grid,'touchend',gSwipeEnd);
 gAddHandler(g2Grid,'mousedown',gSwipeStart);
 gAddHandler(g2Grid,'mousemove',gSwipeMove);
 gAddHandler(g2Grid,'mouseup',gSwipeEnd);
+gAddHandler(document,'dblclick',function(e){return gStopEvent(e);});
 
+var gButtons=[document.getElementById('g-up'),document.getElementById('g-down'),document.getElementById('g-left'),document.getElementById('g-right')];
+for(var gb=0;gb<gButtons.length;gb++){
+  gAddHandler(gButtons[gb],'touchend',gBlockDoubleTap);
+}
 document.getElementById('g-up').addEventListener('click',    function(){gMove('up');});
 document.getElementById('g-down').addEventListener('click',  function(){gMove('down');});
 document.getElementById('g-left').addEventListener('click',  function(){gMove('left');});
@@ -1062,7 +1113,7 @@ document.getElementById('g-right').addEventListener('click', function(){gMove('r
    SUDOKU GAME
    ═══════════════════════════════════════════════════ */
 var sSolution,sPuzzle,sUserGrid,sNotesGrid,sGiven,sSelected=-1,sNotesMode=false;
-var sLevel='easy',sHints=3,sTimerSec=0,sTimerID=null,sFinished=false;
+var sLevel='easy',sHints=3,sTimerSec=0,sTimerID=null,sFinished=false,sTimerMessage='';
 var SCLUES={easy:45,medium:35,hard:27};
 
 function sShuffle(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;}return a;}
@@ -1111,7 +1162,7 @@ function sSetLevel(lv){
 }
 
 function sNewGame(){
-  sFinished=false; sNotesMode=false; sHints=3; sSelected=-1;
+  sFinished=false; sNotesMode=false; sHints=3; sSelected=-1; sTimerMessage='';
   setToggledClass(document.getElementById('s-notes'), false);
   sSolution=sMakeSol();
   sPuzzle=sDigHoles(sSolution,SCLUES[sLevel]);
@@ -1125,6 +1176,7 @@ function sNewGame(){
 }
 
 function sUpdateTimer(){
+  if(sTimerMessage){document.getElementById('s-timer').textContent=sTimerMessage;return;}
   var m=Math.floor(sTimerSec/60),s=sTimerSec%60;
   document.getElementById('s-timer').textContent=(m<10?'0':'')+m+':'+(s<10?'0':'')+s;
 }
@@ -1201,6 +1253,7 @@ function sRenderNumpad(){
 
 function sEnterNum(n){
   if(sSelected<0||sGiven[sSelected]||sFinished)return;
+  sTimerMessage='';
   if(sNotesMode){
     if(sUserGrid[sSelected])return;
     sNotesToggle(sNotesGrid[sSelected],n);
@@ -1214,6 +1267,7 @@ function sEnterNum(n){
 
 function sErase(){
   if(sSelected<0||sGiven[sSelected]||sFinished)return;
+  sTimerMessage='';
   sUserGrid[sSelected]=0;sNotesGrid[sSelected]=sNewNotes();
   sRenderGrid();sRenderNumpad();
 }
@@ -1227,17 +1281,19 @@ function sHint(){
   sUserGrid[idx]=sSolution[idx];sNotesGrid[idx]=sNewNotes();sGiven[idx]=true;
   sHints--;sSelected=idx;sRenderGrid();sRenderNumpad();sUpdateHintBtn();sCheckWin();
 }
-function sUpdateHintBtn(){document.getElementById('s-hint').textContent='? Gợi ý ('+sHints+')';}
+function sUpdateHintBtn(){var b=document.getElementById('s-hint');if(b)b.textContent='? Goi y ('+sHints+')';}
 function sCheckAll(){
   var wrong=false;
   for(var i=0;i<81;i++)if(!sGiven[i]&&sUserGrid[i]&&sUserGrid[i]!==sSolution[i]){wrong=true;break;}
-  sShowMsg(wrong?'❌ Có ô sai, kiểm tra lại!':'✓ Các ô đã điền đúng hết!',false);
+  sTimerMessage=wrong?'Co o sai, kiem tra lai!':'Cac o da dien dung!';
+  document.getElementById('s-timer').textContent=sTimerMessage;
 }
 function sCheckWin(){
   for(var i=0;i<81;i++)if(sUserGrid[i]!==sSolution[i])return;
   sFinished=true;clearInterval(sTimerID);
   var m=Math.floor(sTimerSec/60),s=sTimerSec%60;
-  sShowMsg('🎉 Hoàn thành! '+(m>0?m+' phút ':'')+s+' giây',true);
+  sTimerMessage='Hoan thanh! '+(m>0?m+' phut ':'')+s+' giay';
+  document.getElementById('s-timer').textContent=sTimerMessage;
 }
 function sShowMsg(t,win){var m=document.getElementById('s-msg');m.textContent=t;m.className='msg show'+(win?' win':'');}
 
