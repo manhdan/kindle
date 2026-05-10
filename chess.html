@@ -9,115 +9,170 @@
 body {
   background: #fff; color: #000;
   font-family: Georgia, 'Times New Roman', serif;
-  display: flex; flex-direction: column; align-items: center;
-  padding: 12px 8px 28px; min-height: 100vh;
-  -webkit-user-select: none; user-select: none;
+  text-align: center;
+  padding: 12px 8px 28px;
 }
-.title { font-size: 2rem; font-weight: bold; margin-bottom: 10px; letter-spacing: -1px; }
+.title { font-size: 2rem; font-weight: bold; margin-bottom: 10px; }
 
 /* ── CONTROLS ── */
 .ctrl-row {
   width: 100%; max-width: 520px;
-  display: flex; gap: 6px; margin-bottom: 8px; align-items: stretch;
+  margin: 0 auto 8px;
 }
-.elo-sel {
-  flex: 1; border: 3px solid #000; padding: 9px 8px;
-  font-family: Georgia, serif; font-size: 0.82rem; font-weight: bold;
-  background: #fff; cursor: pointer;
-  -webkit-appearance: none; appearance: none;
+.ctrl-row select, .ctrl-row button {
+  display: inline-block;
+  margin: 2px;
+  border: 3px solid #000;
+  padding: 8px 12px;
+  font-family: Georgia, serif;
+  font-size: 0.82rem;
+  font-weight: bold;
+  background: #fff;
+  cursor: pointer;
 }
-.btn {
-  border: 3px solid #000; background: #000; color: #fff;
-  font-size: 0.82rem; font-weight: bold; padding: 10px 14px;
-  cursor: pointer; font-family: Georgia, serif;
-  text-transform: uppercase; white-space: nowrap;
+.ctrl-row button { background: #000; color: #fff; text-transform: uppercase; }
+.ctrl-row button:active { background: #444; }
+
+.color-row {
+  width: 100%; max-width: 520px;
+  margin: 0 auto 8px;
 }
-.btn:active { background: #444; }
-.color-row { width: 100%; max-width: 520px; display: flex; gap: 6px; margin-bottom: 8px; }
-.clr-btn {
-  flex: 1; border: 3px solid #000; background: #fff;
-  font-family: Georgia, serif; font-size: 0.85rem; font-weight: bold;
-  text-transform: uppercase; padding: 10px 4px; cursor: pointer; text-align: center;
+.color-row button {
+  display: inline-block;
+  flex: 1;
+  border: 3px solid #000;
+  background: #fff;
+  font-family: Georgia, serif;
+  font-size: 0.85rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  padding: 10px 8px;
+  cursor: pointer;
+  margin: 2px;
+  min-width: 100px;
 }
-.clr-btn.active { background: #000; color: #fff; }
-.clr-btn:active { opacity: 0.7; }
+.color-row button.active { background: #000; color: #fff; }
+.color-row button:active { opacity: 0.7; }
 
 /* ── STATUS ── */
 .status {
   width: 100%; max-width: 520px;
-  border: 3px solid #000; padding: 8px 12px;
-  font-size: 0.88rem; font-weight: bold; text-align: center;
-  margin-bottom: 6px; min-height: 36px; line-height: 1.4;
+  margin: 0 auto 8px;
+  border: 3px solid #000;
+  padding: 8px 12px;
+  font-size: 0.88rem;
+  font-weight: bold;
+  text-align: center;
+  min-height: 36px;
+  line-height: 1.4;
+  background: #fff;
 }
 .status.check    { background: #666; color: #fff; }
 .status.gameover { background: #000; color: #fff; }
 .status.thinking { background: #ddd; }
 
 /* ── BOARD ── */
-.board-outer { width: 100%; max-width: 520px; }
+.board-outer {
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+}
 .board {
-  display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  grid-template-rows: repeat(8, 1fr);
-  border: 3px solid #000; width: 100%; aspect-ratio: 1/1;
+  border-collapse: collapse;
+  border: 3px solid #000;
+  width: 100%;
+  background: #fff;
 }
-.sq {
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; position: relative;
-  font-size: clamp(1.4rem, 6.2vw, 2.9rem);
-  line-height: 1; border: 0.5px solid #bbb;
+.board td {
+  width: 12.5%;
+  padding: 0;
+  border: 1px solid #bbb;
+  position: relative;
+  cursor: pointer;
+  font-size: 1.8rem;
+  line-height: 1;
+  height: 50px;
+  text-align: center;
+  vertical-align: middle;
 }
-.sq.lite { background: #fff; }
-.sq.dark { background: #d0d0d0; }
-.sq.lm-f { background: #b8b8b8; }
-.sq.lm-t { background: #a0a0a0; }
-.sq.chk  { background: #888 !important; }
-.sq.sel  { background: #555 !important; }
-.sq.sel .piece { color: #fff !important; }
+.board td.lite { background: #fff; }
+.board td.dark { background: #d0d0d0; }
+.board td.lm-f { background: #b8b8b8; }
+.board td.lm-t { background: #a0a0a0; }
+.board td.chk  { background: #888 !important; }
+.board td.sel  { background: #555 !important; }
+.board td.sel .piece { color: #fff !important; }
+
 /* legal move dot */
-.sq.dot::after {
-  content: ''; position: absolute;
-  width: 30%; height: 30%; border-radius: 50%;
-  background: rgba(0,0,0,0.22); z-index: 1; pointer-events: none;
+.board td.dot::after {
+  content: '•';
+  opacity: 0.4;
+  position: absolute;
+  font-size: 1.5rem;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
 }
+
 /* legal capture ring */
-.sq.ring::after {
-  content: ''; position: absolute;
-  inset: 3px; border-radius: 50%;
-  border: 3px solid rgba(0,0,0,0.28); z-index: 1; pointer-events: none;
+.board td.ring::before {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border: 2px solid rgba(0,0,0,0.5);
+  border-radius: 50%;
 }
+
 .piece {
-  z-index: 2; pointer-events: none; line-height: 1;
   color: #000;
 }
 
 /* ── MOVE HISTORY ── */
 .history {
   width: 100%; max-width: 520px;
+  margin: 8px auto 0;
   border: 3px solid #000; border-top: none;
-  padding: 6px 10px; font-size: 0.75rem;
+  padding: 6px 10px;
+  font-size: 0.75rem;
   font-family: 'Courier New', monospace;
-  min-height: 32px; color: #333;
+  min-height: 32px;
+  color: #333;
   word-wrap: break-word;
+  background: #fff;
 }
 
 /* ── PROMO DIALOG ── */
 .promo-bg {
   position: fixed; inset: 0;
   background: rgba(0,0,0,0.78);
-  display: none; align-items: center; justify-content: center; z-index: 200;
+  display: none; text-align: center; z-index: 200;
 }
-.promo-bg.show { display: flex; }
+.promo-bg.show { display: block; }
 .promo-box {
-  background: #fff; border: 4px solid #000; padding: 18px; text-align: center;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  border: 4px solid #000;
+  padding: 18px;
+  text-align: center;
 }
 .promo-box p { font-size: 1rem; font-weight: bold; margin-bottom: 12px; }
-.promo-row { display: flex; gap: 8px; }
+.promo-row {
+  text-align: center;
+}
 .promo-btn {
-  width: 74px; height: 74px; border: 3px solid #000;
-  background: #fff; font-size: 2.6rem;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; line-height: 1;
+  display: inline-block;
+  width: 70px;
+  height: 70px;
+  border: 3px solid #000;
+  background: #fff;
+  font-size: 2.4rem;
+  cursor: pointer;
+  line-height: 70px;
+  text-align: center;
+  margin: 4px;
 }
 .promo-btn:active { background: #ddd; }
 </style>
@@ -127,7 +182,7 @@ body {
 <div class="title">♟ Cờ Vua</div>
 
 <div class="ctrl-row">
-  <select class="elo-sel" id="elo">
+  <select id="elo">
     <option value="1000">ELO 600 — Kém</option>
     <option value="1200">ELO 800 — Mới học</option>
     <option value="1500">ELO 900 — Nghiệp dư</option>
@@ -135,19 +190,19 @@ body {
     <option value="2000">ELO 1200 — Tạm</option>
     <option value="2200" selected>ELO 1400 — Khá ⏳</option>
   </select>
-  <button class="btn" onclick="newGame()">Mới</button>
-  <button class="btn" onclick="flipBoard()">Lật</button>
+  <button onclick="newGame()">Mới</button>
+  <button onclick="flipBoard()">Lật</button>
 </div>
 
 <div class="color-row">
-  <button class="clr-btn active" id="cw" onclick="setColor(1)">♔ Quân Trắng</button>
-  <button class="clr-btn"        id="cb" onclick="setColor(-1)">♚ Quân Đen</button>
+  <button class="active" id="cw" onclick="setColor(1)">♔ Trắng</button>
+  <button id="cb" onclick="setColor(-1)">♚ Đen</button>
 </div>
 
 <div class="status" id="status">Lượt của bạn — Trắng</div>
 
 <div class="board-outer">
-  <div class="board" id="board"></div>
+  <table class="board" id="board"></table>
 </div>
 
 <div class="history" id="history">—</div>
@@ -170,73 +225,22 @@ var INF=1e8, MATE=900000;
 
 var PVAL=[0,100,320,330,500,900,20000];
 
-// Unicode pieces: SYM[type][0=white, 1=black]
 var SYM=[null,
-  ['\u2659','\u265F'], // Pawn
-  ['\u2658','\u265E'], // Knight
-  ['\u2657','\u265D'], // Bishop
-  ['\u2656','\u265C'], // Rook
-  ['\u2655','\u265B'], // Queen
-  ['\u2654','\u265A']  // King
+  ['\u2659','\u265F'],
+  ['\u2658','\u265E'],
+  ['\u2657','\u265D'],
+  ['\u2656','\u265C'],
+  ['\u2655','\u265B'],
+  ['\u2654','\u265A']
 ];
 
-// PST[type 1-6][sq 0-63]: index 0=rank8-fileA .. 63=rank1-fileH
-// White: pstIdx=(7-rank)*8+file  |  Black: pstIdx=rank*8+file
 var PST=[null,
-// Pawn
-[0,0,0,0,0,0,0,0,
- 50,50,50,50,50,50,50,50,
- 10,10,20,30,30,20,10,10,
- 5,5,10,25,25,10,5,5,
- 0,0,0,20,20,0,0,0,
- 5,-5,-10,0,0,-10,-5,5,
- 5,10,10,-20,-20,10,10,5,
- 0,0,0,0,0,0,0,0],
-// Knight
-[-50,-40,-30,-30,-30,-30,-40,-50,
- -40,-20,0,0,0,0,-20,-40,
- -30,0,10,15,15,10,0,-30,
- -30,5,15,20,20,15,5,-30,
- -30,0,15,20,20,15,0,-30,
- -30,5,10,15,15,10,5,-30,
- -40,-20,0,5,5,0,-20,-40,
- -50,-40,-30,-30,-30,-30,-40,-50],
-// Bishop
-[-20,-10,-10,-10,-10,-10,-10,-20,
- -10,0,0,0,0,0,0,-10,
- -10,0,5,10,10,5,0,-10,
- -10,5,5,10,10,5,5,-10,
- -10,0,10,10,10,10,0,-10,
- -10,10,10,10,10,10,10,-10,
- -10,5,0,0,0,0,5,-10,
- -20,-10,-10,-10,-10,-10,-10,-20],
-// Rook
-[0,0,0,0,0,0,0,0,
- 5,10,10,10,10,10,10,5,
- -5,0,0,0,0,0,0,-5,
- -5,0,0,0,0,0,0,-5,
- -5,0,0,0,0,0,0,-5,
- -5,0,0,0,0,0,0,-5,
- -5,0,0,0,0,0,0,-5,
- 0,0,0,5,5,0,0,0],
-// Queen
-[-20,-10,-10,-5,-5,-10,-10,-20,
- -10,0,0,0,0,0,0,-10,
- -10,0,5,5,5,5,0,-10,
- -5,0,5,5,5,5,0,-5,
- 0,0,5,5,5,5,0,-5,
- -10,5,5,5,5,5,0,-10,
- -10,0,5,0,0,0,0,-10,
- -20,-10,-10,-5,-5,-10,-10,-20],
-// King (midgame)
-[-30,-40,-40,-50,-50,-40,-40,-30,
- -30,-40,-40,-50,-50,-40,-40,-30,
- -30,-40,-40,-50,-50,-40,-40,-30,
- -30,-40,-40,-50,-50,-40,-40,-30,
- -20,-30,-30,-40,-40,-30,-30,-20,
- -10,-20,-20,-20,-20,-20,-20,-10,
- 20,20,0,0,0,0,20,20,
- 20,30,10,0,0,10,30,20]
+[0,0,0,0,0,0,0,0,50,50,50,50,50,50,50,50,10,10,20,30,30,20,10,10,5,5,10,25,25,10,5,5,0,0,0,20,20,0,0,0,5,-5,-10,0,0,-10,-5,5,5,10,10,-20,-20,10,10,5,0,0,0,0,0,0,0,0],
+[-50,-40,-30,-30,-30,-30,-40,-50,-40,-20,0,0,0,0,-20,-40,-30,0,10,15,15,10,0,-30,-30,5,15,20,20,15,5,-30,-30,0,15,20,20,15,0,-30,-30,5,10,15,15,10,5,-30,-40,-20,0,5,5,0,-20,-40,-50,-40,-30,-30,-30,-30,-40,-50],
+[-20,-10,-10,-10,-10,-10,-10,-20,-10,0,0,0,0,0,0,-10,-10,0,5,10,10,5,0,-10,-10,5,5,10,10,5,5,-10,-10,0,10,10,10,10,0,-10,-10,10,10,10,10,10,10,-10,-10,5,0,0,0,0,5,-10,-20,-10,-10,-10,-10,-10,-10,-20],
+[0,0,0,0,0,0,0,0,5,10,10,10,10,10,10,5,-5,0,0,0,0,0,0,-5,-5,0,0,0,0,0,0,-5,-5,0,0,0,0,0,0,-5,-5,0,0,0,0,0,0,-5,-5,0,0,0,0,0,0,-5,0,0,0,5,5,0,0,0],
+[-20,-10,-10,-5,-5,-10,-10,-20,-10,0,0,0,0,0,0,-10,-10,0,5,5,5,5,0,-10,-5,0,5,5,5,5,0,-5,0,0,5,5,5,5,0,-5,-10,5,5,5,5,5,0,-10,-10,0,5,0,0,0,0,-10,-20,-10,-10,-5,-5,-10,-10,-20],
+[-30,-40,-40,-50,-50,-40,-40,-30,-30,-40,-40,-50,-50,-40,-40,-30,-30,-40,-40,-50,-50,-40,-40,-30,-30,-40,-40,-50,-50,-40,-40,-30,-20,-30,-30,-40,-40,-30,-30,-20,-10,-20,-20,-20,-20,-20,-20,-10,20,20,0,0,0,0,20,20,20,30,10,0,0,10,30,20]
 ];
 
 var ELO_CFG={
@@ -248,9 +252,6 @@ var ELO_CFG={
   2200:{d:4,rnd:0.00}
 };
 
-/* ═══════════════════════════════════════════════════
-   BOARD HELPERS
-   ═══════════════════════════════════════════════════ */
 function rk(s){return s>>3;}
 function fl(s){return s&7;}
 function sq(r,f){return(r<<3)|f;}
@@ -258,13 +259,6 @@ function ob(r,f){return r>=0&&r<8&&f>=0&&f<8;}
 function col(p){return p>0?W:p<0?B:0;}
 function typ(p){return p<0?-p:p;}
 
-/* ═══════════════════════════════════════════════════
-   MOVE GENERATION
-   Move array: [from, to, capture, promo, castle, epCaptureSq, createsEP]
-     castle: 0 | 'WK' | 'WQ' | 'BK' | 'BQ'
-     epCaptureSq: -1 or square of captured pawn
-     createsEP: -1 or new ep target square
-   ═══════════════════════════════════════════════════ */
 function genPseudo(board, turn, ep, cas) {
   var mv=[];
   for(var from=0;from<64;from++){
@@ -272,7 +266,7 @@ function genPseudo(board, turn, ep, cas) {
     if(!p||col(p)!==turn) continue;
     var r=rk(from),f=fl(from),t=typ(p);
 
-    if(t===1){ // Pawn
+    if(t===1){
       var dir=turn, sr=turn===W?1:6, pr=turn===W?7:0;
       var r1=r+dir;
       if(ob(r1,f)&&!board[sq(r1,f)]){
@@ -303,14 +297,14 @@ function genPseudo(board, turn, ep, cas) {
           }
         }
       }
-    } else if(t===2){ // Knight
+    } else if(t===2){
       var kd=[[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
       for(var ki=0;ki<kd.length;ki++){
         var nr=r+kd[ki][0],nf=f+kd[ki][1];
         if(ob(nr,nf)&&col(board[sq(nr,nf)])!==turn)
           mv.push([from,sq(nr,nf),board[sq(nr,nf)],0,0,-1,-1]);
       }
-    } else if(t>=3&&t<=5){ // Bishop / Rook / Queen
+    } else if(t>=3&&t<=5){
       var dirs=[];
       if(t!==4) dirs=dirs.concat([[-1,-1],[-1,1],[1,-1],[1,1]]);
       if(t!==3) dirs=dirs.concat([[-1,0],[1,0],[0,-1],[0,1]]);
@@ -325,7 +319,7 @@ function genPseudo(board, turn, ep, cas) {
           nr+=d[0]; nf+=d[1];
         }
       }
-    } else { // King
+    } else {
       var kd=[[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
       for(var ki=0;ki<kd.length;ki++){
         var nr=r+kd[ki][0],nf=f+kd[ki][1];
@@ -347,18 +341,15 @@ function genPseudo(board, turn, ep, cas) {
 
 function attacked(board, sq2, byCol) {
   var r=rk(sq2),f=fl(sq2);
-  // Pawns: a pawn of byCol at (r - byCol, f±1) attacks sq2
   for(var df=-1;df<=1;df+=2){
     var pr=r-byCol,pf=f+df;
     if(ob(pr,pf)&&board[sq(pr,pf)]===byCol) return true;
   }
-  // Knights
   var kd=[[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
   for(var i=0;i<kd.length;i++){
     var nr=r+kd[i][0],nf=f+kd[i][1];
     if(ob(nr,nf)&&board[sq(nr,nf)]===byCol*2) return true;
   }
-  // Diagonals
   var dd=[[-1,-1],[-1,1],[1,-1],[1,1]];
   for(var i=0;i<dd.length;i++){
     var nr=r+dd[i][0],nf=f+dd[i][1];
@@ -368,7 +359,6 @@ function attacked(board, sq2, byCol) {
       nr+=dd[i][0]; nf+=dd[i][1];
     }
   }
-  // Straights
   var sd=[[-1,0],[1,0],[0,-1],[0,1]];
   for(var i=0;i<sd.length;i++){
     var nr=r+sd[i][0],nf=f+sd[i][1];
@@ -378,7 +368,6 @@ function attacked(board, sq2, byCol) {
       nr+=sd[i][0]; nf+=sd[i][1];
     }
   }
-  // King
   var gd=[[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
   for(var i=0;i<gd.length;i++){
     var nr=r+gd[i][0],nf=f+gd[i][1];
@@ -396,8 +385,8 @@ function inCheck(board, side) {
 function applyMv(board, mv) {
   var nb=board.slice();
   var piece=nb[mv[0]];
-  if(mv[5]>=0) nb[mv[5]]=E;          // en passant: remove captured pawn
-  nb[mv[1]]=mv[3]||piece;             // move piece (or promotion piece)
+  if(mv[5]>=0) nb[mv[5]]=E;
+  nb[mv[1]]=mv[3]||piece;
   nb[mv[0]]=E;
   if(mv[4]==='WK'){nb[7]=E;nb[5]=WR;}
   if(mv[4]==='WQ'){nb[0]=E;nb[3]=WR;}
@@ -411,7 +400,6 @@ function legalMoves(board, turn, ep, cas) {
   var legal=[];
   for(var i=0;i<all.length;i++){
     var mv=all[i];
-    // Castling: king must not pass through attacked square
     if(mv[4]){
       var pass=mv[4]==='WK'?[4,5]:mv[4]==='WQ'?[4,3]:mv[4]==='BK'?[60,61]:[60,59];
       var ok=true;
@@ -436,9 +424,6 @@ function newCas(cas, board, mv, turn) {
   return nc;
 }
 
-/* ═══════════════════════════════════════════════════
-   EVALUATION
-   ═══════════════════════════════════════════════════ */
 function evaluate(board, turn) {
   var score=0;
   for(var i=0;i<64;i++){
@@ -450,9 +435,6 @@ function evaluate(board, turn) {
   return score*turn;
 }
 
-/* ═══════════════════════════════════════════════════
-   AI — NEGAMAX + ALPHA-BETA + QUIESCENCE
-   ═══════════════════════════════════════════════════ */
 function sortMvs(mvs, board) {
   mvs.sort(function(a,b){
     var va=a[2]?PVAL[typ(a[2])]-PVAL[typ(board[a[0]])]/8:0;
@@ -509,9 +491,6 @@ function bestMove(board, turn, ep, cas, depth, rnd) {
   return best;
 }
 
-/* ═══════════════════════════════════════════════════
-   GAME STATE
-   ═══════════════════════════════════════════════════ */
 function makeBoard() {
   var b=new Array(64);
   for(var i=0;i<64;i++) b[i]=E;
@@ -543,11 +522,11 @@ function setColor(c){
   var cwBtn=document.getElementById('cw');
   var cbBtn=document.getElementById('cb');
   if(c===W){
-    cwBtn.className='clr-btn active';
-    cbBtn.className='clr-btn';
+    cwBtn.className='active';
+    cbBtn.className='';
   } else {
-    cwBtn.className='clr-btn';
-    cbBtn.className='clr-btn active';
+    cwBtn.className='';
+    cbBtn.className='active';
   }
   gFlip=(c===B);
   newGame();
@@ -555,46 +534,44 @@ function setColor(c){
 
 function flipBoard(){gFlip=!gFlip; renderBoard();}
 
-/* ═══════════════════════════════════════════════════
-   RENDER
-   ═══════════════════════════════════════════════════ */
 function renderBoard(){
   var bd=document.getElementById('board');
   bd.innerHTML='';
-  // Find king for check highlight
   var kingSq=-1;
   if(gActive&&inCheck(gB,gTurn)){
     for(var i=0;i<64;i++) if(gB[i]===gTurn*6){kingSq=i;break;}
   }
   for(var dr=0;dr<8;dr++){
+    var tr=document.createElement('tr');
     for(var dc=0;dc<8;dc++){
       var rank=gFlip?dr:7-dr;
       var file=gFlip?7-dc:dc;
       var s=sq(rank,file);
       var p=gB[s];
-      var cls='sq ';
-      cls+=(rank+file)%2===1?'lite ':'dark ';
-      if(gLast&&s===gLast[0]) cls+='lm-f ';
-      if(gLast&&s===gLast[1]) cls+='lm-t ';
-      if(s===kingSq)  cls+='chk ';
-      if(s===gSel)    cls+='sel ';
+      var cls='';
+      cls+=(rank+file)%2===1?'lite':'dark';
+      if(gLast&&s===gLast[0]) cls+=' lm-f';
+      if(gLast&&s===gLast[1]) cls+=' lm-t';
+      if(s===kingSq)  cls+=' chk';
+      if(s===gSel)    cls+=' sel';
       else {
         var hasLegal=false;
         for(var i=0;i<gLegal.length;i++) if(gLegal[i][1]===s){hasLegal=true;break;}
-        if(hasLegal) cls+=(p?'ring ':'dot ');
+        if(hasLegal) cls+=(p?' ring':' dot');
       }
-      var cell=document.createElement('div');
-      cell.className=cls.trim();
-      cell.setAttribute('data-s',s);
+      var td=document.createElement('td');
+      td.className=cls;
+      td.setAttribute('data-s',s);
       if(p){
         var sp=document.createElement('span');
         sp.className='piece';
         sp.textContent=SYM[typ(p)][col(p)===W?0:1];
-        cell.appendChild(sp);
+        td.appendChild(sp);
       }
-      cell.onclick=onSqClick;
-      bd.appendChild(cell);
+      td.onclick=onSqClick;
+      tr.appendChild(td);
     }
+    bd.appendChild(tr);
   }
 }
 
@@ -629,26 +606,22 @@ function setStatus(){
   }
 }
 
-/* ═══════════════════════════════════════════════════
-   INTERACTION
-   ═══════════════════════════════════════════════════ */
 function onSqClick(e){
   if(!gActive||gTurn!==gPC) return;
   var s=parseInt(e.target.getAttribute('data-s'));
+  if(!s && s!==0) return;
   var p=gB[s];
   if(gSel>=0){
-    // Check legal moves to this square
     var targets=[];
     for(var i=0;i<gLegal.length;i++){
       if(gLegal[i][1]===s) targets.push(gLegal[i]);
     }
     if(targets.length){
-      if(targets[0][3]) showPromo(targets); // promotion
+      if(targets[0][3]) showPromo(targets);
       else execMove(targets[0]);
       return;
     }
   }
-  // Select own piece
   if(p&&col(p)===gPC){
     gSel=s;
     var all=legalMoves(gB,gTurn,gEP,gCas);
@@ -682,7 +655,7 @@ function aiMove(){
   if(!gActive||gTurn===gPC) return;
   var elo=parseInt(document.getElementById('elo').value);
   var cfg=ELO_CFG[elo];
-  setStatus(); // show "thinking"
+  setStatus();
   setTimeout(function(){
     var mv=bestMove(gB,gTurn,gEP,gCas,cfg.d,cfg.rnd);
     if(!mv){setStatus();return;}
@@ -700,9 +673,6 @@ function aiMove(){
   }, 55);
 }
 
-/* ═══════════════════════════════════════════════════
-   PROMOTION DIALOG
-   ═══════════════════════════════════════════════════ */
 function showPromo(targets){
   var overlay=document.getElementById('promo-bg');
   var row=document.getElementById('promo-row');
@@ -719,9 +689,6 @@ function showPromo(targets){
   overlay.className='promo-bg show';
 }
 
-/* ═══════════════════════════════════════════════════
-   MOVE HISTORY (Algebraic Notation)
-   ═══════════════════════════════════════════════════ */
 var FLS='abcdefgh';
 var PNM=['','','N','B','R','Q','K'];
 
@@ -736,7 +703,6 @@ function addHistory(mv){
     else note=PNM[t]+(mv[2]?'x':'')+tf+tr;
     if(mv[3]) note+='='+PNM[typ(mv[3])];
   }
-  // Check / mate suffix
   var nb=applyMv(gB,mv), nep=mv[6], nc=newCas(gCas,gB,mv,gTurn);
   var nt=-gTurn;
   var nm=legalMoves(nb,nt,nep,nc);
@@ -752,7 +718,6 @@ function addHistory(mv){
   document.getElementById('history').textContent=gHist.slice(-8).join('  ');
 }
 
-/* ── INIT ── */
 newGame();
 </script>
 </body>
