@@ -41,9 +41,9 @@ body {
   -webkit-align-items: stretch;
   align-items: stretch;
 }
-/* ELO = 25%, Quân trắng/đen = 30% each, Ván mới = 15% → total 100% */
+/* ELO = 40%, Đổi quân = 30%, Ván mới = 30% → total 100% */
 .elo-sel {
-  width: 25%;
+  width: 40%;
   -webkit-box-sizing: border-box;
   box-sizing: border-box;
   border: 3px solid #000; padding: 9px 8px;
@@ -52,7 +52,7 @@ body {
   -webkit-appearance: none; appearance: none;
 }
 .btn {
-  width: 15%;
+  width: 30%;
   -webkit-box-sizing: border-box;
   box-sizing: border-box;
   border: 3px solid #000; border-left: none;
@@ -194,15 +194,14 @@ body {
 
 <div class="ctrl-row">
   <select class="elo-sel" id="elo">
-    <option value="1000">ELO 600 — Kém</option>
-    <option value="1200">ELO 800 — Mới học</option>
-    <option value="1500">ELO 900 — Nghiệp dư</option>
-    <option value="1800">ELO 1000 — Trung bình</option>
-    <option value="2000">ELO 1200 — Tạm</option>
-    <option value="2200" selected>ELO 1400 — Khá</option>
+    <option value="1000" style="display:none">ELO 600 — Kém</option>
+    <option value="1200" style="display:none">ELO 800 — Mới học</option>
+    <option value="1500" style="display:none">ELO 900 — Nghiệp dư</option>
+    <option value="1800">ELO 900 — Mới học</option>
+    <option value="2000">ELO 1100 — Trung bình</option>
+    <option value="2200" selected>ELO 1300 — Khá</option>
   </select>
-  <button class="clr-btn active" id="cw" onclick="setColor(1)">&#9812; Quân Trắng</button>
-  <button class="clr-btn"        id="cb" onclick="setColor(-1)">&#9818; Quân Đen</button>
+  <button class="clr-btn" id="clr-toggle" onclick="toggleColor()">&#9812; Quân Trắng</button>
   <button class="btn" onclick="newGame()">Ván mới</button>
 </div>
 
@@ -614,17 +613,17 @@ function newGame(){
   if(gPC===B) setTimeout(aiMove,80);
 }
 
-function setColor(c){
-  gPC=c;
-  /* Use explicit add/remove instead of toggle(name, bool) */
-  if(c===W){
-    document.getElementById('cw').className='clr-btn active';
-    document.getElementById('cb').className='clr-btn';
+function toggleColor(){
+  gPC = -gPC;
+  gFlip = (gPC === B);
+  var btn = document.getElementById('clr-toggle');
+  if(gPC === W){
+    btn.className = 'clr-btn';
+    btn.innerHTML = '&#9812; Qu\u00e2n Tr\u1eafng';
   } else {
-    document.getElementById('cw').className='clr-btn';
-    document.getElementById('cb').className='clr-btn active';
+    btn.className = 'clr-btn active';
+    btn.innerHTML = '&#9818; Qu\u00e2n \u0110en';
   }
-  gFlip=(c===B);
   newGame();
 }
 
