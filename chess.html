@@ -311,13 +311,17 @@ var PST=[null,
 ];
 
 var ELO_CFG={
-  1000:{d:2,rnd:0.60},
-  1200:{d:3,rnd:0.35},
-  1500:{d:3,rnd:0.12},
-  1800:{d:4,rnd:0.04},
-  2000:{d:4,rnd:0.00},
-  2200:{d:5,rnd:0.00}
+  1000:{d:1,rnd:0.80},
+  1200:{d:2,rnd:0.50},
+  1500:{d:2,rnd:0.18},
+  1800:{d:3,rnd:0.05},
+  2000:{d:3,rnd:0.00},
+  2200:{d:4,rnd:0.00}
 };
+/* Time limit per move (ms) — keeps Kindle from freezing */
+var AI_TIME_LIMIT = 2500;
+var aiTimedOut = false;
+var aiStartTime = 0;
 
 /* ═══════════════════════════════════════════════════
    BOARD HELPERS
@@ -527,6 +531,7 @@ function sortMvs(mvs, board) {
 }
 
 function qsearch(board, turn, ep, cas, alpha, beta) {
+  if(aiTimedOut) return alpha;
   var stand=evaluate(board,turn);
   if(stand>=beta) return beta;
   if(stand>alpha) alpha=stand;
@@ -535,6 +540,7 @@ function qsearch(board, turn, ep, cas, alpha, beta) {
   for(var i=0;i<all.length;i++) if(all[i][2]||all[i][5]>=0) caps.push(all[i]);
   sortMvs(caps,board);
   for(var i=0;i<caps.length;i++){
+    if(aiTimedOut) return alpha;
     var m=caps[i],nb=applyMv(board,m);
     var s=-qsearch(nb,-turn,m[6],newCas(cas,board,m,turn),-beta,-alpha);
     if(s>=beta) return beta;
@@ -544,11 +550,14 @@ function qsearch(board, turn, ep, cas, alpha, beta) {
 }
 
 function negamax(board, turn, ep, cas, depth, alpha, beta) {
+  if(aiTimedOut) return alpha;
+  if((Date.now() - aiStartTime) > AI_TIME_LIMIT){ aiTimedOut=true; return alpha; }
   if(depth===0) return qsearch(board,turn,ep,cas,alpha,beta);
   var mvs=legalMoves(board,turn,ep,cas);
   if(!mvs.length) return inCheck(board,turn)?-(MATE-depth):0;
   sortMvs(mvs,board);
   for(var i=0;i<mvs.length;i++){
+    if(aiTimedOut) break;
     var m=mvs[i],nb=applyMv(board,m);
     var s=-negamax(nb,-turn,m[6],newCas(cas,board,m,turn),depth-1,-beta,-alpha);
     if(s>alpha) alpha=s;
@@ -557,16 +566,30 @@ function negamax(board, turn, ep, cas, depth, alpha, beta) {
   return alpha;
 }
 
-function bestMove(board, turn, ep, cas, depth, rnd) {
+function bestMove(board, turn, ep, cas, maxDepth, rnd) {
   var mvs=legalMoves(board,turn,ep,cas);
   if(!mvs.length) return null;
   if(Math.random()<rnd) return mvs[Math.floor(Math.random()*mvs.length)];
   sortMvs(mvs,board);
-  var best=null, bScore=-INF, alpha=-INF;
-  for(var i=0;i<mvs.length;i++){
-    var m=mvs[i],nb=applyMv(board,m);
-    var s=-negamax(nb,-turn,m[6],newCas(cas,board,m,turn),depth-1,-INF,-alpha);
-    if(s>bScore){bScore=s;best=m;alpha=Math.max(alpha,s);}
+
+  /* Always have a fallback — use the top-sorted move at depth 0 */
+  var best=mvs[0];
+  aiStartTime=Date.now();
+
+  /* Iterative deepening: search depth 1..maxDepth, stop on timeout */
+  for(var depth=1; depth<=maxDepth; depth++){
+    aiTimedOut=false;
+    var bScore=-INF, alpha=-INF;
+    var candidate=null;
+    for(var i=0;i<mvs.length;i++){
+      if(aiTimedOut) break;
+      var m=mvs[i],nb=applyMv(board,m);
+      var s=-negamax(nb,-turn,m[6],newCas(cas,board,m,turn),depth-1,-INF,-alpha);
+      if(s>bScore){bScore=s;candidate=m;alpha=Math.max(alpha,s);}
+    }
+    /* Only accept result if this depth completed without timeout */
+    if(!aiTimedOut && candidate) best=candidate;
+    if(aiTimedOut || (Date.now()-aiStartTime)>AI_TIME_LIMIT) break;
   }
   return best;
 }
