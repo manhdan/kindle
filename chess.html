@@ -5,40 +5,75 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Cờ Vua</title>
 <style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
+* { -webkit-box-sizing: border-box; box-sizing: border-box; margin: 0; padding: 0; }
 body {
   background: #fff; color: #000;
   font-family: Georgia, 'Times New Roman', serif;
-  display: flex; flex-direction: column; align-items: center;
-  padding: 12px 8px 28px; min-height: 100vh;
-  -webkit-user-select: none; user-select: none;
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-box-orient: vertical;
+  -webkit-box-direction: normal;
+  -webkit-flex-direction: column;
+  flex-direction: column;
+  -webkit-box-align: center;
+  -webkit-align-items: center;
+  align-items: center;
+  padding: 12px 8px 28px;
+  min-height: 100%;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
 }
 .title { font-size: 2rem; font-weight: bold; margin-bottom: 10px; letter-spacing: -1px; }
 
 /* ── CONTROLS ── */
 .ctrl-row {
   width: 100%; max-width: 520px;
-  display: flex; gap: 6px; margin-bottom: 8px; align-items: stretch;
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  margin-bottom: 8px;
+  -webkit-box-align: stretch;
+  -webkit-align-items: stretch;
+  align-items: stretch;
 }
 .elo-sel {
-  flex: 1; border: 3px solid #000; padding: 9px 8px;
+  -webkit-box-flex: 1;
+  -webkit-flex: 1;
+  flex: 1;
+  border: 3px solid #000; padding: 9px 8px;
   font-family: Georgia, serif; font-size: 0.82rem; font-weight: bold;
   background: #fff; cursor: pointer;
   -webkit-appearance: none; appearance: none;
+  margin-right: 6px;
 }
 .btn {
   border: 3px solid #000; background: #000; color: #fff;
   font-size: 0.82rem; font-weight: bold; padding: 10px 14px;
   cursor: pointer; font-family: Georgia, serif;
   text-transform: uppercase; white-space: nowrap;
+  margin-right: 6px;
 }
+.btn:last-child { margin-right: 0; }
 .btn:active { background: #444; }
-.color-row { width: 100%; max-width: 520px; display: flex; gap: 6px; margin-bottom: 8px; }
+.color-row {
+  width: 100%; max-width: 520px;
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  margin-bottom: 8px;
+}
 .clr-btn {
-  flex: 1; border: 3px solid #000; background: #fff;
+  -webkit-box-flex: 1;
+  -webkit-flex: 1;
+  flex: 1;
+  border: 3px solid #000; background: #fff;
   font-family: Georgia, serif; font-size: 0.85rem; font-weight: bold;
   text-transform: uppercase; padding: 10px 4px; cursor: pointer; text-align: center;
+  margin-right: 6px;
 }
+.clr-btn:last-child { margin-right: 0; }
 .clr-btn.active { background: #000; color: #fff; }
 .clr-btn:active { opacity: 0.7; }
 
@@ -56,16 +91,19 @@ body {
 /* ── BOARD ── */
 .board-outer { width: 100%; max-width: 520px; }
 .board {
-  display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  grid-template-rows: repeat(8, 1fr);
-  border: 3px solid #000; width: 100%; aspect-ratio: 1/1;
+  display: block;
+  overflow: hidden;
+  border: 3px solid #000;
+  width: 100%;
 }
 .sq {
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; position: relative;
-  font-size: clamp(1.4rem, 6.2vw, 2.9rem);
-  line-height: 1; border: 0.5px solid #bbb;
+  float: left;
+  width: 12.5%;
+  position: relative;
+  cursor: pointer;
+  text-align: center;
+  border: 0.5px solid #bbb;
+  overflow: hidden;
 }
 .sq.lite { background: #fff; }
 .sq.dark { background: #d0d0d0; }
@@ -74,21 +112,29 @@ body {
 .sq.chk  { background: #888 !important; }
 .sq.sel  { background: #555 !important; }
 .sq.sel .piece { color: #fff !important; }
-/* legal move dot */
-.sq.dot::after {
-  content: ''; position: absolute;
-  width: 30%; height: 30%; border-radius: 50%;
-  background: rgba(0,0,0,0.22); z-index: 1; pointer-events: none;
+
+/* legal move dot — real div instead of ::after */
+.dot-marker {
+  position: absolute;
+  width: 30%; height: 30%;
+  -webkit-border-radius: 50%;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.22);
+  z-index: 1; pointer-events: none;
+  top: 35%; left: 35%;
 }
 /* legal capture ring */
-.sq.ring::after {
-  content: ''; position: absolute;
-  inset: 3px; border-radius: 50%;
-  border: 3px solid rgba(0,0,0,0.28); z-index: 1; pointer-events: none;
+.ring-marker {
+  position: absolute;
+  top: 3px; right: 3px; bottom: 3px; left: 3px;
+  -webkit-border-radius: 50%;
+  border-radius: 50%;
+  border: 3px solid rgba(0,0,0,0.28);
+  z-index: 1; pointer-events: none;
 }
 .piece {
-  z-index: 2; pointer-events: none; line-height: 1;
-  color: #000;
+  z-index: 2; pointer-events: none;
+  color: #000; position: relative; display: block;
 }
 
 /* ── MOVE HISTORY ── */
@@ -103,74 +149,80 @@ body {
 
 /* ── PROMO DIALOG ── */
 .promo-bg {
-  position: fixed; inset: 0;
+  position: fixed;
+  top: 0; right: 0; bottom: 0; left: 0;
   background: rgba(0,0,0,0.78);
-  display: none; align-items: center; justify-content: center; z-index: 200;
+  display: none;
+  -webkit-box-align: center;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  z-index: 200;
 }
-.promo-bg.show { display: flex; }
+.promo-bg.show {
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+}
 .promo-box {
   background: #fff; border: 4px solid #000; padding: 18px; text-align: center;
 }
 .promo-box p { font-size: 1rem; font-weight: bold; margin-bottom: 12px; }
-.promo-row { display: flex; gap: 8px; }
+.promo-row {
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+}
 .promo-btn {
   width: 74px; height: 74px; border: 3px solid #000;
   background: #fff; font-size: 2.6rem;
-  display: flex; align-items: center; justify-content: center;
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-box-align: center;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  -webkit-justify-content: center;
+  justify-content: center;
   cursor: pointer; line-height: 1;
+  margin-right: 8px;
 }
+.promo-btn:last-child { margin-right: 0; }
 .promo-btn:active { background: #ddd; }
-
-/* Kindle PPW3 old browser fallback. */
-body { display: block; padding: 8px 0 0; overflow: hidden; }
-.title { text-align: center; font-size: 1.4rem; margin-bottom: 6px; }
-.ctrl-row, .color-row { display: block; overflow: hidden; width: 1000px; max-width: none; margin-left: auto; margin-right: auto; }
-.elo-sel { float: left; width: 600px; height: 54px; padding: 4px; }
-.ctrl-row .btn { float: left; width: 190px; height: 54px; margin-left: 10px; padding: 0; }
-.clr-btn { float: left; width: 495px; height: 54px; margin-right: 10px; padding: 0; }
-.color-row .clr-btn:last-child { margin-right: 0; }
-.status, .history, .board-outer { width: 1000px; max-width: none; margin-left: auto; margin-right: auto; }
-.status { min-height: 46px; padding: 6px; margin-bottom: 6px; }
-.board { display: block; overflow: hidden; width: 1000px; height: 1000px; border: 3px solid #000; }
-.sq { float: left; width: 125px; height: 125px; line-height: 125px; text-align: center; font-size: 76px; display: block; }
-.piece { line-height: 125px; }
-.sq.ring::after { top: 3px; right: 3px; bottom: 3px; left: 3px; }
-.promo-bg { top: 0; right: 0; bottom: 0; left: 0; }
-.promo-bg.show { display: block; }
-.promo-box { width: 420px; margin: 360px auto 0; }
-.promo-row { display: block; overflow: hidden; }
-.promo-btn { float: left; width: 90px; height: 90px; line-height: 86px; margin-right: 8px; text-align: center; display: block; }
 </style>
 </head>
 <body>
 
-<div class="title">♟ Cờ Vua</div>
+<div class="title">&#9823; Cờ Vua</div>
 
 <div class="ctrl-row">
   <select class="elo-sel" id="elo">
-    <option value="600">ELO ~600 - Kém</option>
-    <option value="800">ELO ~800 - Mới học</option>
-    <option value="950">ELO ~950 - Nghiệp dư</option>
-    <option value="1100">ELO ~1100 - Trung bình</option>
-    <option value="1250">ELO ~1250 - Tạm</option>
-    <option value="1350" selected>ELO ~1350 - Cao nhất ước tính</option>
+    <option value="1000">ELO 600 — Kém</option>
+    <option value="1200">ELO 800 — Mới học</option>
+    <option value="1500">ELO 900 — Nghiệp dư</option>
+    <option value="1800">ELO 1000 — Trung bình</option>
+    <option value="2000">ELO 1200 — Tạm</option>
+    <option value="2200" selected>ELO 1400 — Khá</option>
   </select>
   <button class="btn" onclick="newGame()">Mới</button>
   <button class="btn" onclick="flipBoard()">Lật</button>
 </div>
 
 <div class="color-row">
-  <button class="clr-btn active" id="cw" onclick="setColor(1)">♔ Quân Trắng</button>
-  <button class="clr-btn"        id="cb" onclick="setColor(-1)">♚ Quân Đen</button>
+  <button class="clr-btn active" id="cw" onclick="setColor(1)">&#9812; Quân Trắng</button>
+  <button class="clr-btn"        id="cb" onclick="setColor(-1)">&#9818; Quân Đen</button>
 </div>
 
-<div class="status" id="status">Lượt của bạn - Trắng</div>
+<div class="status" id="status">Lượt của bạn — Trắng</div>
 
 <div class="board-outer">
   <div class="board" id="board"></div>
 </div>
 
-<div class="history" id="history">-</div>
+<div class="history" id="history">—</div>
 
 <div class="promo-bg" id="promo-bg">
   <div class="promo-box">
@@ -180,16 +232,6 @@ body { display: block; padding: 8px 0 0; overflow: hidden; }
 </div>
 
 <script>
-function hasClass(el,name){return (' ' + el.className + ' ').indexOf(' ' + name + ' ')>=0;}
-if(!Array.prototype.forEach){Array.prototype.forEach=function(fn,ctx){for(var i=0;i<this.length;i++)if(i in this)fn.call(ctx,this[i],i,this);};}
-if(!Array.prototype.filter){Array.prototype.filter=function(fn,ctx){var out=[];for(var i=0;i<this.length;i++)if(i in this&&fn.call(ctx,this[i],i,this))out.push(this[i]);return out;};}
-function setActiveClass(el,on){var base=el.className.replace(/\s*active/g,'').replace(/^\s+|\s+$/g,'');el.className=base+(on?' active':'');}
-function addClass(el,name){if(!hasClass(el,name))el.className=(el.className?el.className+' ':'')+name;}
-function removeClass(el,name){el.className=(' '+el.className+' ').replace(' '+name+' ',' ').replace(/^\s+|\s+$/g,'');}
-function trimStr(s){return s.replace(/^\s+|\s+$/g,'');}
-function makeArray(len,val){var a=[];for(var i=0;i<len;i++)a.push(val);return a;}
-function addEvent(el,type,fn){if(el.addEventListener)el.addEventListener(type,fn,false);else if(el.attachEvent)el.attachEvent('on'+type,fn);else el['on'+type]=fn;}
-function sizeChessBoard(){var bd=document.getElementById('board');if(!bd)return;bd.style.width='1000px';bd.style.height='1000px';var cells=bd.getElementsByTagName('div');for(var i=0;i<cells.length;i++){if((' '+cells[i].className+' ').indexOf(' sq ')>=0){cells[i].style.width='125px';cells[i].style.height='125px';cells[i].style.lineHeight='125px';}}if(window.scrollTo)window.scrollTo(0,0);document.body.scrollTop=0;document.documentElement.scrollTop=0;}
 /* ═══════════════════════════════════════════════════
    CONSTANTS
    ═══════════════════════════════════════════════════ */
@@ -200,7 +242,8 @@ var INF=1e8, MATE=900000;
 
 var PVAL=[0,100,320,330,500,900,20000];
 
-// Unicode pieces: SYM[type][0=white, 1=black]
+/* Unicode pieces: SYM[type][0=white, 1=black]
+   Using HTML entity codes for older browser safety */
 var SYM=[null,
   ['\u2659','\u265F'], // Pawn
   ['\u2658','\u265E'], // Knight
@@ -210,8 +253,6 @@ var SYM=[null,
   ['\u2654','\u265A']  // King
 ];
 
-// PST[type 1-6][sq 0-63]: index 0=rank8-fileA .. 63=rank1-fileH
-// White: pstIdx=(7-rank)*8+file  |  Black: pstIdx=rank*8+file
 var PST=[null,
 // Pawn
 [0,0,0,0,0,0,0,0,
@@ -270,12 +311,12 @@ var PST=[null,
 ];
 
 var ELO_CFG={
-  600:{d:1,rnd:0.60},
-  800:{d:2,rnd:0.35},
-  950:{d:2,rnd:0.12},
-  1100:{d:3,rnd:0.04},
-  1250:{d:3,rnd:0.00},
-  1350:{d:4,rnd:0.00}
+  1000:{d:2,rnd:0.60},
+  1200:{d:3,rnd:0.35},
+  1500:{d:3,rnd:0.12},
+  1800:{d:4,rnd:0.04},
+  2000:{d:4,rnd:0.00},
+  2200:{d:5,rnd:0.00}
 };
 
 /* ═══════════════════════════════════════════════════
@@ -290,17 +331,14 @@ function typ(p){return p<0?-p:p;}
 
 /* ═══════════════════════════════════════════════════
    MOVE GENERATION
-   Move array: [from, to, capture, promo, castle, epCaptureSq, createsEP]
-     castle: 0 | 'WK' | 'WQ' | 'BK' | 'BQ'
-     epCaptureSq: -1 or square of captured pawn
-     createsEP: -1 or new ep target square
    ═══════════════════════════════════════════════════ */
 function genPseudo(board, turn, ep, cas) {
   var mv=[];
-  for(var from=0;from<64;from++){
-    var p=board[from];
+  var i, from, p, r, f, t;
+  for(from=0;from<64;from++){
+    p=board[from];
     if(!p||col(p)!==turn) continue;
-    var r=rk(from),f=fl(from),t=typ(p);
+    r=rk(from); f=fl(from); t=typ(p);
 
     if(t===1){ // Pawn
       var dir=turn, sr=turn===W?1:6, pr=turn===W?7:0;
@@ -308,51 +346,57 @@ function genPseudo(board, turn, ep, cas) {
       if(ob(r1,f)&&!board[sq(r1,f)]){
         var to=sq(r1,f);
         if(r1===pr){
-          [WQ,WR,WB,WN].forEach(function(pt){mv.push([from,to,0,turn*pt,0,-1,-1]);});
+          var pts=[WQ,WR,WB,WN];
+          for(i=0;i<pts.length;i++) mv.push([from,to,0,turn*pts[i],0,-1,-1]);
         } else {
           mv.push([from,to,0,0,0,-1,-1]);
           if(r===sr&&!board[sq(r1+dir,f)])
             mv.push([from,sq(r1+dir,f),0,0,0,-1,to]);
         }
       }
-      [-1,1].forEach(function(df){
-        if(!ob(r1,f+df)) return;
+      var dfs=[-1,1];
+      for(i=0;i<dfs.length;i++){
+        var df=dfs[i];
+        if(!ob(r1,f+df)) continue;
         var to2=sq(r1,f+df), cap=board[to2], isEP=(to2===ep);
         if((cap&&col(cap)===-turn)||isEP){
           var epc=isEP?sq(r,f+df):-1, ecap=isEP?board[sq(r,f+df)]:cap;
           if(r1===pr){
-            [WQ,WR,WB,WN].forEach(function(pt){mv.push([from,to2,ecap,turn*pt,0,epc,-1]);});
+            var pts2=[WQ,WR,WB,WN];
+            for(var j=0;j<pts2.length;j++) mv.push([from,to2,ecap,turn*pts2[j],0,epc,-1]);
           } else {
             mv.push([from,to2,ecap,0,0,epc,-1]);
           }
         }
-      });
+      }
     } else if(t===2){ // Knight
-      [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]].forEach(function(d){
-        var nr=r+d[0],nf=f+d[1];
+      var kds=[[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
+      for(i=0;i<kds.length;i++){
+        var nr=r+kds[i][0],nf=f+kds[i][1];
         if(ob(nr,nf)&&col(board[sq(nr,nf)])!==turn)
           mv.push([from,sq(nr,nf),board[sq(nr,nf)],0,0,-1,-1]);
-      });
+      }
     } else if(t>=3&&t<=5){ // Bishop / Rook / Queen
       var dirs=[];
       if(t!==4) dirs=dirs.concat([[-1,-1],[-1,1],[1,-1],[1,1]]);
       if(t!==3) dirs=dirs.concat([[-1,0],[1,0],[0,-1],[0,1]]);
-      dirs.forEach(function(d){
-        var nr=r+d[0],nf=f+d[1];
-        while(ob(nr,nf)){
-          var to2=sq(nr,nf),tgt=board[to2];
+      for(i=0;i<dirs.length;i++){
+        var nr2=r+dirs[i][0],nf2=f+dirs[i][1];
+        while(ob(nr2,nf2)){
+          var to3=sq(nr2,nf2),tgt=board[to3];
           if(col(tgt)===turn) break;
-          mv.push([from,to2,tgt,0,0,-1,-1]);
+          mv.push([from,to3,tgt,0,0,-1,-1]);
           if(tgt) break;
-          nr+=d[0]; nf+=d[1];
+          nr2+=dirs[i][0]; nf2+=dirs[i][1];
         }
-      });
+      }
     } else { // King
-      [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]].forEach(function(d){
-        var nr=r+d[0],nf=f+d[1];
-        if(ob(nr,nf)&&col(board[sq(nr,nf)])!==turn)
-          mv.push([from,sq(nr,nf),board[sq(nr,nf)],0,0,-1,-1]);
-      });
+      var gds=[[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+      for(i=0;i<gds.length;i++){
+        var nr3=r+gds[i][0],nf3=f+gds[i][1];
+        if(ob(nr3,nf3)&&col(board[sq(nr3,nf3)])!==turn)
+          mv.push([from,sq(nr3,nf3),board[sq(nr3,nf3)],0,0,-1,-1]);
+      }
       if(turn===W&&from===4){
         if(cas.WK&&!board[5]&&!board[6]&&board[7]===WR) mv.push([4,6,0,0,'WK',-1,-1]);
         if(cas.WQ&&!board[3]&&!board[2]&&!board[1]&&board[0]===WR) mv.push([4,2,0,0,'WQ',-1,-1]);
@@ -368,41 +412,42 @@ function genPseudo(board, turn, ep, cas) {
 
 function attacked(board, sq2, byCol) {
   var r=rk(sq2),f=fl(sq2);
-  // Pawns: a pawn of byCol at (r - byCol, f±1) attacks sq2
+  var i, nr, nf, pp;
+  // Pawns
   for(var df=-1;df<=1;df+=2){
     var pr=r-byCol,pf=f+df;
     if(ob(pr,pf)&&board[sq(pr,pf)]===byCol) return true;
   }
   // Knights
   var kd=[[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
-  for(var i=0;i<kd.length;i++){
-    var nr=r+kd[i][0],nf=f+kd[i][1];
+  for(i=0;i<kd.length;i++){
+    nr=r+kd[i][0]; nf=f+kd[i][1];
     if(ob(nr,nf)&&board[sq(nr,nf)]===byCol*2) return true;
   }
   // Diagonals
   var dd=[[-1,-1],[-1,1],[1,-1],[1,1]];
-  for(var i=0;i<dd.length;i++){
-    var nr=r+dd[i][0],nf=f+dd[i][1];
+  for(i=0;i<dd.length;i++){
+    nr=r+dd[i][0]; nf=f+dd[i][1];
     while(ob(nr,nf)){
-      var pp=board[sq(nr,nf)];
+      pp=board[sq(nr,nf)];
       if(pp){if(pp===byCol*3||pp===byCol*5) return true; break;}
       nr+=dd[i][0]; nf+=dd[i][1];
     }
   }
   // Straights
   var sd=[[-1,0],[1,0],[0,-1],[0,1]];
-  for(var i=0;i<sd.length;i++){
-    var nr=r+sd[i][0],nf=f+sd[i][1];
+  for(i=0;i<sd.length;i++){
+    nr=r+sd[i][0]; nf=f+sd[i][1];
     while(ob(nr,nf)){
-      var pp=board[sq(nr,nf)];
+      pp=board[sq(nr,nf)];
       if(pp){if(pp===byCol*4||pp===byCol*5) return true; break;}
       nr+=sd[i][0]; nf+=sd[i][1];
     }
   }
   // King
   var gd=[[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
-  for(var i=0;i<gd.length;i++){
-    var nr=r+gd[i][0],nf=f+gd[i][1];
+  for(i=0;i<gd.length;i++){
+    nr=r+gd[i][0]; nf=f+gd[i][1];
     if(ob(nr,nf)&&board[sq(nr,nf)]===byCol*6) return true;
   }
   return false;
@@ -417,8 +462,8 @@ function inCheck(board, side) {
 function applyMv(board, mv) {
   var nb=board.slice();
   var piece=nb[mv[0]];
-  if(mv[5]>=0) nb[mv[5]]=E;          // en passant: remove captured pawn
-  nb[mv[1]]=mv[3]||piece;             // move piece (or promotion piece)
+  if(mv[5]>=0) nb[mv[5]]=E;
+  nb[mv[1]]=mv[3]||piece;
   nb[mv[0]]=E;
   if(mv[4]==='WK'){nb[7]=E;nb[5]=WR;}
   if(mv[4]==='WQ'){nb[0]=E;nb[3]=WR;}
@@ -428,14 +473,19 @@ function applyMv(board, mv) {
 }
 
 function legalMoves(board, turn, ep, cas) {
-  return genPseudo(board,turn,ep,cas).filter(function(mv){
-    // Castling: king must not pass through attacked square
+  var pseudo=genPseudo(board,turn,ep,cas);
+  var result=[];
+  for(var i=0;i<pseudo.length;i++){
+    var mv=pseudo[i];
     if(mv[4]){
       var pass=mv[4]==='WK'?[4,5]:mv[4]==='WQ'?[4,3]:mv[4]==='BK'?[60,61]:[60,59];
-      for(var i=0;i<pass.length;i++) if(attacked(board,pass[i],-turn)) return false;
+      var ok=true;
+      for(var j=0;j<pass.length;j++) if(attacked(board,pass[j],-turn)){ok=false;break;}
+      if(!ok) continue;
     }
-    return !inCheck(applyMv(board,mv),turn);
-  });
+    if(!inCheck(applyMv(board,mv),turn)) result.push(mv);
+  }
+  return result;
 }
 
 function newCas(cas, board, mv, turn) {
@@ -480,7 +530,9 @@ function qsearch(board, turn, ep, cas, alpha, beta) {
   var stand=evaluate(board,turn);
   if(stand>=beta) return beta;
   if(stand>alpha) alpha=stand;
-  var caps=legalMoves(board,turn,ep,cas).filter(function(m){return m[2]||m[5]>=0;});
+  var all=legalMoves(board,turn,ep,cas);
+  var caps=[];
+  for(var i=0;i<all.length;i++) if(all[i][2]||all[i][5]>=0) caps.push(all[i]);
   sortMvs(caps,board);
   for(var i=0;i<caps.length;i++){
     var m=caps[i],nb=applyMv(board,m);
@@ -523,7 +575,9 @@ function bestMove(board, turn, ep, cas, depth, rnd) {
    GAME STATE
    ═══════════════════════════════════════════════════ */
 function makeBoard() {
-  var b=makeArray(64,E);
+  /* Use loop instead of Array.fill() for compatibility */
+  var b=[];
+  for(var i=0;i<64;i++) b.push(E);
   b[0]=WR;b[1]=WN;b[2]=WB;b[3]=WQ;b[4]=WK;b[5]=WB;b[6]=WN;b[7]=WR;
   for(var f=0;f<8;f++) b[8+f]=WP;
   b[56]=BR;b[57]=BN;b[58]=BB;b[59]=BQ;b[60]=BK;b[61]=BB;b[62]=BN;b[63]=BR;
@@ -542,21 +596,44 @@ function newGame(){
   gHalf=0; gFull=1;
   gSel=-1; gLegal=[]; gLast=null; gActive=true;
   gHist=[]; gMoveNum=1;
-  document.getElementById('history').textContent='-';
+  document.getElementById('history').textContent='—';
   renderBoard(); setStatus();
   if(gPC===B) setTimeout(aiMove,80);
 }
 
 function setColor(c){
   gPC=c;
-  setActiveClass(document.getElementById('cw'),c===W);
-  setActiveClass(document.getElementById('cb'),c===B);
+  /* Use explicit add/remove instead of toggle(name, bool) */
+  if(c===W){
+    document.getElementById('cw').className='clr-btn active';
+    document.getElementById('cb').className='clr-btn';
+  } else {
+    document.getElementById('cw').className='clr-btn';
+    document.getElementById('cb').className='clr-btn active';
+  }
   gFlip=(c===B);
   newGame();
-sizeChessBoard();
 }
 
 function flipBoard(){gFlip=!gFlip; renderBoard();}
+
+/* ═══════════════════════════════════════════════════
+   BOARD SIZING — fix height after float layout
+   ═══════════════════════════════════════════════════ */
+function fixBoardSize(){
+  var bd=document.getElementById('board');
+  var w=bd.offsetWidth;
+  if(!w) return;
+  bd.style.height=w+'px';
+  var cells=bd.children;
+  var cellH=Math.floor(w/8);
+  var fontSize=Math.floor(cellH*0.68);
+  for(var i=0;i<cells.length;i++){
+    cells[i].style.height=cellH+'px';
+    cells[i].style.lineHeight=cellH+'px';
+    cells[i].style.fontSize=fontSize+'px';
+  }
+}
 
 /* ═══════════════════════════════════════════════════
    RENDER
@@ -564,7 +641,6 @@ function flipBoard(){gFlip=!gFlip; renderBoard();}
 function renderBoard(){
   var bd=document.getElementById('board');
   bd.innerHTML='';
-  // Find king for check highlight
   var kingSq=-1;
   if(gActive&&inCheck(gB,gTurn)){
     for(var i=0;i<64;i++) if(gB[i]===gTurn*6){kingSq=i;break;}
@@ -581,24 +657,34 @@ function renderBoard(){
       if(gLast&&s===gLast[1]) cls+='lm-t ';
       if(s===kingSq)  cls+='chk ';
       if(s===gSel)    cls+='sel ';
-      else {
+      var cell=document.createElement('div');
+      cell.className=cls.trim();
+      /* Use setAttribute instead of dataset for compatibility */
+      cell.setAttribute('data-s', s);
+
+      /* Legal move indicators as real divs (not ::after pseudo-elements) */
+      if(s!==gSel){
         var hasLegal=false;
         for(var i=0;i<gLegal.length;i++) if(gLegal[i][1]===s){hasLegal=true;break;}
-        if(hasLegal) cls+=(p?'ring ':'dot ');
+        if(hasLegal){
+          var marker=document.createElement('div');
+          marker.className=p?'ring-marker':'dot-marker';
+          cell.appendChild(marker);
+        }
       }
-      var cell=document.createElement('div');
-      cell.className=trimStr(cls);
-      cell.setAttribute('data-s',s);
+
       if(p){
         var sp=document.createElement('span');
         sp.className='piece';
         sp.textContent=SYM[typ(p)][col(p)===W?0:1];
         cell.appendChild(sp);
       }
-      cell.addEventListener('click',onSqClick);
+      cell.onclick=onSqClick;
       bd.appendChild(cell);
     }
   }
+  /* Apply height/font-size after cells are in DOM */
+  fixBoardSize();
 }
 
 function setStatus(){
@@ -611,20 +697,21 @@ function setStatus(){
   if(!mvs.length){
     gActive=false;
     el.className='status gameover';
-    el.textContent=chk?'Chiếu hết! '+(gTurn===W?'Đen':'Trắng')+' thắng!':'Hòa cờ - Stalemate';
+    el.textContent=chk?'\u265b Chiếu hết! '+(gTurn===W?'Đen':'Trắng')+' thắng!'
+                      :'\u00bd Hòa cờ — Stalemate';
     return;
   }
   if(gHalf>=100){
     gActive=false;
     el.className='status gameover';
-    el.textContent='Hòa cờ - Quy tắc 50 nước';
+    el.textContent='\u00bd Hòa cờ — Quy tắc 50 nước';
     return;
   }
   if(chk){
     el.className='status check';
-    el.textContent=tn+' đang bị chiếu!'+(yours?' Hãy đi!':'');
+    el.textContent='\u26a0 '+tn+' đang bị chiếu!'+(yours?' Hãy đi!':'');
   } else if(yours){
-    el.textContent='Lượt của bạn - '+tn;
+    el.textContent='Lượt của bạn — '+tn;
   } else {
     el.className='status thinking';
     el.textContent='Máy đang suy nghĩ ('+tn+')...';
@@ -636,22 +723,27 @@ function setStatus(){
    ═══════════════════════════════════════════════════ */
 function onSqClick(e){
   if(!gActive||gTurn!==gPC) return;
-  e=e||window.event;var target=e.currentTarget||this;var s=parseInt(target.getAttribute('data-s'),10);
+  /* Use getAttribute instead of dataset for compatibility */
+  var tgt=e.target||e.srcElement;
+  /* Walk up to the .sq element in case click landed on .piece span */
+  while(tgt&&tgt.getAttribute&&!tgt.getAttribute('data-s')) tgt=tgt.parentNode;
+  if(!tgt||!tgt.getAttribute) return;
+  var s=parseInt(tgt.getAttribute('data-s'));
   var p=gB[s];
   if(gSel>=0){
-    // Check legal moves to this square
-    var targets=gLegal.filter(function(m){return m[1]===s;});
+    var targets=[];
+    for(var i=0;i<gLegal.length;i++) if(gLegal[i][1]===s) targets.push(gLegal[i]);
     if(targets.length){
-      if(targets[0][3]) showPromo(targets); // promotion
+      if(targets[0][3]) showPromo(targets);
       else execMove(targets[0]);
       return;
     }
   }
-  // Select own piece
   if(p&&col(p)===gPC){
     gSel=s;
     var all=legalMoves(gB,gTurn,gEP,gCas);
-    gLegal=all.filter(function(m){return m[0]===s;});
+    gLegal=[];
+    for(var i=0;i<all.length;i++) if(all[i][0]===s) gLegal.push(all[i]);
     renderBoard();
   } else {
     gSel=-1; gLegal=[];
@@ -678,7 +770,7 @@ function aiMove(){
   if(!gActive||gTurn===gPC) return;
   var elo=parseInt(document.getElementById('elo').value);
   var cfg=ELO_CFG[elo];
-  setStatus(); // show "thinking"
+  setStatus();
   setTimeout(function(){
     var mv=bestMove(gB,gTurn,gEP,gCas,cfg.d,cfg.rnd);
     if(!mv){setStatus();return;}
@@ -703,14 +795,19 @@ function showPromo(targets){
   var overlay=document.getElementById('promo-bg');
   var row=document.getElementById('promo-row');
   row.innerHTML='';
-  targets.forEach(function(mv){
-    var btn=document.createElement('div');
-    btn.className='promo-btn';
-    btn.textContent=SYM[typ(mv[3])][col(mv[3])===W?0:1];
-    btn.onclick=function(){removeClass(overlay,'show');execMove(mv);};
-    row.appendChild(btn);
-  });
-  addClass(overlay,'show');
+  for(var i=0;i<targets.length;i++){
+    (function(mv){
+      var btn=document.createElement('div');
+      btn.className='promo-btn';
+      btn.textContent=SYM[typ(mv[3])][col(mv[3])===W?0:1];
+      btn.onclick=function(){
+        overlay.className='promo-bg';
+        execMove(mv);
+      };
+      row.appendChild(btn);
+    })(targets[i]);
+  }
+  overlay.className='promo-bg show';
 }
 
 /* ═══════════════════════════════════════════════════
@@ -730,7 +827,6 @@ function addHistory(mv){
     else note=PNM[t]+(mv[2]?'x':'')+tf+tr;
     if(mv[3]) note+='='+PNM[typ(mv[3])];
   }
-  // Check / mate suffix
   var nb=applyMv(gB,mv), nep=mv[6], nc=newCas(gCas,gB,mv,gTurn);
   var nt=-gTurn;
   var nm=legalMoves(nb,nt,nep,nc);
@@ -747,8 +843,13 @@ function addHistory(mv){
 }
 
 /* ── INIT ── */
+/* Re-apply sizing on window resize (orientation change, zoom) */
+if(window.addEventListener){
+  window.addEventListener('resize', function(){ fixBoardSize(); }, false);
+} else if(window.attachEvent){
+  window.attachEvent('onresize', function(){ fixBoardSize(); });
+}
 newGame();
-sizeChessBoard();
 </script>
 </body>
 </html>
