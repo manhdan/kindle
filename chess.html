@@ -25,11 +25,9 @@ body {
   -moz-user-select: none;
   user-select: none;
 }
-.title { font-size: 2rem; font-weight: bold; margin-bottom: 10px; letter-spacing: -1px; }
-
 /* ── CONTROLS ── */
 .ctrl-row {
-  width: 100%; max-width: 520px;
+  width: 100%; max-width: 800px;
   display: -webkit-box;
   display: -webkit-flex;
   display: flex;
@@ -43,14 +41,14 @@ body {
   -webkit-flex: 1;
   flex: 1;
   border: 3px solid #000; padding: 9px 8px;
-  font-family: Georgia, serif; font-size: 0.82rem; font-weight: bold;
+  font-family: Georgia, serif; font-size: 1rem; font-weight: bold;
   background: #fff; cursor: pointer;
   -webkit-appearance: none; appearance: none;
   margin-right: 6px;
 }
 .btn {
   border: 3px solid #000; background: #000; color: #fff;
-  font-size: 0.82rem; font-weight: bold; padding: 10px 14px;
+  font-size: 1rem; font-weight: bold; padding: 12px 18px;
   cursor: pointer; font-family: Georgia, serif;
   text-transform: uppercase; white-space: nowrap;
   margin-right: 6px;
@@ -58,7 +56,7 @@ body {
 .btn:last-child { margin-right: 0; }
 .btn:active { background: #444; }
 .color-row {
-  width: 100%; max-width: 520px;
+  width: 100%; max-width: 800px;
   display: -webkit-box;
   display: -webkit-flex;
   display: flex;
@@ -69,8 +67,8 @@ body {
   -webkit-flex: 1;
   flex: 1;
   border: 3px solid #000; background: #fff;
-  font-family: Georgia, serif; font-size: 0.85rem; font-weight: bold;
-  text-transform: uppercase; padding: 10px 4px; cursor: pointer; text-align: center;
+  font-family: Georgia, serif; font-size: 1rem; font-weight: bold;
+  text-transform: uppercase; padding: 12px 4px; cursor: pointer; text-align: center;
   margin-right: 6px;
 }
 .clr-btn:last-child { margin-right: 0; }
@@ -79,9 +77,8 @@ body {
 
 /* ── STATUS ── */
 .status {
-  width: 100%; max-width: 520px;
-  border: 3px solid #000; padding: 8px 12px;
-  font-size: 0.88rem; font-weight: bold; text-align: center;
+  width: 100%; max-width: 800px;
+  font-size: 1rem; font-weight: bold; text-align: center;
   margin-bottom: 6px; min-height: 36px; line-height: 1.4;
 }
 .status.check    { background: #666; color: #fff; }
@@ -89,7 +86,7 @@ body {
 .status.thinking { background: #ddd; }
 
 /* ── BOARD ── */
-.board-outer { width: 100%; max-width: 520px; }
+.board-outer { width: 100%; max-width: 800px; }
 .board {
   display: block;
   overflow: hidden;
@@ -139,12 +136,12 @@ body {
 
 /* ── MOVE HISTORY ── */
 .history {
-  width: 100%; max-width: 520px;
-  border: 3px solid #000; border-top: none;
+  width: 100%; max-width: 800px;
   padding: 6px 10px; font-size: 0.75rem;
   font-family: 'Courier New', monospace;
   min-height: 32px; color: #333;
   word-wrap: break-word;
+  font-size: 0.9rem;
 }
 
 /* ── PROMO DIALOG ── */
@@ -195,8 +192,6 @@ body {
 </style>
 </head>
 <body>
-
-<div class="title">&#9823; Cờ Vua</div>
 
 <div class="ctrl-row">
   <select class="elo-sel" id="elo">
@@ -650,7 +645,7 @@ function fixBoardSize(){
   bd.style.height=w+'px';
   var cells=bd.children;
   var cellH=Math.floor(w/8);
-  var fontSize=Math.floor(cellH*0.68);
+  var fontSize=Math.floor(cellH*0.75);
   for(var i=0;i<cells.length;i++){
     cells[i].style.height=cellH+'px';
     cells[i].style.lineHeight=cellH+'px';
