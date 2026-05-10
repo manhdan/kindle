@@ -41,40 +41,35 @@ body {
   -webkit-align-items: stretch;
   align-items: stretch;
 }
-/* ELO takes remaining space; 3 buttons are flex:1 each → equal width */
+/* ELO = 40%, each of 3 buttons = 20% → total 100% of board width */
 .elo-sel {
-  -webkit-box-flex: 2;
-  -webkit-flex: 2 1 0%;
-  flex: 2 1 0%;
-  min-width: 0;
+  width: 40%;
+  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
   border: 3px solid #000; padding: 9px 8px;
   font-family: Georgia, serif; font-size: 1rem; font-weight: bold;
   background: #fff; cursor: pointer;
   -webkit-appearance: none; appearance: none;
-  margin-right: 6px;
 }
 .btn {
-  -webkit-box-flex: 1;
-  -webkit-flex: 1 1 0%;
-  flex: 1 1 0%;
-  min-width: 0;
-  border: 3px solid #000; background: #000; color: #fff;
+  width: 20%;
+  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
+  border: 3px solid #000; border-left: none;
+  background: #000; color: #fff;
   font-size: 1rem; font-weight: bold; padding: 12px 4px;
   cursor: pointer; font-family: Georgia, serif;
   text-transform: uppercase; text-align: center;
-  margin-right: 6px;
 }
-.btn:last-child { margin-right: 0; }
 .btn:active { background: #444; }
 .clr-btn {
-  -webkit-box-flex: 1;
-  -webkit-flex: 1 1 0%;
-  flex: 1 1 0%;
-  min-width: 0;
-  border: 3px solid #000; background: #fff;
+  width: 20%;
+  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
+  border: 3px solid #000; border-left: none;
+  background: #fff;
   font-family: Georgia, serif; font-size: 1rem; font-weight: bold;
   text-transform: uppercase; padding: 12px 4px; cursor: pointer; text-align: center;
-  margin-right: 6px;
 }
 .clr-btn.active { background: #000; color: #fff; }
 .clr-btn:active { opacity: 0.7; }
