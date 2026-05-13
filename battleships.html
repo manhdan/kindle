@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Battleships</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  background: #fff;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#p-shell {
+  width: 100%;
+  height: 100%;
+  background: #fff;
+  position: relative;
+}
+
+#p-wrap {
+  font-family: Arial, Helvetica, sans-serif;
+  color: #000;
+  background: #fff;
+  position: absolute;
+}
+
+/* ── HEADER ── */
+.p-header {
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+
+.hbtn {
+  float: left;
+  border: 3px solid #000;
+  border-right: none;
+  text-align: center;
+  cursor: pointer;
+  font-family: Arial, Helvetica, sans-serif;
+  font-weight: bold;
+  text-transform: uppercase;
+  background: #fff;
+  color: #000;
+  line-height: 1.2;
+  font-size: 1rem;
+  padding: 10px 2px;
+}
+.hbtn:last-child { border-right: 3px solid #000; }
+.hbtn.active  { background: #000; color: #fff; }
+.hbtn:active  { background: #555; color: #fff; }
+.hbtn.newbtn  { background: #000; color: #fff; }
+.hbtn.newbtn:active { background: #444; color: #fff; }
+
+/* ── BOARD ── */
+.p-board-wrap {
+  position: relative;
+}
+
+#bs-canvas {
+  display: block;
+  cursor: pointer;
+}
+
+/* ── WIN OVERLAY ── */
+#p-overlay {
+  display: none;
+  position: absolute;
+  top: 0; left: 0;
+  z-index: 10;
+}
+#p-overlay.show { display: block; }
+
+#p-win-box {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 500px;
+  margin-left: -250px;
+  margin-top: -90px;
+  background: #fff;
+  color: #000;
+  text-align: center;
+  cursor: pointer;
+  padding: 36px 20px;
+  font-size: 1.5rem;
+  font-weight: bold;
+  font-family: Arial, Helvetica, sans-serif;
+  line-height: 1.6;
+  border: 3px solid #000;
+}
+</style>
+</head>
+<body>
+
+<div id="p-shell">
+  <div id="p-wrap">
+
+    <div class="p-header">
+      <div class="hbtn active" id="p-lvl-6"  onclick="bsSetLevel('6x6')">6x6</div>
+      <div class="hbtn"        id="p-lvl-6h" onclick="bsSetLevel('6x6H')">6x6H</div>
+      <div class="hbtn"        id="p-lvl-8"  onclick="bsSetLevel('8x8')">8x8</div>
+      <div class="hbtn"        id="p-timer">00:00</div>
+      <div class="hbtn newbtn" onclick="bsNewGame()">New</div>
+    </div>
+
+    <div class="p-board-wrap" id="p-board-wrap">
+      <canvas id="bs-canvas"></canvas>
+      <div id="p-overlay">
+        <div id="p-win-box" onclick="bsNewGame()"></div>
+      </div>
+    </div>
+
+    <canvas id="bs-tray-canvas" style="display:block;margin:4px auto 0 auto;"></canvas>
+
+  </div>
+</div>
+
+<script>
+/* ══════════════════════════════════════════
+   BATTLESHIPS — ES5, Kindle PPW3 compatible
+   ══════════════════════════════════════════ */
+
+var BOARD_PX = 1000; /* kept for reference only */
+
+/* ── Cell states ── */
+var EMPTY = 0;
+var SHIP  = 1;
+var MISS  = 2;
+
+/* ── Game state ── */
+var bsLevel    = '6x6';
+var bsN        = 6;
+var bsGrid     = [];   /* solution — used only for hint reveal */
+var bsView     = [];   /* player marks */
+var bsLocked   = [];   /* pre-revealed cells */
+var bsRowClues = [];
+var bsColClues = [];
+var bsShipCounts = {};
+var bsFinished = false;
+var bsStarted  = false;
+var bsTimerSec = 0;
+var bsTimerID  = null;
+var bsLastState = SHIP;
+
+var bsCanvas, bsCtx, bsTrayCanvas, bsTrayCtx;
+var CELL = 0;  /* pixel size of one cell — computed in resize */
+var MARGIN_LEFT = 0, MARGIN_TOP = 0; /* canvas offset for clue labels */
+
+/* ══════════════════════
+   PUZZLE GENERATION
+   ══════════════════════ */
+
+/* Ship fleet definitions — standard Battleships puzzle counts */
+var FLEETS = {
+  '6x6':  [ {len:3,count:1}, {len:2,count:2}, {len:1,count:3} ],
+  '6x6H': [ {len:3,count:1}, {len:2,count:2}, {len:1,count:3} ],
+  '8x8':  [ {len:4,count:1}, {len:3,count:2}, {len:2,count:3}, {len:1,count:4} ]
+};
+
+function bsMakeEmptyGrid(n) {
+  var g = [];
+  for (var i = 0; i < n * n; i++) g.push(EMPTY);
+  return g;
+}
+
+function bsCanPlace(grid, n, r, c, len, horiz) {
+  /* Check ship cells and surrounding border */
+  for (var i = 0; i < len; i++) {
+    var sr = horiz ? r : r + i;
+    var sc = horiz ? c + i : c;
+    if (sr < 0 || sr >= n || sc < 0 || sc >= n) return false;
+    if (grid[sr * n + sc] !== EMPTY) return false;
+  }
+  /* Check 1-cell border around the ship */
+  for (var i2 = 0; i2 < len; i2++) {
+    var sr2 = horiz ? r : r + i2;
+    var sc2 = horiz ? c + i2 : c;
+    for (var dr = -1; dr <= 1; dr++) {
+      for (var dc = -1; dc <= 1; dc++) {
+        if (dr === 0 && dc === 0) continue;
+        var nr = sr2 + dr, nc = sc2 + dc;
+        if (nr < 0 || nr >= n || nc < 0 || nc >= n) continue;
+        if (grid[nr * n + nc] === SHIP) return false;
+      }
+    }
+  }
+  return true;
+}
+
+function bsPlaceShip(grid, n, r, c, len, horiz) {
+  for (var i = 0; i < len; i++) {
+    var sr = horiz ? r : r + i;
+    var sc = horiz ? c + i : c;
+    grid[sr * n + sc] = SHIP;
+  }
+}
+
+function bsGeneratePuzzle(n, fleet) {
+  /* Shuffle fleet so order is random */
+  var ships = [];
+  for (var fi = 0; fi < fleet.length; fi++) {
+    for (var ci = 0; ci < fleet[fi].count; ci++) ships.push(fleet[fi].len);
+  }
+  /* Sort descending so big ships placed first */
+  ships.sort(function(a,b){ return b-a; });
+
+  var MAX_ATTEMPTS = 500;
+  for (var attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    var grid = bsMakeEmptyGrid(n);
+    var ok = true;
+    for (var si = 0; si < ships.length; si++) {
+      var len = ships[si];
+      var placed = false;
+      for (var tries = 0; tries < 200; tries++) {
+        var horiz = Math.random() < 0.5;
+        var r = Math.floor(Math.random() * n);
+        var c = Math.floor(Math.random() * n);
+        if (bsCanPlace(grid, n, r, c, len, horiz)) {
+          bsPlaceShip(grid, n, r, c, len, horiz);
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) { ok = false; break; }
+    }
+    if (ok) return grid;
+  }
+  /* Fallback — very simple layout */
+  return bsMakeEmptyGrid(n);
+}
+
+function bsComputeClues(grid, n) {
+  var rows = [], cols = [];
+  for (var r = 0; r < n; r++) {
+    var cnt = 0;
+    for (var c = 0; c < n; c++) if (grid[r*n+c] === SHIP) cnt++;
+    rows.push(cnt);
+  }
+  for (var c2 = 0; c2 < n; c2++) {
+    var cnt2 = 0;
+    for (var r2 = 0; r2 < n; r2++) if (grid[r2*n+c2] === SHIP) cnt2++;
+    cols.push(cnt2);
+  }
+  return {rows: rows, cols: cols};
+}
+
+function bsCountShips(grid, n) {
+  /* Count distinct ships — only start from top-left corner of each ship */
+  var visited = [];
+  for (var i = 0; i < n*n; i++) visited.push(false);
+  var counts = {};
+  for (var i2 = 0; i2 < n*n; i2++) {
+    if (grid[i2] !== SHIP || visited[i2]) continue;
+    var r0 = Math.floor(i2/n), c0 = i2%n;
+    /* Skip if not the top-left origin of this ship */
+    if ((r0 > 0 && grid[(r0-1)*n+c0] === SHIP) ||
+        (c0 > 0 && grid[r0*n+c0-1]   === SHIP)) { visited[i2] = true; continue; }
+    var lenH = 1;
+    while (c0+lenH < n && grid[r0*n+c0+lenH] === SHIP) lenH++;
+    var lenV = 1;
+    while (r0+lenV < n && grid[(r0+lenV)*n+c0] === SHIP) lenV++;
+    var horiz   = lenH > 1;
+    var shipLen = horiz ? lenH : lenV;
+    for (var si = 0; si < shipLen; si++) {
+      if (horiz) visited[r0*n+c0+si]   = true;
+      else       visited[(r0+si)*n+c0] = true;
+    }
+    counts[shipLen] = (counts[shipLen] || 0) + 1;
+  }
+  return counts;
+}
+
+/* Choose which cells to pre-reveal (locked).
+   Standard Battleships puzzles reveal ~10-15% of ship cells as hints.
+   Smaller grids need a higher % to stay solvable by logic.
+   6x6  easy : ~20% of ship cells (total 10 cells → ~2 hints)
+   6x6H hard : ~10% of ship cells (total 10 cells → ~1 hint)
+   8x8  med  : ~15% of ship cells (total 20 cells → ~3 hints)        */
+function bsPickLocked(grid, n, level) {
+  var locked = [];
+  for (var i = 0; i < n*n; i++) locked.push(false);
+
+  var pct = (level === '6x6') ? 0.20 : (level === '6x6H') ? 0.10 : 0.15;
+
+  var shipCells = [];
+  for (var i2 = 0; i2 < n*n; i2++) if (grid[i2] === SHIP) shipCells.push(i2);
+
+  /* Fisher-Yates shuffle */
+  for (var j = shipCells.length - 1; j > 0; j--) {
+    var k = Math.floor(Math.random() * (j + 1));
+    var tmp = shipCells[j]; shipCells[j] = shipCells[k]; shipCells[k] = tmp;
+  }
+
+  /* Round to nearest integer, minimum 1 */
+  var count = Math.max(1, Math.round(shipCells.length * pct));
+  count = Math.min(count, shipCells.length);
+  for (var h = 0; h < count; h++) locked[shipCells[h]] = true;
+
+  return locked;
+}
+
+/* ══════════════════════
+   WIN CHECK
+   ══════════════════════ */
+
+function bsCheckWin() {
+  /* Win condition (no solution comparison needed — puzzle has unique solution via clues):
+     1. Every row/col ship count matches clue exactly
+     2. Ship type counts match fleet exactly
+     3. No ships are touching (already enforced visually, verify here too) */
+
+  /* Check row/col clues */
+  for (var r = 0; r < bsN; r++) {
+    var cnt = 0;
+    for (var c = 0; c < bsN; c++) if (bsView[r*bsN+c] === SHIP) cnt++;
+    if (cnt !== bsRowClues[r]) return false;
+  }
+  for (var c2 = 0; c2 < bsN; c2++) {
+    var cnt2 = 0;
+    for (var r2 = 0; r2 < bsN; r2++) if (bsView[r2*bsN+c2] === SHIP) cnt2++;
+    if (cnt2 !== bsColClues[c2]) return false;
+  }
+
+  /* Check fleet counts */
+  var viewCounts = bsCountShips(bsView, bsN);
+  for (var len in bsShipCounts) {
+    if ((viewCounts[len]||0) !== bsShipCounts[len]) return false;
+  }
+
+  /* Check no ships touching */
+  for (var i = 0; i < bsN*bsN; i++) {
+    if (bsView[i] !== SHIP) continue;
+    var ri = Math.floor(i/bsN), ci2 = i%bsN;
+    for (var ddr = -1; ddr <= 1; ddr++) {
+      for (var ddc = -1; ddc <= 1; ddc++) {
+        if (ddr===0 && ddc===0) continue;
+        var nr = ri+ddr, nc = ci2+ddc;
+        if (nr<0||nr>=bsN||nc<0||nc>=bsN) continue;
+        /* Orthogonal neighbors belong to same ship — that's fine.
+           Diagonal neighbors with SHIP = touching = invalid. */
+        if (ddr!==0 && ddc!==0 && bsView[nr*bsN+nc] === SHIP) return false;
+        /* Orthogonal: only ok if same ship (connected) */
+        if ((ddr===0||ddc===0) && bsView[nr*bsN+nc] === SHIP) {
+          /* Verify they're part of the same linear ship */
+          var sameShip = (ddr===0) /* horiz neighbor */
+            ? (Math.floor(i/bsN) === nr) /* same row */
+            : (i%bsN === nc);            /* same col */
+          if (!sameShip) return false;
+        }
+      }
+    }
+  }
+
+  return true;
+}
+
+/* ══════════════════════
+   DRAWING
+   ══════════════════════ */
+
+/* Colors */
+var C_WATER     = '#a8cfe8';
+var C_SHIP      = '#222';
+var C_MISS      = '#7ab0cc';
+var C_ERR       = '#c0392b';
+var C_GRID      = '#6fa8c8';
+var C_LABEL     = '#000';
+var C_LABEL_ERR = '#c0392b';
+
+function bsRowCount(view, n, r) {
+  var cnt = 0;
+  for (var c = 0; c < n; c++) if (view[r*n+c] === SHIP) cnt++;
+  return cnt;
+}
+function bsColCount(view, n, c) {
+  var cnt = 0;
+  for (var r = 0; r < n; r++) if (view[r*n+c] === SHIP) cnt++;
+  return cnt;
+}
+
+function bsDraw() {
+  var n = bsN;
+  var cell = CELL;
+  var ml = MARGIN_LEFT, mt = MARGIN_TOP;
+  var W = ml + n * cell, H = mt + n * cell;
+
+  bsCtx.clearRect(0, 0, bsCanvas.width, bsCanvas.height);
+
+  /* ── water background ── */
+  bsCtx.fillStyle = C_WATER;
+  bsCtx.fillRect(ml, mt, n*cell, n*cell);
+
+  /* ── grid lines ── */
+  bsCtx.strokeStyle = C_GRID;
+  bsCtx.lineWidth = 1;
+  for (var i = 0; i <= n; i++) {
+    bsCtx.beginPath(); bsCtx.moveTo(ml + i*cell, mt); bsCtx.lineTo(ml + i*cell, mt + n*cell); bsCtx.stroke();
+    bsCtx.beginPath(); bsCtx.moveTo(ml, mt + i*cell); bsCtx.lineTo(ml + n*cell, mt + i*cell); bsCtx.stroke();
+  }
+
+  /* ── cells ── */
+  for (var r = 0; r < n; r++) {
+    for (var c = 0; c < n; c++) {
+      var idx = r*n+c;
+      var v = bsView[idx];
+      var x = ml + c*cell, y = mt + r*cell;
+      if (v === MISS) {
+        /* draw X */
+        bsCtx.fillStyle = C_MISS;
+        bsCtx.fillRect(x+1, y+1, cell-2, cell-2);
+        bsCtx.strokeStyle = '#5a8faa';
+        bsCtx.lineWidth = Math.max(2, Math.floor(cell*0.1));
+        var pad = Math.floor(cell*0.25);
+        bsCtx.beginPath(); bsCtx.moveTo(x+pad, y+pad); bsCtx.lineTo(x+cell-pad, y+cell-pad); bsCtx.stroke();
+        bsCtx.beginPath(); bsCtx.moveTo(x+cell-pad, y+pad); bsCtx.lineTo(x+pad, y+cell-pad); bsCtx.stroke();
+      }
+    }
+  }
+
+  /* ── ships as whole pill shapes ── */
+  bsDrawAllShips();
+
+  /* ── row clues ── */
+  var lblSize = Math.floor(cell * 0.52);
+  bsCtx.font = 'bold ' + lblSize + 'px Arial,Helvetica,sans-serif';
+  bsCtx.textAlign = 'center';
+  bsCtx.textBaseline = 'middle';
+  for (var r2 = 0; r2 < n; r2++) {
+    var clue = bsRowClues[r2];
+    var cur  = bsRowCount(bsView, n, r2);
+    var err  = (cur > clue) || (bsFinished && cur !== clue);
+    bsCtx.fillStyle = err ? C_LABEL_ERR : C_LABEL;
+    bsCtx.fillText('' + clue, Math.floor(ml/2), mt + r2*cell + Math.floor(cell/2));
+  }
+
+  /* ── col clues ── */
+  for (var c2 = 0; c2 < n; c2++) {
+    var clue2 = bsColClues[c2];
+    var cur2  = bsColCount(bsView, n, c2);
+    var err2  = (cur2 > clue2) || (bsFinished && cur2 !== clue2);
+    bsCtx.fillStyle = err2 ? C_LABEL_ERR : C_LABEL;
+    bsCtx.fillText('' + clue2, ml + c2*cell + Math.floor(cell/2), Math.floor(mt/2));
+  }
+
+  /* ── outer border ── */
+  bsCtx.strokeStyle = '#000';
+  bsCtx.lineWidth = 3;
+  bsCtx.strokeRect(ml, mt, n*cell, n*cell);
+
+  /* ── tray ── */
+  bsDrawTray();
+}
+
+/* Draw all ships as whole pill shapes + cell divider lines */
+function bsDrawAllShips() {
+  var n = bsN, cell = CELL;
+  var ml = MARGIN_LEFT, mt = MARGIN_TOP;
+  var visited = [];
+  for (var i = 0; i < n*n; i++) visited.push(false);
+
+  for (var i2 = 0; i2 < n*n; i2++) {
+    if (bsView[i2] !== SHIP || visited[i2]) continue;
+    var r0 = Math.floor(i2/n), c0 = i2%n;
+
+    /* Only draw from top-left origin of each ship */
+    if ((r0 > 0 && bsView[(r0-1)*n+c0] === SHIP) ||
+        (c0 > 0 && bsView[r0*n+c0-1]   === SHIP)) { visited[i2] = true; continue; }
+
+    var lenH = 1;
+    while (c0+lenH < n && bsView[r0*n+c0+lenH] === SHIP) lenH++;
+    var lenV = 1;
+    while (r0+lenV < n && bsView[(r0+lenV)*n+c0] === SHIP) lenV++;
+
+    /* L-shape (both directions >1) is invalid — treat as error, use horiz */
+    var lShape  = (lenH > 1 && lenV > 1);
+    var horiz   = lShape ? true : (lenH > 1);
+    var shipLen = horiz ? lenH : lenV;
+
+    for (var si = 0; si < shipLen; si++) {
+      if (horiz) visited[r0*n+c0+si]   = true;
+      else       visited[(r0+si)*n+c0] = true;
+    }
+
+    /* Error only for: L-shape, or ship touching another ship (including diagonally) */
+    var isErr = lShape;
+
+    if (!isErr) {
+      /* For each cell of this ship, check all 8 neighbors */
+      for (var si2 = 0; si2 < shipLen && !isErr; si2++) {
+        var sr = horiz ? r0 : r0+si2;
+        var sc = horiz ? c0+si2 : c0;
+        for (var ddr = -1; ddr <= 1 && !isErr; ddr++) {
+          for (var ddc = -1; ddc <= 1 && !isErr; ddc++) {
+            if (ddr===0 && ddc===0) continue;
+            var nr = sr+ddr, nc = sc+ddc;
+            if (nr < 0 || nr >= n || nc < 0 || nc >= n) continue;
+            if (bsView[nr*n+nc] !== SHIP) continue;
+            /* Neighbor is a ship cell — is it part of THIS ship? */
+            var isOwn = false;
+            for (var si5 = 0; si5 < shipLen; si5++) {
+              var or5 = horiz ? r0 : r0+si5;
+              var oc5 = horiz ? c0+si5 : c0;
+              if (or5===nr && oc5===nc) { isOwn=true; break; }
+            }
+            if (!isOwn) isErr = true;
+          }
+        }
+      }
+    }
+
+    var isLocked = bsLocked[i2];
+    var color    = isErr ? C_ERR : C_SHIP;
+    var pad      = Math.floor(cell * 0.1);
+
+    var px = ml + c0*cell + pad;
+    var py = mt + r0*cell + pad;
+    var pw = horiz ? (shipLen*cell - 2*pad) : (cell - 2*pad);
+    var ph = horiz ? (cell - 2*pad)         : (shipLen*cell - 2*pad);
+    var radius = Math.floor(Math.min(pw, ph) / 2);
+
+    bsCtx.fillStyle = color;
+    bsRoundRect(bsCtx, px, py, pw, ph, radius);
+    bsCtx.fill();
+
+    /* Divider lines at cell joints — full height/width of ship body */
+    if (shipLen > 1) {
+      var lineW = Math.max(1, Math.floor(cell * 0.07));
+      bsCtx.strokeStyle = C_WATER;
+      bsCtx.lineWidth   = lineW;
+      bsCtx.lineCap     = 'butt';
+      for (var di = 1; di < shipLen; di++) {
+        bsCtx.beginPath();
+        if (horiz) {
+          var lx = ml + (c0+di)*cell;
+          bsCtx.moveTo(lx, py);
+          bsCtx.lineTo(lx, py + ph);
+        } else {
+          var ly = mt + (r0+di)*cell;
+          bsCtx.moveTo(px,      ly);
+          bsCtx.lineTo(px + pw, ly);
+        }
+        bsCtx.stroke();
+      }
+    }
+
+    /* White dot for hint/locked cells */
+    if (isLocked) {
+      bsCtx.fillStyle = 'rgba(255,255,255,0.55)';
+      var dotR = Math.floor(cell * 0.09);
+      bsCtx.beginPath();
+      bsCtx.arc(ml + c0*cell + Math.floor(cell/2), mt + r0*cell + Math.floor(cell/2), dotR, 0, Math.PI*2);
+      bsCtx.fill();
+    }
+  }
+}
+
+function bsRoundRect(ctx, x, y, w, h, r) {
+  if (w < 2*r) r = w/2;
+  if (h < 2*r) r = h/2;
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.lineTo(x+w-r, y);
+  ctx.quadraticCurveTo(x+w, y, x+w, y+r);
+  ctx.lineTo(x+w, y+h-r);
+  ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+  ctx.lineTo(x+r, y+h);
+  ctx.quadraticCurveTo(x, y+h, x, y+h-r);
+  ctx.lineTo(x, y+r);
+  ctx.quadraticCurveTo(x, y, x+r, y);
+  ctx.closePath();
+}
+
+function bsDrawTray() {
+  var fleet = FLEETS[bsLevel];
+  var ctx   = bsTrayCtx;
+  var W     = bsTrayCanvas.width;
+  var H     = bsTrayCanvas.height;
+  var viewCounts = bsCountShips(bsView, bsN);
+
+  ctx.clearRect(0, 0, W, H);
+
+  /* Board area: ships must stay within MARGIN_LEFT .. MARGIN_LEFT + bsN*CELL */
+  var boardAreaX = MARGIN_LEFT;
+  var boardAreaW = bsN * CELL;
+
+  /* Sort fleet ascending by ship length (small → large) */
+  var sortedFleet = [];
+  for (var fi0 = 0; fi0 < fleet.length; fi0++) sortedFleet.push(fleet[fi0]);
+  sortedFleet.sort(function(a, b) { return a.len - b.len; });
+
+  /* Ship cell size = 90% of tray height, vertically centered */
+  var shipH  = Math.floor(H * 0.74 * 0.90);
+  var shipY  = Math.floor((H - shipH) / 2);
+  var radius = Math.floor(shipH / 2);
+  var gap    = Math.floor(shipH * 0.75);
+
+  /* Measure total width */
+  var totalW = 0;
+  for (var fi = 0; fi < sortedFleet.length; fi++) {
+    totalW += sortedFleet[fi].len * shipH;
+    if (fi < sortedFleet.length - 1) totalW += gap;
+  }
+
+  /* If still too wide, shrink shipH to fit */
+  if (totalW > boardAreaW) {
+    /* Solve: sum(len)*shipH + (count-1)*0.75*shipH = boardAreaW
+       shipH * (sumLen + 0.75*(count-1)) = boardAreaW */
+    var sumLen = 0;
+    for (var fi2b = 0; fi2b < sortedFleet.length; fi2b++) sumLen += sortedFleet[fi2b].len;
+    var denom = sumLen + 0.75 * (sortedFleet.length - 1);
+    shipH  = Math.floor(boardAreaW / denom * 0.95);
+    shipY  = Math.floor((H - shipH) / 2);
+    radius = Math.floor(shipH / 2);
+    gap    = Math.floor(shipH * 0.75);
+    totalW = 0;
+    for (var fi2c = 0; fi2c < sortedFleet.length; fi2c++) {
+      totalW += sortedFleet[fi2c].len * shipH;
+      if (fi2c < sortedFleet.length - 1) totalW += gap;
+    }
+  }
+
+  var cx = boardAreaX + Math.floor((boardAreaW - totalW) / 2);
+
+  for (var fi2 = 0; fi2 < sortedFleet.length; fi2++) {
+    var len   = sortedFleet[fi2].len;
+    var need  = sortedFleet[fi2].count;
+    var found = viewCounts[len] || 0;
+    var rem   = need - found;
+    var done  = (rem <= 0);
+    var shipW = len * shipH;
+    var midX  = cx + Math.floor(shipW / 2);
+    var midY  = shipY + Math.floor(shipH / 2);
+
+    /* Ship body */
+    ctx.fillStyle = done ? '#bbb' : '#222';
+    if (len === 1) {
+      ctx.beginPath();
+      ctx.arc(cx + Math.floor(shipH/2), midY, radius, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      bsRoundRect(ctx, cx, shipY, shipW, shipH, radius);
+      ctx.fill();
+    }
+
+    /* Divider lines — full height */
+    if (len > 1) {
+      var lineW = Math.max(1, Math.floor(shipH * 0.07));
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth   = lineW;
+      ctx.lineCap     = 'butt';
+      for (var di = 1; di < len; di++) {
+        var lx = cx + di * shipH;
+        ctx.beginPath();
+        ctx.moveTo(lx, shipY);
+        ctx.lineTo(lx, shipY + shipH);
+        ctx.stroke();
+      }
+    }
+
+    if (done) {
+      /* Tick over whole ship */
+      var tick = Math.floor(shipH * 0.24);
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth   = Math.max(2, Math.floor(shipH * 0.11));
+      ctx.lineCap     = 'round';
+      ctx.lineJoin    = 'round';
+      ctx.beginPath();
+      ctx.moveTo(midX - tick,                   midY);
+      ctx.lineTo(midX - Math.floor(tick * 0.1), midY + Math.floor(tick * 0.75));
+      ctx.lineTo(midX + tick,                   midY - Math.floor(tick * 0.65));
+      ctx.stroke();
+    } else {
+      /* Number in FIRST cell only */
+      var firstMidX = cx + Math.floor(shipH / 2);
+      var fontSize  = Math.floor(shipH * 0.58);
+      ctx.font = 'bold ' + fontSize + 'px Arial,Helvetica,sans-serif';
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle    = '#fff';
+      ctx.fillText('' + rem, firstMidX, midY + Math.floor(fontSize * 0.04));
+    }
+
+    cx += shipW + gap;
+  }
+}
+
+/* ══════════════════════
+   INTERACTION
+   ══════════════════════ */
+
+function bsOnClick(e) {
+  if (bsFinished) return;
+  var rect = bsCanvas.getBoundingClientRect();
+  var scaleX = bsCanvas.width  / (rect.right  - rect.left);
+  var scaleY = bsCanvas.height / (rect.bottom - rect.top);
+  var px = (e.clientX - rect.left)  * scaleX;
+  var py = (e.clientY - rect.top)   * scaleY;
+
+  /* Subtract margin */
+  var gc = Math.floor((px - MARGIN_LEFT) / CELL);
+  var gr = Math.floor((py - MARGIN_TOP)  / CELL);
+  if (gc < 0 || gc >= bsN || gr < 0 || gr >= bsN) return;
+  var idx = gr * bsN + gc;
+  if (bsLocked[idx]) return;
+
+  if (!bsStarted) {
+    bsStarted = true;
+    bsTimerID = setInterval(function(){ bsTimerSec++; bsUpdateTimer(); }, 1000);
+  }
+
+  /* Cycle logic:
+     - Tapping an EMPTY cell → apply bsLastState (remembers what you used last)
+     - Tapping a cell that already has bsLastState → advance to next state
+     - State order: SHIP → MISS → EMPTY (EMPTY just clears) */
+  var cur = bsView[idx];
+  var next;
+  if (cur === EMPTY) {
+    next = bsLastState;
+  } else if (cur === SHIP) {
+    next = MISS;
+    bsLastState = MISS;
+  } else if (cur === MISS) {
+    next = EMPTY;
+    /* keep bsLastState as MISS so next empty cell also starts at MISS */
+  } else {
+    next = EMPTY;
+  }
+  bsView[idx] = next;
+
+  bsDraw();
+
+  if (bsCheckWin()) {
+    bsFinished = true;
+    clearInterval(bsTimerID);
+    var m = Math.floor(bsTimerSec/60), s = bsTimerSec % 60;
+    bsShowWin('HOAN THANH!', (m > 0 ? m + ' phut ' : '') + (s < 10 ? '0' : '') + s + ' giay');
+  }
+}
+
+function bsUpdateTimer() {
+  var m = Math.floor(bsTimerSec/60), s = bsTimerSec%60;
+  document.getElementById('p-timer').textContent =
+    (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+}
+
+function bsShowWin(l1, l2) {
+  document.getElementById('p-win-box').innerHTML = l1 + '<br>' + l2;
+  var ov = document.getElementById('p-overlay');
+  ov.style.width  = bsCanvas.width  + 'px';
+  ov.style.height = bsCanvas.height + 'px';
+  ov.className = 'show';
+}
+
+/* ══════════════════════
+   LEVEL / NEW GAME
+   ══════════════════════ */
+
+function bsSetLevel(lv) {
+  bsLevel = lv;
+  var lvls = ['6x6','6x6H','8x8'];
+  for (var i = 0; i < lvls.length; i++) {
+    var id = 'p-lvl-' + lvls[i].toLowerCase().replace('x','').replace('h','h');
+    /* Use the actual element IDs */
+  }
+  document.getElementById('p-lvl-6').className  = 'hbtn' + (lv==='6x6'  ? ' active' : '');
+  document.getElementById('p-lvl-6h').className = 'hbtn' + (lv==='6x6H' ? ' active' : '');
+  document.getElementById('p-lvl-8').className  = 'hbtn' + (lv==='8x8'  ? ' active' : '');
+  bsNewGame();
+}
+
+function bsNewGame() {
+  clearInterval(bsTimerID);
+  bsTimerSec = 0; bsFinished = false; bsStarted = false; bsLastState = SHIP;
+  bsUpdateTimer();
+
+  bsN = bsLevel === '8x8' ? 8 : 6;
+
+  var fleet = FLEETS[bsLevel];
+  bsGrid   = bsGeneratePuzzle(bsN, fleet);
+  bsLocked = bsPickLocked(bsGrid, bsN, bsLevel);
+
+  /* Compute clues */
+  var clues = bsComputeClues(bsGrid, bsN);
+  bsRowClues = clues.rows;
+  bsColClues = clues.cols;
+
+  /* Ship inventory */
+  bsShipCounts = {};
+  for (var fi = 0; fi < fleet.length; fi++) bsShipCounts[fleet[fi].len] = fleet[fi].count;
+
+  /* Init view with locked cells */
+  bsView = bsMakeEmptyGrid(bsN);
+  for (var i = 0; i < bsN*bsN; i++) if (bsLocked[i]) bsView[i] = SHIP;
+
+  document.getElementById('p-overlay').className = '';
+  bsResize();
+  bsDraw();
+}
+
+/* ══════════════════════
+   RESPONSIVE SCALING
+   ══════════════════════ */
+
+function bsResize() {
+  var vw = window.innerWidth  || document.documentElement.clientWidth;
+  var vh = window.innerHeight || document.documentElement.clientHeight;
+
+  var wrap = document.getElementById('p-wrap');
+  var hdr  = document.querySelector('.p-header');
+  var gap  = 4;
+
+  /* Step 1: compute cell size so board + header + tray all fit in viewport.
+     tray height = cell * 1.1  (ship height ~72% of tray, so ~0.8*cell)
+     header height is real DOM pixels before any transform — measure it.
+     We work in actual screen pixels throughout (no logical 1000px scaling). */
+
+  /* Temporarily set hdr width to vw so offsetHeight is accurate */
+  hdr.style.width = vw + 'px';
+  var hdrH = hdr.offsetHeight || 44;
+
+  var bottomMargin = Math.floor(vh * 0.05);
+
+  /* Compute cell size from both height and width constraints */
+  var trayFrac   = 1.1;
+  var marginFrac = 0.7;
+  var availH = vh - hdrH - 2*gap - bottomMargin;
+  var cellH  = availH / (bsN + trayFrac);
+  var cellW  = vw / (bsN + marginFrac);
+  var cell   = Math.floor(Math.min(cellH, cellW));
+  CELL = cell;
+
+  MARGIN_LEFT = Math.floor(cell * marginFrac);
+  MARGIN_TOP  = Math.floor(cell * marginFrac);
+
+  var boardW = MARGIN_LEFT + bsN * cell;
+  var boardH = MARGIN_TOP  + bsN * cell;
+  var trayH  = Math.floor(cell * trayFrac);
+
+  /* Size canvases */
+  bsCanvas.width  = boardW;
+  bsCanvas.height = boardH;
+  bsCanvas.style.width  = boardW + 'px';
+  bsCanvas.style.height = boardH + 'px';
+
+  document.getElementById('p-board-wrap').style.width  = boardW + 'px';
+  document.getElementById('p-board-wrap').style.height = boardH + 'px';
+
+  bsTrayCanvas.width  = boardW;
+  bsTrayCanvas.height = trayH;
+  bsTrayCanvas.style.width  = boardW + 'px';
+  bsTrayCanvas.style.height = trayH  + 'px';
+
+  /* Set header width to final boardW, re-check its height */
+  hdr.style.width = boardW + 'px';
+  var hdrH2 = hdr.offsetHeight || 44;
+
+  /* Recompute cell using real header height to guarantee bottom gap */
+  var availH2 = vh - hdrH2 - 2*gap - bottomMargin;
+  var cellH2  = availH2 / (bsN + trayFrac);
+  if (cellH2 < cell) {
+    /* header wrapped — shrink cell to fit */
+    cell = Math.floor(Math.min(cellH2, cellW));
+    CELL = cell;
+    MARGIN_LEFT = Math.floor(cell * marginFrac);
+    MARGIN_TOP  = Math.floor(cell * marginFrac);
+    boardW = MARGIN_LEFT + bsN * cell;
+    boardH = MARGIN_TOP  + bsN * cell;
+    trayH  = Math.floor(cell * trayFrac);
+    bsCanvas.width  = boardW; bsCanvas.height = boardH;
+    bsCanvas.style.width  = boardW + 'px'; bsCanvas.style.height = boardH + 'px';
+    document.getElementById('p-board-wrap').style.width  = boardW + 'px';
+    document.getElementById('p-board-wrap').style.height = boardH + 'px';
+    bsTrayCanvas.width  = boardW; bsTrayCanvas.height = trayH;
+    bsTrayCanvas.style.width  = boardW + 'px'; bsTrayCanvas.style.height = trayH + 'px';
+    hdr.style.width = boardW + 'px';
+  }
+
+  /* Header button widths */
+  var btnW = Math.floor(boardW / 5);
+  var btns = document.querySelectorAll('.hbtn');
+  for (var i = 0; i < btns.length; i++) btns[i].style.width = btnW + 'px';
+
+  /* Position: top-aligned, horizontally centered */
+  wrap.style.width = boardW + 'px';
+  var offX = Math.floor((vw - boardW) / 2);
+  wrap.style.position = 'absolute';
+  wrap.style.left = offX + 'px';
+  wrap.style.top  = '0px';
+}
+
+/* ══════════════════════
+   INIT
+   ══════════════════════ */
+
+bsCanvas     = document.getElementById('bs-canvas');
+bsCtx        = bsCanvas.getContext('2d');
+bsTrayCanvas = document.getElementById('bs-tray-canvas');
+bsTrayCtx    = bsTrayCanvas.getContext('2d');
+
+bsCanvas.addEventListener('click', bsOnClick, false);
+
+/* Touch support */
+bsCanvas.addEventListener('touchend', function(e) {
+  e.preventDefault();
+  if (e.changedTouches && e.changedTouches.length > 0) {
+    var t = e.changedTouches[0];
+    bsOnClick({ clientX: t.clientX, clientY: t.clientY });
+  }
+}, false);
+
+bsNewGame();
+
+if (window.addEventListener) {
+  window.addEventListener('resize', function() {
+    bsResize();
+    bsDraw();
+  }, false);
+  window.addEventListener('orientationchange', function() {
+    setTimeout(function(){ bsResize(); bsDraw(); }, 100);
+  }, false);
+}
+</script>
+</body>
+</html>
