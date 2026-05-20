@@ -1,0 +1,3457 @@
+<!DOCTYPE html>
+<!--
+=========================================================
+   CHESSLIKE ENGINE ChessChat1
+---------------------------------------------------------
+   Lightweight JavaScript chess engine optimized for:
+   - Old browsers / ES5-style JavaScript
+   - Kindle and other low-power devices
+   - Single-file offline gameplay
+
+---------------------------------------------------------
+   ENGINE FEATURES
+---------------------------------------------------------
+
+   [Search]
+   - Negamax + Alpha-Beta
+   - Iterative Deepening
+   - Aspiration Windows
+   - Quiescence Search
+
+   [Move Ordering]
+   - MVV-LVA
+   - Killer Moves
+   - History Heuristic
+   - Hash Move Ordering
+
+   [Optimizations]
+   - Zobrist Hashing
+   - Transposition Table
+   - Null Move Pruning
+   - Late Move Reduction
+   - Delta Pruning
+   - Time-Limited Search
+   - Incremental Hash Updates
+
+   [Evaluation]
+   - Material Count
+   - Piece-Square Tables
+   - Tapered Midgame/Endgame Evaluation
+   - Mobility Evaluation
+   - Pawn Structure Evaluation
+   - Passed Pawn Bonus
+   - King Safety Evaluation
+
+   [Game Features]
+   - Opening Book
+   - Root Blunder Guard
+   - Adaptive Difficulty / Ranking
+   - Move Feedback
+   - Captured-Piece Display
+   - AI Chat
+   - Conditional Draw Offer
+   - Conditional Resignation
+
+---------------------------------------------------------
+   APPROXIMATE PLAYING STRENGTH
+---------------------------------------------------------
+
+   Level 1  : ~300-500 Elo
+   Level 2  : ~500-650 Elo
+   Level 3  : ~650-800 Elo
+   Level 4  : ~800-950 Elo
+   Level 5  : ~950-1100 Elo
+   Level 6  : ~1100-1250 Elo
+   Level 7  : ~1200-1350 Elo
+   Level 8  : ~1300-1450 Elo
+   Level 9  : ~1400-1550 Elo
+   Level 10 : ~1500-1700 Elo
+
+   Approximate human-equivalent Elo.
+   Actual strength depends heavily on browser and device speed.
+
+---------------------------------------------------------
+   DESIGN GOALS
+---------------------------------------------------------
+   - Human-like play
+   - Fast response on weak hardware
+   - Minimal memory usage
+   - High compatibility with old browsers
+   - Fully self-contained single HTML file
+
+=========================================================
+-->
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>ChessChat1</title>
+<style>
+html { font-size: 16px; }
+* { -webkit-box-sizing: border-box; box-sizing: border-box; margin: 0; padding: 0; }
+select, button, input {
+  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
+}
+body {
+  background: #fff; color: #000;
+  font-family: Georgia, 'Times New Roman', serif;
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-box-orient: vertical;
+  -webkit-box-direction: normal;
+  -webkit-flex-direction: column;
+  flex-direction: column;
+  -webkit-box-align: center;
+  -webkit-align-items: center;
+  align-items: center;
+  padding: 12px 8px 28px;
+  min-height: 100%;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+}
+
+/* ── CONTROLS: table layout for max compatibility ── */
+.ctrl-wrap {
+  width: 100%;
+  max-width: 1000px;
+  margin: 0 auto 8px auto;
+}
+.ctrl-row {
+  display: table;
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.ctrl-cell {
+  display: table-cell;
+  vertical-align: middle;
+}
+.ctrl-cell.cell-elo   { width: 33.33%; }
+.ctrl-cell.cell-color { width: 33.33%; }
+.ctrl-cell.cell-new   { width: 33.34%; }
+.rank-display {
+  display: block;
+  width: 100%;
+  height: 55px;
+  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
+  border: 3px solid #000;
+  font-family: Georgia, serif; font-size: 1.05rem; font-weight: bold;
+  background: #fff;
+  text-align: center;
+  line-height: 55px;
+  letter-spacing: 2px;
+}
+.rank-sel {
+  width: 100%; height: 55px;
+  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
+  border: 3px solid #000; padding: 0 4px;
+  font-family: Georgia, serif; font-size: 0.95rem; font-weight: bold;
+  background: #fff; cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+  text-align: center; text-align-last: center;
+}
+/* Thanh quân bị ăn */
+.captured-bar {
+  width: 100%; height: 55px;
+  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
+  border: 3px solid #000;
+  background: #fff;
+  display: none;
+  position: relative;
+  line-height: 55px;
+  overflow: hidden;
+}
+.cap-black { /* quân đen bị ăn — căn trái */
+  position: absolute; left: 4px; top: 0;
+  letter-spacing: -2px;
+}
+.cap-center { /* quân vừa bị ăn — hiện ở giữa, cao hơn */
+  position: absolute; left: 50%;
+  top: 0px;  /* gần viền trên */
+  -webkit-transform: translateX(-50%);
+  transform: translateX(-50%);
+}
+.cap-white { /* quân trắng bị ăn — căn phải */
+  position: absolute; right: 4px; top: 0;
+  letter-spacing: -2px;
+}
+.cap-piece {
+  display: inline-block;
+  font-size: 1.8rem;
+  line-height: 55px;
+  vertical-align: top;
+}
+.cap-piece.new {
+  font-size: 3.5rem;
+  line-height: 55px;
+}
+.btn {
+  width: 100%;
+  height: 55px;
+  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
+  border: 3px solid #000; border-left: none;
+  background: #000; color: #fff;
+  font-size: 1rem; font-weight: bold; padding: 0 4px;
+  cursor: pointer; font-family: Georgia, serif;
+  text-transform: uppercase; text-align: center;
+}
+.btn:active { background: #444; }
+/* Nút Thua/Mới khi đang thua nặng — chia đôi cell-new */
+.btn-split {
+  display: -webkit-box; display: -ms-flexbox; display: flex;
+  width: 100%; height: 55px;
+  -webkit-box-sizing: border-box; box-sizing: border-box;
+}
+.btn-split .btn {
+  width: 50%; height: 55px; font-size: 0.85rem;
+}
+.btn-split .btn-resign {
+  background: #fff; color: #000; border-left: none;
+}
+.btn-split .btn-resign:active { background: #ddd; }
+.btn-split .btn-new { border-left: 3px solid #000; }
+.clr-btn {
+  width: 100%;
+  height: 55px;
+  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
+  border: 3px solid #000; border-left: none;
+  background: #fff;
+  font-family: Georgia, serif; font-size: 1rem; font-weight: bold;
+  text-transform: uppercase; padding: 0 4px; cursor: pointer; text-align: center;
+}
+.clr-btn.active { background: #000; color: #fff; }
+.clr-btn:active { background: #ccc; }
+
+/* ── STATUS ── */
+.status {
+  width: 100%; max-width: 1000px;
+  border: 3px solid #000; padding: 8px 12px;
+  font-size: 1rem; font-weight: bold; text-align: center;
+  margin-bottom: 6px; min-height: 36px; line-height: 1.4;
+}
+.status.check    { background: #666; color: #fff; }
+.status.gameover { background: #000; color: #fff; }
+.status.thinking { background: #ddd; }
+.status.brilliant{ background: #000; color: #fff; }   /* !! */
+.status.great    { background: #333; color: #fff; }   /* !  */
+.status.best     { background: #555; color: #fff; }   /* ★  */
+.status.mistake  { background: #888; color: #fff; }   /* ?  */
+.status.blunder  { background: #444; color: #fff; }   /* ?? */
+
+/* Stats cuối ván */
+.stats-box {
+  width: 100%; max-width: 1000px;
+  border: 3px solid #000; padding: 8px 12px;
+  font-size: 0.95rem; text-align: center;
+  margin-bottom: 6px; background: #f0f0f0;
+  display: none;
+}
+.stats-row { margin: 2px 0; }
+
+/* ── BOARD ── */
+.board-outer { width: 100%; max-width: 1000px; }
+.board {
+  display: block;
+  overflow: hidden;
+  border: 3px solid #000;
+  width: 100%;
+}
+.sq {
+  float: left;
+  width: 12.5%;
+  position: relative;
+  cursor: pointer;
+  text-align: center;
+  border: 0.5px solid #bbb;
+  overflow: hidden;
+}
+.sq.lite { background: #fff; }
+.sq.dark { background: #d0d0d0; }
+.sq.lm-f { background: #a0a0a0; }
+.sq.lm-t { background: #a0a0a0; }
+.sq.chk  { background: #888 !important; }
+.sq.sel  { background: #555 !important; }
+.sq.sel .piece { color: #fff !important; }
+.dot-marker {
+  position: absolute;
+  width: 30%; height: 30%;
+  -webkit-border-radius: 50%;
+  border-radius: 50%;
+  background: #aaa;
+  z-index: 1; pointer-events: none;
+  top: 35%; left: 35%;
+}
+.dot-marker.hidden { display: none; }
+.ring-marker {
+  position: absolute;
+  top: 3px; right: 3px; bottom: 3px; left: 3px;
+  -webkit-border-radius: 50%;
+  border-radius: 50%;
+  border: 3px solid #888;
+  z-index: 1; pointer-events: none;
+}
+.ring-marker.hidden { display: none; }
+.piece {
+  z-index: 2; pointer-events: none;
+  color: #000; position: relative; display: block;
+}
+
+/* ── MOVE HISTORY ── */
+.history {
+  width: 100%; max-width: 1000px;
+  border: 3px solid #000; border-top: none;
+  padding: 6px 10px;
+  font-size: 1rem;
+  font-family: 'Courier New', monospace;
+  min-height: 32px; color: #000;
+  word-wrap: break-word;
+}
+
+/* ── TIMING LOG ── */
+.timing-log {
+  width: 100%; max-width: 1000px;
+  border: 3px solid #000; border-top: none;
+  padding: 4px 8px;
+  font-size: 0.72rem;
+  font-family: 'Courier New', monospace;
+  color: #333;
+  background: #f8f8f8;
+  min-height: 24px;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+.timing-log-row {
+  padding: 2px 0;
+  border-bottom: 1px solid #ddd;
+  line-height: 1.4;
+}
+.timing-log-row:last-child { border-bottom: none; }
+.tl-label { color: #666; }
+.tl-val   { color: #000; font-weight: bold; }
+.tl-slow  { color: #000; font-weight: bold; text-decoration: underline; }
+.tl-turn  { color: #888; font-size: 0.68rem; margin-right: 4px; }
+
+/* ── PROMO DIALOG ── */
+.promo-bg {
+  position: fixed;
+  top: 0; right: 0; bottom: 0; left: 0;
+  background: #444;
+  display: none;
+  -webkit-box-align: center;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  z-index: 200;
+}
+.promo-bg.show {
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+}
+.promo-box {
+  background: #fff; border: 4px solid #000; padding: 18px; text-align: center;
+}
+.promo-box p { font-size: 1rem; font-weight: bold; margin-bottom: 12px; }
+.promo-row {
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+}
+.promo-btn {
+  width: 74px; height: 74px; border: 3px solid #000;
+  background: #fff; font-size: 2.6rem;
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-box-align: center;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  cursor: pointer; line-height: 1;
+  margin-right: 8px;
+}
+.promo-btn:last-child { margin-right: 0; }
+.promo-btn:active { background: #ddd; }
+</style>
+</head>
+<body>
+
+<div class="ctrl-wrap">
+<div class="ctrl-row">
+  <div class="ctrl-cell cell-elo">
+    <select class="rank-sel" id="rank-sel" onchange="onRankSelect(this.value)">
+      <option value="0">Cấp 1</option>
+      <option value="1">Cấp 2</option>
+      <option value="2">Cấp 3</option>
+      <option value="3">Cấp 4</option>
+      <option value="4">Cấp 5</option>
+      <option value="5">Cấp 6</option>
+      <option value="6">Cấp 7</option>
+      <option value="7" selected>Cấp 8</option>
+      <option value="8">Cấp 9</option>
+      <option value="9">Cấp 10</option>
+    </select>
+    <div class="rank-display" id="rank-display" style="display:none">Cấp 4</div>
+  </div>
+  <div class="ctrl-cell cell-color">
+    <button class="clr-btn" id="clr-toggle" onclick="toggleColor()">&#9812; Đổi bên</button>
+    <div class="captured-bar" id="captured-bar">
+      <span class="cap-black" id="cap-black"></span>
+      <span class="cap-center" id="cap-center"></span>
+      <span class="cap-white" id="cap-white"></span>
+    </div>
+  </div>
+  <div class="ctrl-cell cell-new">
+    <button class="btn" id="main-btn" onclick="onMainButton()">Ván mới</button>
+    <div class="btn-split" id="split-btn" style="display:none">
+      <button class="btn btn-resign" onclick="playerResign()">Thua</button>
+      <button class="btn btn-new" onclick="newGame()">Mới</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="status" id="status">Lượt của bạn — Trắng</div>
+<div class="stats-box" id="stats-box"></div>
+
+<div class="board-outer">
+  <div class="board" id="board"></div>
+</div>
+
+<div class="history" id="history">—</div>
+
+<div class="timing-log" id="timing-log"></div>
+
+<div class="promo-bg" id="promo-bg">
+  <div class="promo-box">
+    <p>Chọn quân phong cấp</p>
+    <div class="promo-row" id="promo-row"></div>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════
+   CONSTANTS
+   ═══════════════════════════════════════════════════ */
+var E=0, WP=1,WN=2,WB=3,WR=4,WQ=5,WK=6;
+var BP=-1,BN=-2,BB=-3,BR=-4,BQ=-5,BK=-6;
+var W=1, B=-1;
+var INF=1e8, MATE=900000;
+
+/* ── Endgame Conversion config ── */
+var EG_ENABLE           = true;
+var EG_WINNING_EVAL     = 1200;
+var EG_OPP_MAX_MATERIAL = 1400;
+var EG_BONUS_CHECK      = 220;
+var EG_BONUS_PAWN_PUSH  = 80;
+var EG_BONUS_ADV_PAWN   = 160;
+var EG_BONUS_PROMOTION  = 2000;
+var EG_BONUS_CAPTURE    = 140;
+var EG_BONUS_SIMPLIFY   = 180;
+var EG_PENALTY_BACKWARD = 90;
+var EG_KING_SHUFFLE     = 120;
+var EG_SAFETY_SCALE     = 0.35;
+
+var PVAL=[0,100,320,330,500,900,20000];
+
+var SYM=[null,
+  ['\u2659','\u265F'],
+  ['\u2658','\u265E'],
+  ['\u2657','\u265D'],
+  ['\u2656','\u265C'],
+  ['\u2655','\u265B'],
+  ['\u2654','\u265A']
+];
+
+/* ═══════════════════════════════════════════════════
+   TIMING LOG (TEST BUILD)
+   ═══════════════════════════════════════════════════ */
+var _tLog = {};
+var _tResult = [];
+var _tTurnNum = 0;
+var _MAX_LOG_ROWS = 12;
+var UI_AFTER_MOVE_DELAY = 650;
+
+function tStart(label) { _tLog[label] = Date.now(); }
+
+function tEnd(label) {
+  if(!_tLog[label]) return;
+  var ms = Date.now() - _tLog[label];
+  _tResult.push({label: label, ms: ms});
+  delete _tLog[label];
+}
+
+function tMark(label) { _tResult.push({label: label, ms: -1}); }
+
+function tFlush(extraLabel) {
+  if(extraLabel) _tResult.push({label: extraLabel, ms: -1});
+  var el = document.getElementById('timing-log');
+  if(!el) return;
+  _tTurnNum++;
+  var parts = [];
+  for(var i = 0; i < _tResult.length; i++) {
+    var r = _tResult[i];
+    if(r.ms < 0) {
+      parts.push('[' + r.label + ']');
+    } else {
+      parts.push(r.label + '(' + r.ms + 'ms)');
+    }
+  }
+  var row = document.createElement('div');
+  row.className = 'timing-log-row';
+  row.textContent = '#' + _tTurnNum + ' ' + parts.join('.');
+  if(el.firstChild) el.insertBefore(row, el.firstChild);
+  else el.appendChild(row);
+  var rows = el.getElementsByTagName('div');
+  while(rows.length > _MAX_LOG_ROWS) el.removeChild(el.lastChild);
+  _tResult = [];
+}
+
+function tReset() {
+  _tLog = {}; _tResult = []; _tTurnNum = 0;
+  var el = document.getElementById('timing-log');
+  if(el) el.innerHTML = '';
+}
+
+/* ═══════════════════════════════════════════════════
+   TAPERED EVALUATION — PST Midgame + Endgame
+   Trộn 2 bảng dựa theo vật chất còn lại trên bàn.
+   Vua endgame: xông ra trung tâm thay vì trốn góc.
+   ═══════════════════════════════════════════════════ */
+/* Midgame PST — từng quân, từ góc nhìn Trắng (rank 0 = rank 1) */
+var PST_MG=[null,
+/* Tốt MG */
+[0,0,0,0,0,0,0,0,
+ 50,50,50,50,50,50,50,50,
+ 10,10,20,30,30,20,10,10,
+ 5,5,10,25,25,10,5,5,
+ 0,0,0,20,20,0,0,0,
+ 5,-5,-10,0,0,-10,-5,5,
+ 5,10,10,-20,-20,10,10,5,
+ 0,0,0,0,0,0,0,0],
+/* Mã MG */
+[-50,-40,-30,-30,-30,-30,-40,-50,
+ -40,-20,0,0,0,0,-20,-40,
+ -30,0,10,15,15,10,0,-30,
+ -30,5,15,20,20,15,5,-30,
+ -30,0,15,20,20,15,0,-30,
+ -30,5,10,15,15,10,5,-30,
+ -40,-20,0,5,5,0,-20,-40,
+ -50,-40,-30,-30,-30,-30,-40,-50],
+/* Tượng MG */
+[-20,-10,-10,-10,-10,-10,-10,-20,
+ -10,0,0,0,0,0,0,-10,
+ -10,0,5,10,10,5,0,-10,
+ -10,5,5,10,10,5,5,-10,
+ -10,0,10,10,10,10,0,-10,
+ -10,10,10,10,10,10,10,-10,
+ -10,5,0,0,0,0,5,-10,
+ -20,-10,-10,-10,-10,-10,-10,-20],
+/* Xe MG */
+[0,0,0,0,0,0,0,0,
+ 5,10,10,10,10,10,10,5,
+ -5,0,0,0,0,0,0,-5,
+ -5,0,0,0,0,0,0,-5,
+ -5,0,0,0,0,0,0,-5,
+ -5,0,0,0,0,0,0,-5,
+ -5,0,0,0,0,0,0,-5,
+ 0,0,0,5,5,0,0,0],
+/* Hậu MG */
+[-20,-10,-10,-5,-5,-10,-10,-20,
+ -10,0,0,0,0,0,0,-10,
+ -10,0,5,5,5,5,0,-10,
+ -5,0,5,5,5,5,0,-5,
+ 0,0,5,5,5,5,0,-5,
+ -10,5,5,5,5,5,0,-10,
+ -10,0,5,0,0,0,0,-10,
+ -20,-10,-10,-5,-5,-10,-10,-20],
+/* Vua MG — trốn góc, tránh trung tâm */
+[-30,-40,-40,-50,-50,-40,-40,-30,
+ -30,-40,-40,-50,-50,-40,-40,-30,
+ -30,-40,-40,-50,-50,-40,-40,-30,
+ -30,-40,-40,-50,-50,-40,-40,-30,
+ -20,-30,-30,-40,-40,-30,-30,-20,
+ -10,-20,-20,-20,-20,-20,-20,-10,
+ 20,20,0,0,0,0,20,20,
+ 20,30,10,0,0,10,30,20]
+];
+
+/* Endgame PST */
+var PST_EG=[null,
+/* Tốt EG — thúc tốt lên hàng 7-8 rất quan trọng */
+[0,0,0,0,0,0,0,0,
+ 80,80,80,80,80,80,80,80,
+ 30,30,30,30,30,30,30,30,
+ 20,20,20,20,20,20,20,20,
+ 10,10,10,10,10,10,10,10,
+ 5,5,5,5,5,5,5,5,
+ 0,0,0,0,0,0,0,0,
+ 0,0,0,0,0,0,0,0],
+/* Mã EG */
+[-50,-40,-30,-30,-30,-30,-40,-50,
+ -40,-20,0,0,0,0,-20,-40,
+ -30,0,10,15,15,10,0,-30,
+ -30,5,15,20,20,15,5,-30,
+ -30,0,15,20,20,15,0,-30,
+ -30,5,10,15,15,10,5,-30,
+ -40,-20,0,5,5,0,-20,-40,
+ -50,-40,-30,-30,-30,-30,-40,-50],
+/* Tượng EG */
+[-20,-10,-10,-10,-10,-10,-10,-20,
+ -10,0,0,0,0,0,0,-10,
+ -10,0,5,10,10,5,0,-10,
+ -10,5,5,10,10,5,5,-10,
+ -10,0,10,10,10,10,0,-10,
+ -10,10,10,10,10,10,10,-10,
+ -10,5,0,0,0,0,5,-10,
+ -20,-10,-10,-10,-10,-10,-10,-20],
+/* Xe EG */
+[0,0,0,0,0,0,0,0,
+ 5,10,10,10,10,10,10,5,
+ -5,0,0,0,0,0,0,-5,
+ -5,0,0,0,0,0,0,-5,
+ -5,0,0,0,0,0,0,-5,
+ -5,0,0,0,0,0,0,-5,
+ -5,0,0,0,0,0,0,-5,
+ 0,0,0,5,5,0,0,0],
+/* Hậu EG */
+[-20,-10,-10,-5,-5,-10,-10,-20,
+ -10,0,0,0,0,0,0,-10,
+ -10,0,5,5,5,5,0,-10,
+ -5,0,5,5,5,5,0,-5,
+ 0,0,5,5,5,5,0,-5,
+ -10,5,5,5,5,5,0,-10,
+ -10,0,5,0,0,0,0,-10,
+ -20,-10,-10,-5,-5,-10,-10,-20],
+/* Vua EG — xông ra trung tâm */
+[-50,-40,-30,-20,-20,-30,-40,-50,
+ -30,-20,-10,0,0,-10,-20,-30,
+ -30,-10,20,30,30,20,-10,-30,
+ -30,-10,30,40,40,30,-10,-30,
+ -30,-10,30,40,40,30,-10,-30,
+ -30,-10,20,30,30,20,-10,-30,
+ -30,-30,0,0,0,0,-30,-30,
+ -50,-30,-30,-30,-30,-30,-30,-50]
+];
+
+/* Tổng vật chất tối đa để tính phase (không tính Vua & Tốt) */
+var PHASE_MAX = 2*(320+320+330+330+500+500+900);  /* = 6400 */
+
+/* ── Eval tuning constants ── */
+var HANGING_PENALTY     = 0.70;  /* Quân treo: phạt 70% giá trị */
+var PASSED_PAWN_SCALE   = 1.6;   /* Nhân bonus tốt thông lên ×1.6 */
+var BISHOP_PAIR_BONUS   = 40;    /* Có đủ 2 tượng → +40cp */
+var EARLY_QUEEN_PENALTY = 45;    /* Hậu ra sớm khi còn minor chưa phát triển */
+var CASTLING_URGENCY    = 50;    /* Chưa nhập thành trong midgame → phạt tuyến tính */
+
+var ELO_CFG=[
+  {d:2, rnd:0.75},  /* Cấp 1  — ~600  Elo */
+  {d:2, rnd:0.55},  /* Cấp 2  — ~700  Elo */
+  {d:2, rnd:0.35},  /* Cấp 3  — ~800  Elo */
+  {d:3, rnd:0.22},  /* Cấp 4  — ~950  Elo */
+  {d:3, rnd:0.12},  /* Cấp 5  — ~1100 Elo */
+  {d:3, rnd:0.04},  /* Cấp 6  — ~1250 Elo */
+  {d:4, rnd:0.02},  /* Cấp 7  — ~1400 Elo */
+  {d:4, rnd:0.00},  /* Cấp 8  — ~1550 Elo */
+  {d:5, rnd:0.00},  /* Cấp 9  — ~1700 Elo */
+  {d:5, rnd:0.00}   /* Cấp 10 — ~1850 Elo, time limit cao hơn */
+];
+
+/* Time limit per move (ms) */
+var AI_TIME_LIMIT = 3500;
+var aiTimedOut = false;
+var aiStartTime = 0;
+var aiNodeCount = 0;          /* đếm node để tránh gọi Date.now() mỗi node */
+var AI_CHECK_INTERVAL = 64;   /* PPW3 chậm — check timeout thường xuyên hơn, giảm overshoot */
+
+/* Yield cho browser render xong rồi mới chạy fn
+   Dùng rAF nếu có (kể cả webkit prefix), fallback setTimeout 100ms */
+var _rAF = window.requestAnimationFrame || window.webkitRequestAnimationFrame || null;
+var afterPaint = _rAF
+  ? function(fn){ _rAF(function(){ setTimeout(fn, 0); }); }
+  : function(fn){ setTimeout(fn, 100); };
+
+/* ── Counters đo hiệu năng — reset mỗi lần bestMove ── */
+var cntLMR = 0;        /* số lần LMR được áp dụng (reduce) */
+var cntLMRresearch = 0;/* số lần LMR phải research lại vì s > alpha */
+var cntQnode = 0;      /* số node trong qsearch */
+var cntNMPcut = 0;     /* số lần null-move pruning cắt được beta */
+
+/* ═══════════════════════════════════════════════════
+   ZOBRIST HASHING
+   Dùng số ngẫu nhiên 32-bit cố định (seed LCG).
+   Bảng: ZK[piece+6][square] — piece từ -6..6 (bỏ 0)
+   Thêm: ZK_SIDE (lượt), ZK_EP[sq], ZK_CAS[0..15]
+   ═══════════════════════════════════════════════════ */
+var ZK_PIECE = [];   /* [13][64] — index 0..12 map piece+6 */
+var ZK_SIDE;
+var ZK_EP   = [];    /* [64] */
+var ZK_CAS  = [];    /* [16] */
+
+(function initZobrist(){
+  /* LCG 32-bit: đủ ngẫu nhiên, không cần crypto */
+  var s = 1804289383;
+  function rnd(){
+    s = (Math.imul ? Math.imul(s, 1664525) : (s * 1664525)) + 1013904223;
+    s = s & 0x7fffffff;  /* giữ dương, 31 bit */
+    return s;
+  }
+  var i, j;
+  for(i=0;i<13;i++){
+    ZK_PIECE[i]=[];
+    for(j=0;j<64;j++) ZK_PIECE[i][j]=rnd();
+  }
+  ZK_SIDE=rnd();
+  for(i=0;i<64;i++) ZK_EP[i]=rnd();
+  for(i=0;i<16;i++) ZK_CAS[i]=rnd();
+})();
+
+/* Map piece (-6..-1, 1..6) → index 0..12 */
+function pidx(p){ return p+6; }
+
+/* Tính hash từ đầu (dùng khi newGame) */
+function computeHash(board, turn, ep, casB){
+  var h=0, i, p;
+  for(i=0;i<64;i++){
+    p=board[i];
+    if(p) h ^= ZK_PIECE[pidx(p)][i];
+  }
+  if(turn===W) h ^= ZK_SIDE;
+  if(ep>=0) h ^= ZK_EP[ep];
+  h ^= ZK_CAS[casB & 15];
+  return h;
+}
+
+/* ═══════════════════════════════════════════════════
+   TRANSPOSITION TABLE — Zobrist, kích thước cố định
+   Dùng 2^14 = 16384 slot (~1MB) — phù hợp RAM Kindle.
+   Mỗi entry: { hash, depth, flag, score, move }
+   flag: 0=EXACT, 1=ALPHA(upper), 2=BETA(lower)
+   ═══════════════════════════════════════════════════ */
+var TT_SIZE = 16384;   /* 2^14 */
+var TT_MASK = TT_SIZE - 1;
+var TT = [];
+(function(){ for(var i=0;i<TT_SIZE;i++) TT[i]=null; })();
+
+var TT_EXACT=0, TT_ALPHA=1, TT_BETA=2;
+
+function ttStore(hash, depth, flag, score, move){
+  var idx = hash & TT_MASK;
+  var e = TT[idx];
+  /* Replacement: luôn thay nếu depth >= cũ, hoặc slot trống */
+  if(!e || depth >= e.depth){
+    TT[idx] = {h:hash, depth:depth, flag:flag, score:score, move:move};
+  }
+}
+
+function ttProbe(hash, depth, alpha, beta){
+  var idx = hash & TT_MASK;
+  var e = TT[idx];
+  if(!e || e.h !== hash || e.depth < depth) return null;
+  if(e.flag === TT_EXACT) return e.score;
+  if(e.flag === TT_ALPHA && e.score <= alpha) return alpha;
+  if(e.flag === TT_BETA  && e.score >= beta)  return beta;
+  return null;
+}
+
+function ttGetMove(hash){
+  var idx = hash & TT_MASK;
+  var e = TT[idx];
+  if(e && e.h === hash) return e.move;
+  return null;
+}
+
+function ttClear(){
+  for(var i=0;i<TT_SIZE;i++) TT[i]=null;
+}
+
+/* ═══════════════════════════════════════════════════
+   KILLER MOVES — 2 killer mỗi độ sâu, tối đa 20 ply
+   ═══════════════════════════════════════════════════ */
+var MAX_PLY = 20;
+var killers = [];  /* killers[ply] = [mv1, mv2] */
+(function(){ for(var i=0;i<MAX_PLY;i++) killers[i]=[null,null]; })();
+
+function killerClear(){
+  for(var i=0;i<MAX_PLY;i++){ killers[i][0]=null; killers[i][1]=null; }
+}
+
+function killerStore(ply, mv){
+  if(killers[ply][0] && mvEq(killers[ply][0], mv)) return;
+  killers[ply][1] = killers[ply][0];
+  killers[ply][0] = mv;
+}
+
+function mvEq(a, b){
+  return a && b && a[0]===b[0] && a[1]===b[1] && a[3]===b[3] && a[4]===b[4];
+}
+
+/* ═══════════════════════════════════════════════════
+   HISTORY HEURISTIC — bảng [from][to] đếm beta-cutoff
+   Giúp sắp xếp quiet moves tốt hơn killer đơn thuần.
+   ═══════════════════════════════════════════════════ */
+var histTable = [];  /* [64][64] */
+(function(){
+  var i, j;
+  for(i=0;i<64;i++){ histTable[i]=[]; for(j=0;j<64;j++) histTable[i][j]=0; }
+})();
+
+function histClear(){
+  var i, j;
+  for(i=0;i<64;i++) for(j=0;j<64;j++) histTable[i][j]=0;
+}
+
+function histUpdate(mv, depth){
+  var bonus = depth*depth;
+  histTable[mv[0]][mv[1]] += bonus;
+  /* Giới hạn tối đa để tránh overflow và giữ tương đối */
+  if(histTable[mv[0]][mv[1]] > 60000) histTable[mv[0]][mv[1]] = 60000;
+}
+
+/* ═══════════════════════════════════════════════════
+   BOARD HELPERS
+   ═══════════════════════════════════════════════════ */
+function rk(s){return s>>3;}
+function fl(s){return s&7;}
+function sq(r,f){return(r<<3)|f;}
+function ob(r,f){return r>=0&&r<8&&f>=0&&f<8;}
+function col(p){return p>0?W:p<0?B:0;}
+function typ(p){return p<0?-p:p;}
+
+/* Stack hash theo ply trong search — dùng push/pop để backtrack đúng */
+var searchStack = [];
+var DIRS_B = [[-1,-1],[-1,1],[1,-1],[1,1]];
+var DIRS_R = [[-1,0],[1,0],[0,-1],[0,1]];
+var DIRS_Q = [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]];
+var DIRS_K = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+var DIRS_N = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
+var PIECE_DIRS  = [null, null, DIRS_N, DIRS_B, DIRS_R, DIRS_Q, DIRS_K];
+
+
+/* ═══════════════════════════════════════════════════
+   MOVE GENERATION
+   casB: castling bitmask integer (CAS_WK/WQ/BK/BQ)
+   ═══════════════════════════════════════════════════ */
+function genPseudo(board, turn, ep, casB) {
+  var mv=[];
+  var i, from, p, r, f, t, dirs, d, nr, nf, to3, tgt;
+  for(from=0;from<64;from++){
+    p=board[from];
+    if(!p||col(p)!==turn) continue;
+    r=rk(from); f=fl(from); t=typ(p);
+
+    if(t===1){
+      var dir=turn, sr=turn===W?1:6, pr=turn===W?7:0;
+      var r1=r+dir;
+      if(ob(r1,f)&&!board[sq(r1,f)]){
+        var to=sq(r1,f);
+        if(r1===pr){
+          mv.push([from,to,0,turn*WQ,0,-1,-1]);
+          mv.push([from,to,0,turn*WR,0,-1,-1]);
+          mv.push([from,to,0,turn*WB,0,-1,-1]);
+          mv.push([from,to,0,turn*WN,0,-1,-1]);
+        } else {
+          mv.push([from,to,0,0,0,-1,-1]);
+          if(r===sr&&!board[sq(r1+dir,f)])
+            mv.push([from,sq(r1+dir,f),0,0,0,-1,to]);
+        }
+      }
+      for(i=0;i<2;i++){
+        var df=i===0?-1:1;
+        if(!ob(r1,f+df)) continue;
+        var to2=sq(r1,f+df), cap=board[to2], isEP=(to2===ep);
+        if((cap&&col(cap)===-turn)||isEP){
+          var epc=isEP?sq(r,f+df):-1, ecap=isEP?board[sq(r,f+df)]:cap;
+          if(r1===pr){
+            mv.push([from,to2,ecap,turn*WQ,0,epc,-1]);
+            mv.push([from,to2,ecap,turn*WR,0,epc,-1]);
+            mv.push([from,to2,ecap,turn*WB,0,epc,-1]);
+            mv.push([from,to2,ecap,turn*WN,0,epc,-1]);
+          } else {
+            mv.push([from,to2,ecap,0,0,epc,-1]);
+          }
+        }
+      }
+    } else if(t===6){
+      dirs=DIRS_K;
+      for(i=0;i<8;i++){
+        nr=r+dirs[i][0]; nf=f+dirs[i][1];
+        if(ob(nr,nf)&&col(board[sq(nr,nf)])!==turn)
+          mv.push([from,sq(nr,nf),board[sq(nr,nf)],0,0,-1,-1]);
+      }
+      if(turn===W&&from===4){
+        if((casB&CAS_WK)&&!board[5]&&!board[6]&&board[7]===WR) mv.push([4,6,0,0,'WK',-1,-1]);
+        if((casB&CAS_WQ)&&!board[3]&&!board[2]&&!board[1]&&board[0]===WR) mv.push([4,2,0,0,'WQ',-1,-1]);
+      }
+      if(turn===B&&from===60){
+        if((casB&CAS_BK)&&!board[61]&&!board[62]&&board[63]===BR) mv.push([60,62,0,0,'BK',-1,-1]);
+        if((casB&CAS_BQ)&&!board[59]&&!board[58]&&!board[57]&&board[56]===BR) mv.push([60,58,0,0,'BQ',-1,-1]);
+      }
+    } else if(t===2){
+      dirs=DIRS_N;
+      for(i=0;i<8;i++){
+        nr=r+dirs[i][0]; nf=f+dirs[i][1];
+        if(ob(nr,nf)&&col(board[sq(nr,nf)])!==turn)
+          mv.push([from,sq(nr,nf),board[sq(nr,nf)],0,0,-1,-1]);
+      }
+    } else {
+      /* Tượng (3), Xe (4), Hậu (5) — quân trượt */
+      dirs=PIECE_DIRS[t];
+      var dlen=(t===3||t===4)?4:8;
+      for(i=0;i<dlen;i++){
+        nr=r+dirs[i][0]; nf=f+dirs[i][1];
+        while(ob(nr,nf)){
+          to3=sq(nr,nf); tgt=board[to3];
+          if(col(tgt)===turn) break;
+          mv.push([from,to3,tgt,0,0,-1,-1]);
+          if(tgt) break;
+          nr+=dirs[i][0]; nf+=dirs[i][1];
+        }
+      }
+    }
+  }
+  return mv;
+}
+
+function attacked(board, sq2, byCol) {
+  var r=rk(sq2),f=fl(sq2);
+  var i, nr, nf, pp;
+  for(var df=-1;df<=1;df+=2){
+    var pr=r-byCol,pf=f+df;
+    if(ob(pr,pf)&&board[sq(pr,pf)]===byCol) return true;
+  }
+  var kd=[[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
+  for(i=0;i<kd.length;i++){
+    nr=r+kd[i][0]; nf=f+kd[i][1];
+    if(ob(nr,nf)&&board[sq(nr,nf)]===byCol*2) return true;
+  }
+  var dd=[[-1,-1],[-1,1],[1,-1],[1,1]];
+  for(i=0;i<dd.length;i++){
+    nr=r+dd[i][0]; nf=f+dd[i][1];
+    while(ob(nr,nf)){
+      pp=board[sq(nr,nf)];
+      if(pp){if(pp===byCol*3||pp===byCol*5) return true; break;}
+      nr+=dd[i][0]; nf+=dd[i][1];
+    }
+  }
+  var sd=[[-1,0],[1,0],[0,-1],[0,1]];
+  for(i=0;i<sd.length;i++){
+    nr=r+sd[i][0]; nf=f+sd[i][1];
+    while(ob(nr,nf)){
+      pp=board[sq(nr,nf)];
+      if(pp){if(pp===byCol*4||pp===byCol*5) return true; break;}
+      nr+=sd[i][0]; nf+=sd[i][1];
+    }
+  }
+  var gd=[[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+  for(i=0;i<gd.length;i++){
+    nr=r+gd[i][0]; nf=f+gd[i][1];
+    if(ob(nr,nf)&&board[sq(nr,nf)]===byCol*6) return true;
+  }
+  return false;
+}
+
+function inCheck(board, side) {
+  var king=side*6;
+  for(var i=0;i<64;i++) if(board[i]===king) return attacked(board,i,-side);
+  return true;
+}
+
+function attackedByPawnKnight(board, sq2, byCol){
+  var r=rk(sq2), f=fl(sq2), pr=r-byCol, i, nr, nf;
+  for(var df=-1;df<=1;df+=2){
+    if(ob(pr,f+df)&&board[sq(pr,f+df)]===byCol*WP) return true;
+  }
+  for(i=0;i<DIRS_N.length;i++){
+    nr=r+DIRS_N[i][0]; nf=f+DIRS_N[i][1];
+    if(ob(nr,nf)&&board[sq(nr,nf)]===byCol*WN) return true;
+  }
+  return false;
+}
+
+function applyMv(board, mv) {
+  var nb=board.slice();
+  var piece=nb[mv[0]];
+  if(mv[5]>=0) nb[mv[5]]=E;
+  nb[mv[1]]=mv[3]||piece;
+  nb[mv[0]]=E;
+  if(mv[4]==='WK'){nb[7]=E;nb[5]=WR;}
+  if(mv[4]==='WQ'){nb[0]=E;nb[3]=WR;}
+  if(mv[4]==='BK'){nb[63]=E;nb[61]=BR;}
+  if(mv[4]==='BQ'){nb[56]=E;nb[59]=BR;}
+  return nb;
+}
+
+function legalMoves(board, turn, ep, casB) {
+  var pseudo=genPseudo(board,turn,ep,casB);
+  var result=[];
+  for(var i=0;i<pseudo.length;i++){
+    var mv=pseudo[i];
+    if(mv[4]){
+      var pass=mv[4]==='WK'?[4,5]:mv[4]==='WQ'?[4,3]:mv[4]==='BK'?[60,61]:[60,59];
+      var ok=true;
+      for(var j=0;j<pass.length;j++) if(attacked(board,pass[j],-turn)){ok=false;break;}
+      if(!ok) continue;
+    }
+    if(!inCheck(applyMv(board,mv),turn)) result.push(mv);
+  }
+  return result;
+}
+
+/* Castling rights dùng bitmask: bit0=WK, bit1=WQ, bit2=BK, bit3=BQ */
+var CAS_WK=1, CAS_WQ=2, CAS_BK=4, CAS_BQ=8;
+var CAS_ALL = CAS_WK|CAS_WQ|CAS_BK|CAS_BQ;
+
+function newCasBit(casB, board, mv, turn) {
+  var nc=casB;
+  if(typ(board[mv[0]])===6){
+    if(turn===W) nc&=~(CAS_WK|CAS_WQ);
+    else nc&=~(CAS_BK|CAS_BQ);
+  }
+  var f=mv[0], t=mv[1];
+  if(f===0||t===0) nc&=~CAS_WQ;
+  if(f===7||t===7) nc&=~CAS_WK;
+  if(f===56||t===56) nc&=~CAS_BQ;
+  if(f===63||t===63) nc&=~CAS_BK;
+  return nc;
+}
+
+/* Cập nhật gHash incremental — nhận bitmask trực tiếp */
+function updateHash(mv, board, oldCasB, newCasB, oldEP, newEP){
+  var h=gHash ^ ZK_SIDE;
+  h ^= ZK_PIECE[pidx(board[mv[0]])][mv[0]];
+  h ^= ZK_PIECE[pidx(mv[3]||board[mv[0]])][mv[1]];
+  if(mv[2]) h ^= ZK_PIECE[pidx(mv[2])][mv[5]>=0?mv[5]:mv[1]];
+  if(mv[4]==='WK'){h^=ZK_PIECE[pidx(WR)][7];h^=ZK_PIECE[pidx(WR)][5];}
+  if(mv[4]==='WQ'){h^=ZK_PIECE[pidx(WR)][0];h^=ZK_PIECE[pidx(WR)][3];}
+  if(mv[4]==='BK'){h^=ZK_PIECE[pidx(BR)][63];h^=ZK_PIECE[pidx(BR)][61];}
+  if(mv[4]==='BQ'){h^=ZK_PIECE[pidx(BR)][56];h^=ZK_PIECE[pidx(BR)][59];}
+  if(oldEP>=0) h^=ZK_EP[oldEP];
+  if(newEP>=0) h^=ZK_EP[newEP];
+  h^=ZK_CAS[oldCasB]; h^=ZK_CAS[newCasB];
+  return h;
+}
+
+/* ═══════════════════════════════════════════════════
+   TAPERED EVALUATION
+   phase=1 → hoàn toàn midgame, phase=0 → endgame
+   score = mg*phase + eg*(1-phase)
+   ═══════════════════════════════════════════════════ */
+function evaluate(board, turn) {
+  var mg=0, eg=0, mat=0;
+  var i, p, s, t, r, f, pi;
+  var pawnsW=[0,0,0,0,0,0,0,0], pawnsB=[0,0,0,0,0,0,0,0];
+  var kingW=-1, kingB=-1;
+  /* Dữ liệu cho 5 tính năng mới */
+  var bishopsW=0, bishopsB=0;        /* đếm tượng */
+  var queenWsq=-1, queenBsq=-1;      /* ô hậu */
+  var minorDevW=0, minorDevB=0;      /* số mã/tượng chưa phát triển (còn hàng 1/8) */
+  for(i=0;i<64;i++){
+    p=board[i]; if(!p) continue;
+    s=col(p); t=typ(p);
+    r=rk(i); f=fl(i);
+    pi = s===W ? (7-r)*8+f : r*8+f;
+    var pv = PVAL[t];
+    mg += s*(pv + PST_MG[t][pi]);
+    eg += s*(pv + PST_EG[t][pi]);
+    if(t===1){
+      if(s===W) pawnsW[f]++;
+      else pawnsB[f]++;
+    } else if(t===6){
+      if(s===W) kingW=i;
+      else kingB=i;
+    }
+    /* Đếm vật chất cho phase (bỏ Tốt và Vua) */
+    if(t>=2 && t<=5) mat += pv;
+    /* Thu thập dữ liệu eval mới */
+    if(t===3){ if(s===W) bishopsW++; else bishopsB++; }
+    if(t===5){ if(s===W) queenWsq=i; else queenBsq=i; }
+    if(t===2 || t===3){
+      /* Minor chưa phát triển = còn ở hàng xuất phát */
+      if(s===W && r===0) minorDevW++;
+      if(s===B && r===7) minorDevB++;
+    }
+  }
+  /* Phase: 1.0 = khai cuộc, 0.0 = tàn cuộc */
+  var phase = mat / PHASE_MAX;
+  if(phase > 1.0) phase = 1.0;
+  var extra = evalPawnStructure(board, pawnsW, pawnsB, phase) +
+              evalMobility(board) +
+              evalPieceActivity(board, pawnsW, pawnsB, kingW, kingB, phase) +
+              evalKingSafety(board, kingW, kingB, phase) +
+              evalHanging(board) +
+              evalBishopPair(bishopsW, bishopsB) +
+              evalEarlyQueen(board, queenWsq, queenBsq, minorDevW, minorDevB, phase) +
+              evalCastlingUrgency(board, kingW, kingB, phase);
+  mg += extra;
+  eg += extra;
+  /* Nội suy tuyến tính */
+  var score = (mg * phase + eg * (1.0 - phase)) | 0;
+  return score * turn;
+}
+
+function evalPawnStructure(board, pawnsW, pawnsB, phase){
+  var score=0, i, f, r, p, side, passed, rr, ff, enemy;
+  for(f=0;f<8;f++){
+    if(pawnsW[f]>1) score -= (pawnsW[f]-1)*16;
+    if(pawnsB[f]>1) score += (pawnsB[f]-1)*16;
+  }
+  for(i=0;i<64;i++){
+    p=board[i];
+    if(p!==WP && p!==BP) continue;
+    side=col(p); r=rk(i); f=fl(i);
+    if(side===W){
+      if((f===0||!pawnsW[f-1]) && (f===7||!pawnsW[f+1])) score -= 12;
+      passed=true;
+      for(ff=f-1;ff<=f+1;ff++){
+        if(ff<0||ff>7) continue;
+        for(rr=r+1;rr<8;rr++) if(board[sq(rr,ff)]===BP){passed=false; break;}
+        if(!passed) break;
+      }
+      if(passed) score += ((18 + r*7) * PASSED_PAWN_SCALE) | 0;
+    } else {
+      if((f===0||!pawnsB[f-1]) && (f===7||!pawnsB[f+1])) score += 12;
+      passed=true;
+      for(ff=f-1;ff<=f+1;ff++){
+        if(ff<0||ff>7) continue;
+        for(rr=r-1;rr>=0;rr--) if(board[sq(rr,ff)]===WP){passed=false; break;}
+        if(!passed) break;
+      }
+      if(passed) score -= ((18 + (7-r)*7) * PASSED_PAWN_SCALE) | 0;
+    }
+  }
+  return score;
+}
+
+/* ── 1. Hanging piece penalty ──────────────────────────
+   Quân từ mã trở lên (typ 2-5) bị attack mà không có
+   quân nào bảo vệ → phạt HANGING_PENALTY × giá trị quân.
+   isAttacked/isDefended dùng lại logic attack đơn giản. */
+function squareAttackedBy(board, sq_, bySide){
+  /* Kiểm tra sq_ có bị bySide tấn công không */
+  var r=rk(sq_), f=fl(sq_), i, nr, nf, dirs, p, t;
+  /* Tốt */
+  var pr = bySide===W ? r-1 : r+1;
+  for(var pf=f-1;pf<=f+1;pf+=2){
+    if(ob(pr,pf) && board[sq(pr,pf)]===bySide*WP) return true;
+  }
+  /* Mã */
+  for(i=0;i<DIRS_N.length;i++){
+    nr=r+DIRS_N[i][0]; nf=f+DIRS_N[i][1];
+    if(ob(nr,nf) && board[sq(nr,nf)]===bySide*2) return true;
+  }
+  /* Tượng/Hậu (đường chéo) */
+  dirs=[[1,1],[1,-1],[-1,1],[-1,-1]];
+  for(i=0;i<4;i++){
+    nr=r+dirs[i][0]; nf=f+dirs[i][1];
+    while(ob(nr,nf)){
+      p=board[sq(nr,nf)];
+      if(p){ t=typ(p); if(col(p)===bySide&&(t===3||t===5)) return true; break; }
+      nr+=dirs[i][0]; nf+=dirs[i][1];
+    }
+  }
+  /* Xe/Hậu (đường thẳng) */
+  dirs=[[1,0],[-1,0],[0,1],[0,-1]];
+  for(i=0;i<4;i++){
+    nr=r+dirs[i][0]; nf=f+dirs[i][1];
+    while(ob(nr,nf)){
+      p=board[sq(nr,nf)];
+      if(p){ t=typ(p); if(col(p)===bySide&&(t===4||t===5)) return true; break; }
+      nr+=dirs[i][0]; nf+=dirs[i][1];
+    }
+  }
+  /* Vua */
+  dirs=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+  for(i=0;i<8;i++){
+    nr=r+dirs[i][0]; nf=f+dirs[i][1];
+    if(ob(nr,nf) && board[sq(nr,nf)]===bySide*6) return true;
+  }
+  return false;
+}
+
+function evalHanging(board){
+  var score=0, i, p, s, t;
+  for(i=0;i<64;i++){
+    p=board[i]; if(!p) continue;
+    s=col(p); t=typ(p);
+    if(t<2 || t>5) continue;  /* chỉ xét mã/tượng/xe/hậu */
+    var enemy = -s;
+    if(squareAttackedBy(board, i, enemy) && !squareAttackedBy(board, i, s)){
+      /* Quân treo: bị attack không có người bảo vệ */
+      score -= s * ((PVAL[t] * HANGING_PENALTY) | 0);
+    }
+  }
+  return score;
+}
+
+/* ── 3. Bishop pair bonus ──────────────────────────────*/
+function evalBishopPair(bishopsW, bishopsB){
+  var score=0;
+  if(bishopsW>=2) score += BISHOP_PAIR_BONUS;
+  if(bishopsB>=2) score -= BISHOP_PAIR_BONUS;
+  return score;
+}
+
+/* ── 4. Early queen penalty ────────────────────────────
+   phase > 0.55: hậu rời hàng xuất phát mà còn ≥2 minor chưa phát triển */
+function evalEarlyQueen(board, queenWsq, queenBsq, minorDevW, minorDevB, phase){
+  if(phase <= 0.55) return 0;
+  var score=0;
+  if(queenWsq>=0 && rk(queenWsq)!==0 && minorDevW>=2) score -= EARLY_QUEEN_PENALTY;
+  if(queenBsq>=0 && rk(queenBsq)!==7 && minorDevB>=2) score += EARLY_QUEEN_PENALTY;
+  return score;
+}
+
+/* ── 5. Castling urgency ───────────────────────────────
+   Còn quyền nhập thành mà vua vẫn ở e1/e8, phase > 0.5
+   → phạt tuyến tính 0→50cp. Dùng gCasB (global) vì
+   evaluate() không nhận casB — castling state thay đổi ít,
+   đủ chính xác cho eval penalty nhỏ này. */
+function evalCastlingUrgency(board, kingW, kingB, phase){
+  if(phase <= 0.5) return 0;
+  var score=0;
+  var urgency = ((phase - 0.5) * 2 * CASTLING_URGENCY) | 0;  /* 0→50cp tuyến tính */
+  /* Trắng: còn quyền nhập thành VÀ vua vẫn ở e1 */
+  if((gCasB & (CAS_WK|CAS_WQ)) && kingW===4) score -= urgency;
+  /* Đen: còn quyền nhập thành VÀ vua vẫn ở e8 */
+  if((gCasB & (CAS_BK|CAS_BQ)) && kingB===60) score += urgency;
+  return score;
+}
+
+
+function evalMobility(board){
+  var score=0, from, p, side, t, r, f, dirs, dlen, i, nr, nf, target, count;
+  for(from=0;from<64;from++){
+    p=board[from]; if(!p) continue;
+    side=col(p); t=typ(p);
+    if(t<2 || t>5) continue;
+    r=rk(from); f=fl(from); count=0;
+    if(t===2){
+      for(i=0;i<DIRS_N.length;i++){
+        nr=r+DIRS_N[i][0]; nf=f+DIRS_N[i][1];
+        if(ob(nr,nf) && col(board[sq(nr,nf)])!==side) count++;
+      }
+    } else {
+      dirs=PIECE_DIRS[t];
+      dlen=(t===3||t===4)?4:8;
+      for(i=0;i<dlen;i++){
+        nr=r+dirs[i][0]; nf=f+dirs[i][1];
+        while(ob(nr,nf)){
+          target=board[sq(nr,nf)];
+          if(col(target)===side) break;
+          count++;
+          if(target) break;
+          nr+=dirs[i][0]; nf+=dirs[i][1];
+        }
+      }
+    }
+    var unit = t===2 ? 4 : (t===3 ? 4 : (t===4 ? 2 : 1));
+    score += side * count * unit;
+  }
+  return score;
+}
+
+function evalPieceActivity(board, pawnsW, pawnsB, kingW, kingB, phase){
+  var score=0, i, p, side, r, f;
+  for(i=0;i<64;i++){
+    p=board[i]; if(!p) continue;
+    side=col(p); r=rk(i); f=fl(i);
+    if(typ(p)===4){
+      var ownPawns = side===W ? pawnsW[f] : pawnsB[f];
+      var enemyPawns = side===W ? pawnsB[f] : pawnsW[f];
+      if(!ownPawns && !enemyPawns) score += side * 22;
+      else if(!ownPawns) score += side * 12;
+      if((side===W && r===6) || (side===B && r===1)) score += side * 24;
+      if((side===W && (i===0 || i===7)) || (side===B && (i===56 || i===63))){
+        score -= side * (phase>0.55 ? 10 : 18);
+      }
+    }
+  }
+  return score;
+}
+
+function evalKingSafety(board, kingW, kingB, phase){
+  if(phase<0.35) return 0;
+  var score=0;
+  score += oneKingSafety(board, W, kingW);
+  score -= oneKingSafety(board, B, kingB);
+  return (score * phase) | 0;
+}
+
+function oneKingSafety(board, side, ksq){
+  if(ksq<0) return 0;
+  var r=rk(ksq), f=fl(ksq), score=0, shieldRank=r+side, ff, nr, nf, i;
+  if(side===W && ksq!==4 && ksq!==6 && ksq!==2) score -= 45;
+  if(side===B && ksq!==60 && ksq!==62 && ksq!==58) score -= 45;
+  if(side===W && r>1) score -= 35 + (r-1)*18;
+  if(side===B && r<6) score -= 35 + (6-r)*18;
+  if(ob(shieldRank,f) && board[sq(shieldRank,f)]!==side*WP) score -= 12;
+  for(ff=f-1;ff<=f+1;ff+=2){
+    if(ob(shieldRank,ff) && board[sq(shieldRank,ff)]!==side*WP) score -= 7;
+  }
+  return score;
+}
+
+/* ═══════════════════════════════════════════════════
+   MOVE SORTING
+   Thứ tự ưu tiên:
+   1. Hash move từ TT
+   2. Capture MVV-LVA (ăn quân to bằng quân nhỏ)
+   3. Killer move ply[0], ply[1]
+   4. Nước yên tĩnh còn lại
+   ═══════════════════════════════════════════════════ */
+function mvScore(mv, board, hashMove, ply){
+  /* Hash move — ưu tiên tuyệt đối */
+  if(hashMove && mvEq(mv, hashMove)) return 2000000;
+  /* Capture MVV-LVA */
+  if(mv[2] || mv[5]>=0){
+    var victim   = mv[2] ? PVAL[typ(mv[2])] : PVAL[1]; /* en passant = tốt */
+    var attacker = PVAL[typ(board[mv[0]])];
+    return 1000000 + victim * 10 - attacker;
+  }
+  /* Killer */
+  var kp = ply < MAX_PLY ? ply : MAX_PLY-1;
+  if(mvEq(mv, killers[kp][0])) return 900000;
+  if(mvEq(mv, killers[kp][1])) return 800000;
+  /* History heuristic cho quiet moves */
+  return histTable[mv[0]][mv[1]];
+}
+
+function sortMvs(mvs, board, hashMove, ply){
+  var i, sc;
+  /* Gán score vào slot tạm để tránh tính lại */
+  var scores = [];
+  for(i=0;i<mvs.length;i++) scores[i] = mvScore(mvs[i], board, hashMove, ply);
+  /* Insertion sort — nhanh hơn Array.sort trên mảng nhỏ (~30 phần tử) */
+  for(i=1;i<mvs.length;i++){
+    var mv=mvs[i]; sc=scores[i];
+    var j=i-1;
+    while(j>=0 && scores[j]<sc){
+      mvs[j+1]=mvs[j]; scores[j+1]=scores[j]; j--;
+    }
+    mvs[j+1]=mv; scores[j+1]=sc;
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   QUIESCENCE SEARCH
+   ═══════════════════════════════════════════════════ */
+var DELTA_MARGIN = 975; /* Hậu + buffer nhỏ — delta pruning threshold */
+
+function qsearch(board, turn, ep, casB, alpha, beta) {
+  if(aiTimedOut) return alpha;
+  cntQnode++;
+  var stand=evaluate(board,turn);
+  if(stand>=beta) return beta;
+  if(stand>alpha) alpha=stand;
+  /* Dùng genPseudo + lọc captures trực tiếp — tránh validate toàn bộ nước yên tĩnh */
+  var pseudo=genPseudo(board,turn,ep,casB);
+  var caps=[];
+  for(var i=0;i<pseudo.length;i++) if(pseudo[i][2]||pseudo[i][5]>=0) caps.push(pseudo[i]);
+  sortMvs(caps,board,null,MAX_PLY-1);
+  for(var i=0;i<caps.length;i++){
+    if(aiTimedOut) return alpha;
+    var m=caps[i];
+    /* Delta pruning: bỏ capture nếu ngay cả khi lấy quân to nhất cũng không đủ cải thiện alpha */
+    var gain = m[2] ? PVAL[typ(m[2])] : PVAL[1]; /* en passant = tốt */
+    if(m[3]) gain += PVAL[typ(m[3])] - PVAL[1]; /* phong cấp */
+    if(stand + gain + DELTA_MARGIN < alpha) continue;
+    /* Kiểm tra legality */
+    if(m[4]){
+      var pass=m[4]==='WK'?[4,5]:m[4]==='WQ'?[4,3]:m[4]==='BK'?[60,61]:[60,59];
+      var ok=true;
+      for(var j=0;j<pass.length;j++) if(attacked(board,pass[j],-turn)){ok=false;break;}
+      if(!ok) continue;
+    }
+    var nb=applyMv(board,m);
+    if(inCheck(nb,turn)) continue;
+    var s=-qsearch(nb,-turn,m[6],newCasBit(casB,board,m,turn),-beta,-alpha);
+    if(s>=beta) return beta;
+    if(s>alpha) alpha=s;
+  }
+  return alpha;
+}
+
+/* ═══════════════════════════════════════════════════
+   NEGAMAX + ALPHA-BETA + TT + KILLER + NMP + LMR
+   ply: độ sâu hiện tại từ gốc (dùng cho killer)
+   casB: castling bitmask
+   ═══════════════════════════════════════════════════ */
+function negamax(board, turn, ep, casB, depth, alpha, beta, ply, hash, nullOk) {
+  /* Kiểm tra timeout bằng node counter — tránh Date.now() mỗi node */
+  aiNodeCount++;
+  if(aiTimedOut) return alpha;
+  if((aiNodeCount & (AI_CHECK_INTERVAL-1)) === 0){
+    if((Date.now() - aiStartTime) > AI_TIME_LIMIT){ aiTimedOut=true; tMark('TO@'+aiNodeCount+'n'); return alpha; }
+  }
+
+  /* Lặp vị trí — kiểm tra cả lịch sử ván thực lẫn nhánh search hiện tại */
+  if(ply>0){
+    var repCount=0;
+    for(var ri=0;ri<searchStack.length;ri++) if(searchStack[ri]===hash) repCount++;
+    for(var ri=0;ri<gPosHist.length;ri++) if(gPosHist[ri]===hash) repCount++;
+    if(repCount>=2) return 0;
+  }
+
+  /* TT probe */
+  var ttScore = ttProbe(hash, depth, alpha, beta);
+  if(ttScore !== null) return ttScore;
+
+  if(depth===0) return qsearch(board,turn,ep,casB,alpha,beta);
+
+  var isInCheck = inCheck(board,turn);
+  var mvs=legalMoves(board,turn,ep,casB);
+  if(!mvs.length) return isInCheck ? -(MATE-ply) : 0;
+
+  /* Null-Move Pruning */
+  if(nullOk && depth>=3 && !isInCheck){
+    var R = depth>=5 ? 3 : 2;
+    var nullHash = hash ^ ZK_SIDE;
+    if(ep>=0) nullHash ^= ZK_EP[ep];
+    var nullScore = -negamax(board,-turn,-1,casB,depth-1-R,-beta,-beta+1,ply+1,nullHash,false);
+    if(!aiTimedOut && nullScore>=beta){
+      cntNMPcut++;
+      ttStore(hash,depth,TT_BETA,beta,null);
+      return beta;
+    }
+  }
+
+  var hashMove = ttGetMove(hash);
+  sortMvs(mvs, board, hashMove, ply<MAX_PLY?ply:MAX_PLY-1);
+
+  var origAlpha=alpha;
+  var bestMove=null;
+  var ocf=casB;
+  for(var i=0;i<mvs.length;i++){
+    if(aiTimedOut) break;
+    var m=mvs[i];
+    var nb=applyMv(board,m);
+    var nc=newCasBit(casB,board,m,turn);
+    var nep=m[6];
+
+    var nhash = hash ^ ZK_SIDE;
+    nhash ^= ZK_PIECE[pidx(board[m[0]])][m[0]];
+    nhash ^= ZK_PIECE[pidx(m[3]||board[m[0]])][m[1]];
+    if(m[2]) nhash ^= ZK_PIECE[pidx(m[2])][m[5]>=0?m[5]:m[1]];
+    if(m[4]==='WK'){nhash^=ZK_PIECE[pidx(WR)][7];nhash^=ZK_PIECE[pidx(WR)][5];}
+    if(m[4]==='WQ'){nhash^=ZK_PIECE[pidx(WR)][0];nhash^=ZK_PIECE[pidx(WR)][3];}
+    if(m[4]==='BK'){nhash^=ZK_PIECE[pidx(BR)][63];nhash^=ZK_PIECE[pidx(BR)][61];}
+    if(m[4]==='BQ'){nhash^=ZK_PIECE[pidx(BR)][56];nhash^=ZK_PIECE[pidx(BR)][59];}
+    if(ep>=0) nhash^=ZK_EP[ep];
+    if(nep>=0) nhash^=ZK_EP[nep];
+    nhash^=ZK_CAS[ocf]; nhash^=ZK_CAS[nc];
+
+    var s;
+    /* Late Move Reduction (LMR) */
+    searchStack.push(nhash);
+    if(i>=3 && depth>=3 && !m[2] && !m[3] && !isInCheck && !inCheck(nb,-turn)){
+      cntLMR++;
+      s = -negamax(nb,-turn,nep,nc,depth-2,-beta,-alpha,ply+1,nhash,true);
+      if(s > alpha){
+        cntLMRresearch++;
+        s = -negamax(nb,-turn,nep,nc,depth-1,-beta,-alpha,ply+1,nhash,true);
+      }
+    } else {
+      s = -negamax(nb,-turn,nep,nc,depth-1,-beta,-alpha,ply+1,nhash,true);
+    }
+    searchStack.pop();
+
+    if(s>alpha){
+      alpha=s;
+      bestMove=m;
+    }
+    if(alpha>=beta){
+      if(!m[2] && !m[3]){
+        var kply=ply<MAX_PLY?ply:MAX_PLY-1;
+        killerStore(kply, m);
+        histUpdate(m, depth);
+      }
+      ttStore(hash,depth,TT_BETA,beta,m);
+      return beta;
+    }
+  }
+
+  var flag = alpha<=origAlpha ? TT_ALPHA : TT_EXACT;
+  ttStore(hash, depth, flag, alpha, bestMove);
+  return alpha;
+}
+
+function safeRandomMove(board, turn, ep, casB, mvs, rnd) {
+  if(Math.random()>=rnd) return null;
+
+  var oldTimedOut=aiTimedOut, oldNodeCount=aiNodeCount, oldStartTime=aiStartTime, oldStack=searchStack;
+  aiTimedOut=false; aiNodeCount=0; aiStartTime=Date.now(); searchStack=[];
+
+  var bestScore=-INF, scored=[];
+  for(var i=0;i<mvs.length;i++){
+    var m=mvs[i];
+    var nb=applyMv(board,m);
+    var nc=newCasBit(casB,board,m,turn);
+    var nh=computeHash(nb,-turn,m[6],nc);
+    var s=-negamax(nb,-turn,m[6],nc,1,-INF,INF,1,nh,false);
+    s -= rootSafetyPenalty(board,turn,m,nb);
+    scored.push({m:m,s:s});
+    if(s>bestScore) bestScore=s;
+  }
+
+  aiTimedOut=oldTimedOut; aiNodeCount=oldNodeCount; aiStartTime=oldStartTime; searchStack=oldStack;
+
+  var maxLoss = rnd < 0.10 ? 180 : (rnd < 0.30 ? 300 : (rnd < 0.60 ? 500 : 700));
+  var pool=[];
+  for(var j=0;j<scored.length;j++){
+    if(scored[j].s >= bestScore - maxLoss) pool.push(scored[j].m);
+  }
+  if(!pool.length) return null;
+  return pool[Math.floor(Math.random()*pool.length)];
+}
+
+var OPENING_BOOK = [
+  /* ── e4 e5 (Open Game) ── */
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','g8f6','e1g1','f6e4','d2d4','f8e7'],
+  ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','f3d4','g8f6','b1c3','f8b4'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','f8c5','e1g1','g8f6','d2d3','e8g8'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','g8f6','f3g5','d7d5','e4d5','c6a5'],
+  ['e2e4','e7e5','g1f3','g8f6','f3e5','d7d6','e5f3','f6e4','d2d4','d6d5'],
+  ['e2e4','e7e5','f2f4','e5f4','g1f3','g8f6','e4e5','f6h5','d2d4','d7d6'],
+  /* ── e4 c5 (Sicilian) ── */
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','a7a6'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','g7g6'],
+  ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','g8f6','b1c3','d7d6'],
+  ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','e7e6','b1c3','d8c7'],
+  ['e2e4','c7c5','b1c3','b8c6','g2g3','g7g6','f1g2','f8g7','d2d3','d7d6'],
+  ['e2e4','c7c5','g1f3','e7e6','d2d4','c5d4','f3d4','a7a6','b1c3','d8c7'],
+  ['e2e4','c7c5','g1f3','e7e6','d2d4','c5d4','f3d4','g8f6','b1c3','d7d5'],
+  /* ── e4 e6 (French) ── */
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','g8f6','c1g5','f8e7','e4e5','f6d7'],
+  ['e2e4','e7e6','d2d4','d7d5','b1d2','g8f6','e4e5','f6d7','f1d3','c7c5'],
+  ['e2e4','e7e6','d2d4','d7d5','e4e5','c7c5','c2c3','b8c6','g1f3','d8b6'],
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','f8b4','e4e5','c7c5','a2a3','b4c3'],
+  /* ── e4 c6 (Caro-Kann) ── */
+  ['e2e4','c7c6','d2d4','d7d5','b1c3','d5e4','c3e4','c8f5','e4g3','f5g6'],
+  ['e2e4','c7c6','d2d4','d7d5','e4d5','c6d5','c2c4','g8f6','b1c3','e7e6'],
+  ['e2e4','c7c6','d2d4','d7d5','b1d2','d5e4','d2e4','g8f6','e4f6','e7f6'],
+  ['e2e4','c7c6','g1f3','d7d5','b1c3','c8g4','h2h3','g4f3','d1f3','e7e6'],
+  /* ── e4 d5 (Scandinavian) ── */
+  ['e2e4','d7d5','e4d5','g8f6','d2d4','f6d5','g1f3','c8g4','f1e2','e7e6'],
+  ['e2e4','d7d5','e4d5','d8d5','b1c3','d5a5','d2d4','g8f6','g1f3','c8f5'],
+  /* ── e4 g6 / e4 d6 (Pirc/Modern) ── */
+  ['e2e4','g7g6','d2d4','f8g7','b1c3','d7d6','g1f3','g8f6','f1e2','e8g8'],
+  ['e2e4','d7d6','d2d4','g8f6','b1c3','g7g6','g1f3','f8g7','f1e2','e8g8'],
+  /* ── d4 d5 (Queen's Gambit) ── */
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','c1g5','f8e7','e2e3','e8g8'],
+  ['d2d4','d7d5','c2c4','e7e6','g1f3','g8f6','b1c3','f8e7','c1g5','e8g8'],
+  ['d2d4','d7d5','c2c4','d5c4','g1f3','g8f6','e2e3','e7e6','f1c4','c7c5'],
+  ['d2d4','d7d5','c2c4','c7c6','g1f3','g8f6','b1c3','d5c4','a2a4','c8f5'],
+  ['d2d4','d7d5','c2c4','c7c6','b1c3','g8f6','e2e3','e7e6','g1f3','b8d7'],
+  ['d2d4','d7d5','g1f3','g8f6','c2c4','e7e6','b1c3','f8e7','c1g5','e8g8'],
+  /* ── d4 Nf6 (Indian Systems) ── */
+  ['d2d4','g8f6','c2c4','e7e6','g1f3','d7d5','b1c3','f8e7','c1g5','e8g8'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','e2e3','e8g8','f1d3','d7d5'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','g1f3','e8g8'],
+  ['d2d4','g8f6','c2c4','g7g6','g2g3','f8g7','f1g2','e8g8','b1c3','d7d6'],
+  ['d2d4','g8f6','c2c4','c7c5','d4d5','e7e6','b1c3','e6d5','c4d5','d7d6'],
+  ['d2d4','g8f6','c2c4','e7e6','g1f3','b7b6','g2g3','c8b7','f1g2','f8e7'],
+  ['d2d4','g8f6','c2c4','e7e6','g1f3','b7b6','b1c3','c8b7','a2a3','d7d5'],
+  ['d2d4','g8f6','g1f3','e7e6','c2c4','d7d5','b1c3','f8e7','c1g5','e8g8'],
+  ['d2d4','g8f6','g1f3','g7g6','g2g3','f8g7','f1g2','e8g8','e1g1','d7d6'],
+  /* ── d4 f5 (Dutch) ── */
+  ['d2d4','f7f5','g2g3','g8f6','f1g2','e7e6','g1f3','f8e7','e1g1','e8g8'],
+  ['d2d4','f7f5','c2c4','g8f6','g2g3','e7e6','f1g2','f8e7','g1f3','e8g8'],
+  /* ── c4 (English) ── */
+  ['c2c4','e7e5','b1c3','g8f6','g1f3','b8c6','g2g3','f8b4','f1g2','e8g8'],
+  ['c2c4','e7e5','b1c3','g8f6','g1f3','b8c6','d2d4','e5d4','f3d4','f8b4'],
+  ['c2c4','g8f6','b1c3','e7e5','g1f3','b8c6','g2g3','f8b4','f1g2','e8g8'],
+  ['c2c4','g8f6','g1f3','g7g6','g2g3','f8g7','f1g2','e8g8','e1g1','d7d6'],
+  ['c2c4','c7c5','g1f3','g8f6','b1c3','b8c6','g2g3','g7g6','f1g2','f8g7'],
+  ['c2c4','e7e6','b1c3','d7d5','d2d4','g8f6','g1f3','f8e7','c1g5','e8g8'],
+  /* ── Nf3 systems ── */
+  ['g1f3','d7d5','d2d4','g8f6','c2c4','e7e6','b1c3','f8e7','c1g5','e8g8'],
+  ['g1f3','d7d5','g2g3','g8f6','f1g2','e7e6','e1g1','f8e7','d2d4','e8g8'],
+  ['g1f3','g8f6','c2c4','e7e6','g2g3','d7d5','f1g2','f8e7','e1g1','e8g8'],
+  /* ── g3 / b3 / f4 (Flank openings) ── */
+  ['g2g3','d7d5','f1g2','g8f6','g1f3','g7g6','e1g1','f8g7','d2d3','e8g8'],
+  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','f8c5','d2d3','e8g8'],
+  ['g2g3','d7d5','g1f3','g8f6','f1g2','c7c6','e1g1','c8f5','d2d3','e7e6'],
+  ['g2g3','g8f6','f1g2','d7d5','g1f3','c7c6','e1g1','c8f5','d2d3','e7e6'],
+  ['b2b3','e7e5','c1b2','b8c6','g1f3','d7d5','e2e3','g8f6','f1b5','f8d6'],
+  ['b2b3','e7e5','c1b2','g8f6','g1f3','b8c6','e2e3','f8d6','f1e2','e8g8'],
+  ['f2f4','d7d5','g1f3','g8f6','e2e3','e7e6','f1e2','f8e7','e1g1','e8g8'],
+  /* ── Réti ── */
+  ['g1f3','d7d5','c2c4','d5c4','e2e3','g8f6','f1c4','e7e5','e1g1','b8c6'],
+  ['g1f3','g8f6','g2g3','g7g6','f1g2','f8g7','e1g1','e8g8','c2c4','d7d6'],
+  /* ── Tricky / Aggressive ── */
+  ['e2e4','e7e5','d2d4','e5d4','c2c3','d4c3','f1c4','c3b2','c1b2','d8g5'],
+  ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','c2c3','d4c3','f1c4','c3b2'],
+  ['e2e4','e7e5','f2f4','e5f4','g1f3','d7d5','e4d5','g8f6','f1b5','c8d7'],
+  ['d2d4','g8f6','b1c3','d7d5','c1g5','b8d7','e2e3','e7e6','g1f3','f8e7']
+];
+
+function mvUci(mv){
+  var s=FLS[fl(mv[0])] + (rk(mv[0])+1) + FLS[fl(mv[1])] + (rk(mv[1])+1);
+  if(mv[3]) s += PNM[typ(mv[3])].toLowerCase();
+  return s;
+}
+
+function openingBookMove(board, turn, mvs){
+  if(typeof gUciHist==='undefined' || gUciHist.length>=12) return null;
+  var next=[], i, j, ok;
+  for(i=0;i<OPENING_BOOK.length;i++){
+    if(OPENING_BOOK[i].length<=gUciHist.length) continue;
+    ok=true;
+    for(j=0;j<gUciHist.length;j++){
+      if(OPENING_BOOK[i][j]!==gUciHist[j]){ok=false;break;}
+    }
+    if(ok){
+      var cand=OPENING_BOOK[i][gUciHist.length], seen=false;
+      for(j=0;j<next.length;j++) if(next[j]===cand){seen=true;break;}
+      if(!seen) next.push(cand);
+    }
+  }
+  if(!next.length) return null;
+  for(i=next.length-1;i>0;i--){
+    j=Math.floor(Math.random()*(i+1));
+    var tmp=next[i]; next[i]=next[j]; next[j]=tmp;
+  }
+  for(i=0;i<next.length;i++){
+    for(j=0;j<mvs.length;j++){
+      if(mvUci(mvs[j])===next[i]){
+        var nb=applyMv(board,mvs[j]);
+        if(rootSafetyPenalty(board,turn,mvs[j],nb)<300) return mvs[j];
+      }
+    }
+  }
+  return null;
+}
+
+/* ── Endgame Conversion helpers ── */
+function materialNoKing(board, side){
+  var sum=0, i, p;
+  for(i=0;i<64;i++){
+    p=board[i]; if(!p) continue;
+    if(col(p)!==side) continue;
+    if(typ(p)!==6) sum+=PVAL[typ(p)];
+  }
+  return sum;
+}
+
+function isWinningConversion(board, turn){
+  if(!EG_ENABLE) return false;
+  var ev=evaluate(board, turn);
+  if(ev < EG_WINNING_EVAL) return false;
+  return materialNoKing(board, -turn) <= EG_OPP_MAX_MATERIAL;
+}
+
+function scoreEndgameRootMove(board, turn, mv, nb){
+  var score=0;
+  var pieceType=typ(board[mv[0]]);
+  if(inCheck(nb, -turn))                          score += EG_BONUS_CHECK;
+  if(mv[3])                                        score += EG_BONUS_PROMOTION;
+  if(mv[2]){
+    score += EG_BONUS_CAPTURE;
+    score += (PVAL[typ(mv[2])] / 2) | 0;
+  }
+  if(pieceType===1){
+    score += EG_BONUS_PAWN_PUSH;
+    score += (turn===W ? rk(mv[1]) : (7-rk(mv[1]))) * EG_BONUS_ADV_PAWN;
+  }
+  if(mv[2] && typ(mv[2])>=pieceType)              score += EG_BONUS_SIMPLIFY;
+  if(pieceType!==6){
+    if(turn===W && rk(mv[1])<rk(mv[0]))           score -= EG_PENALTY_BACKWARD;
+    if(turn===B && rk(mv[1])>rk(mv[0]))           score -= EG_PENALTY_BACKWARD;
+  }
+  if(pieceType===6){
+    var dist=Math.abs(rk(mv[1])-rk(mv[0]))+Math.abs(fl(mv[1])-fl(mv[0]));
+    if(dist<=1) score -= EG_KING_SHUFFLE;
+  }
+  return score;
+}
+
+function rootSafetyPenalty(board, turn, mv, nb){
+  var moved=typ(mv[3] || board[mv[0]]);
+  if(moved<2 || moved>5) return 0;
+  var val=PVAL[moved], cap=mv[2] ? PVAL[typ(mv[2])] : 0;
+  if(!attacked(nb,mv[1],-turn)) return 0;
+  var defended=attacked(nb,mv[1],turn);
+  var tacticalAttacker=attackedByPawnKnight(nb,mv[1],-turn);
+  var loss = val - cap;
+  if(!defended){
+    if(val>=900) return Math.max(0,980-cap);
+    if(val>=500) return Math.max(0,620-cap);
+    return Math.max(0,360-cap);
+  }
+  if(tacticalAttacker && loss>80){
+    if(val>=900) return Math.max(260, loss + 260);
+    if(val>=500) return Math.max(180, loss + 170);
+    return Math.max(120, loss + 110);
+  }
+  if(tacticalAttacker && val>=500 && cap<300) return val>=900 ? 220 : 120;
+  if(loss>250) return loss - 120;
+  return 0;
+}
+
+/* ═══════════════════════════════════════════════════
+   BEST MOVE — Iterative Deepening + Aspiration Windows
+   ═══════════════════════════════════════════════════ */
+function bestMove(board, turn, ep, casB, maxDepth, rnd, hash) {
+  var mvs=legalMoves(board,turn,ep,casB);
+  if(!mvs.length) return null;
+  var bookMove=openingBookMove(board,turn,mvs);
+  if(bookMove) return bookMove;
+  var rndMove=safeRandomMove(board,turn,ep,casB,mvs,rnd);
+  if(rndMove) return rndMove;
+
+  killerClear();
+  histClear();
+  searchStack=[];
+  sortMvs(mvs,board,ttGetMove(hash),0);
+  cntLMR=0; cntLMRresearch=0; cntQnode=0; cntNMPcut=0;
+
+  var best=mvs[0];
+  aiStartTime=Date.now();
+  aiNodeCount=0;
+
+  /* Đếm số lần vị trí hiện tại đã xuất hiện trong ván thực */
+  var curRepCount=0;
+  for(var ri=0;ri<gPosHist.length;ri++) if(gPosHist[ri]===hash) curRepCount++;
+
+  var prevScore=0;
+
+  for(var depth=1; depth<=maxDepth; depth++){
+    aiTimedOut=false;
+    var depthT0 = Date.now();  /* đo thời gian từng depth */
+    var nodesBefore = aiNodeCount;
+
+    var aspDelta=50;
+    var alpha, beta;
+    if(depth>=3){
+      alpha=prevScore-aspDelta;
+      beta =prevScore+aspDelta;
+    } else {
+      alpha=-INF; beta=INF;
+    }
+
+    var bScore=-INF, candidate=null;
+    /* Cache 1 lần trước vòng loop — tránh gọi evaluate() lặp lại cho mỗi nước */
+    var winMode=isWinningConversion(board,turn);
+
+    /* Aspiration: thử cửa sổ hẹp, fail thì mở full window (tối đa 2 lần) */
+    var aspireFailed=false;
+    for(var asp=0; asp<2; asp++){
+      bScore=-INF;
+      var curAlpha=alpha;  /* cập nhật đúng giữa các nước — fix alpha pruning */
+      candidate=null;
+      var ocf0=casB;
+
+      for(var i=0;i<mvs.length;i++){
+        if(aiTimedOut) break;
+        var m=mvs[i];
+        var nb=applyMv(board,m);
+        var nc=newCasBit(casB,board,m,turn);
+        var nep=m[6];
+
+        var nhash = hash ^ ZK_SIDE;
+        nhash ^= ZK_PIECE[pidx(board[m[0]])][m[0]];
+        nhash ^= ZK_PIECE[pidx(m[3]||board[m[0]])][m[1]];
+        if(m[2]) nhash ^= ZK_PIECE[pidx(m[2])][m[5]>=0?m[5]:m[1]];
+        if(m[4]==='WK'){nhash^=ZK_PIECE[pidx(WR)][7];nhash^=ZK_PIECE[pidx(WR)][5];}
+        if(m[4]==='WQ'){nhash^=ZK_PIECE[pidx(WR)][0];nhash^=ZK_PIECE[pidx(WR)][3];}
+        if(m[4]==='BK'){nhash^=ZK_PIECE[pidx(BR)][63];nhash^=ZK_PIECE[pidx(BR)][61];}
+        if(m[4]==='BQ'){nhash^=ZK_PIECE[pidx(BR)][56];nhash^=ZK_PIECE[pidx(BR)][59];}
+        if(ep>=0) nhash^=ZK_EP[ep];
+        if(nep>=0) nhash^=ZK_EP[nep];
+        nhash^=ZK_CAS[ocf0]; nhash^=ZK_CAS[nc];
+
+        searchStack.push(nhash);
+        var s=-negamax(nb,-turn,nep,nc,depth-1,-beta,-curAlpha,1,nhash,true);
+        searchStack.pop();
+        if(s < MATE-1000){
+          var rsp=rootSafetyPenalty(board,turn,m,nb);
+          if(winMode) rsp=(rsp*EG_SAFETY_SCALE)|0;
+          s -= rsp;
+          if(winMode) s += scoreEndgameRootMove(board,turn,m,nb);
+        }
+
+        /* Penalty lặp vị trí tại root */
+        if(s > -MATE){
+          var destRep=0;
+          for(var rj=0;rj<gPosHist.length;rj++) if(gPosHist[rj]===nhash) destRep++;
+          if(destRep>=1 && curRepCount>=1) s -= 150;
+          else if(destRep>=1) s -= 50;
+        }
+
+        if(s>bScore){ bScore=s; candidate=m; }
+        if(s>curAlpha) curAlpha=s;
+      }
+
+      if(aiTimedOut) break;
+
+      /* Fail (bất kỳ hướng) → mở full window và search lại lần 2 */
+      if(!aspireFailed && (bScore<=alpha || bScore>=beta)){
+        if(aiTimedOut) break;  /* đã timeout trong asp=0 — không retry */
+        alpha=-INF; beta=INF;
+        aspireFailed=true;
+      } else {
+        break;  /* trong cửa sổ hoặc đã full window → xong */
+      }
+    }
+
+    if(!aiTimedOut && candidate){
+      best=candidate;
+      prevScore=bScore;
+    }
+    var depthMs = Date.now() - depthT0;
+    var depthNodes = aiNodeCount - nodesBefore;
+    tMark('d'+ depth +'='+ depthMs +'ms/'+ depthNodes +'n' + (aiTimedOut?'!TO':''));
+    if(aiTimedOut || (Date.now()-aiStartTime)>AI_TIME_LIMIT) break;
+  }
+  tMark('LMR='+cntLMR+'/re='+cntLMRresearch+' Q='+cntQnode+' NMP='+cntNMPcut);
+  return best;
+}
+
+/* ═══════════════════════════════════════════════════
+   GAME STATE
+   ═══════════════════════════════════════════════════ */
+function makeBoard() {
+  var b=[];
+  for(var i=0;i<64;i++) b.push(E);
+  b[0]=WR;b[1]=WN;b[2]=WB;b[3]=WQ;b[4]=WK;b[5]=WB;b[6]=WN;b[7]=WR;
+  for(var f=0;f<8;f++) b[8+f]=WP;
+  b[56]=BR;b[57]=BN;b[58]=BB;b[59]=BQ;b[60]=BK;b[61]=BB;b[62]=BN;b[63]=BR;
+  for(var f=0;f<8;f++) b[48+f]=BP;
+  return b;
+}
+
+var gB, gTurn, gEP, gCasB, gHalf, gFull, gHash;
+var gSel=-1, gLegal=[], gAllLegal=[], gLast=null, gActive=true;
+var gPC=W, gFlip=false;
+var gHist=[], gUciHist=[], gMoveNum=1;
+var gPosHist=[];
+var gGameStarted=false;   /* false = chưa đi nước nào, còn hiện nút Đổi bên */
+var gCapturedBlack=[];    /* quân đen bị ăn (theo thứ tự) */
+var gCapturedWhite=[];    /* quân trắng bị ăn (theo thứ tự) */
+
+/* Ký hiệu quân cho captured bar — chỉ quân nặng (typ 2-5) */
+var CAP_SYM = [null, null, '\u265e', '\u265d', '\u265c', '\u265b', null]; /* mã,tượng,xe,hậu */
+var CAP_SYM_W = [null, null, '\u2658', '\u2657', '\u2656', '\u2655', null];
+
+function updateCaptured(){
+  var bar = document.getElementById('captured-bar');
+  if(!bar) return;
+  var bEl=document.getElementById('cap-black');
+  var wEl=document.getElementById('cap-white');
+  var cEl=document.getElementById('cap-center');
+
+  /* Quân vừa bị ăn ở nước cuối → hiện ở giữa */
+  var lastPiece = null;
+  var lastIsBlack = false;
+  if(gLast && gLast[2]){
+    var lt = typ(gLast[2]);
+    if(lt>=2&&lt<=5){
+      lastIsBlack = (col(gLast[2])===B);
+      lastPiece = lastIsBlack ? CAP_SYM[lt] : CAP_SYM_W[lt];
+    }
+  }
+
+  function sideList(arr, isBlack){
+    var end = (lastPiece && lastIsBlack===isBlack) ? arr.length-1 : arr.length;
+    return arr.slice(0,end);
+  }
+
+  function typeCounts(arr){
+    var c=[0,0,0,0,0,0,0];
+    for(var i=0;i<arr.length;i++){
+      var t=typ(arr[i]);
+      if(t>=2&&t<=5) c[t]++;
+    }
+    return c;
+  }
+
+  var blackList = sideList(gCapturedBlack, true);
+  var whiteList = sideList(gCapturedWhite, false);
+  var blackCnt = typeCounts(blackList);
+  var whiteCnt = typeCounts(whiteList);
+
+  function buildSide(arr, sym, isBlack, ownCnt, otherCnt){
+    if(!arr.length) return '';
+    var keep=[0,0,0,0,0,0,0];
+    for(var t=2;t<=5;t++) keep[t]=Math.max(0, ownCnt[t]-otherCnt[t]);
+    var ordered = isBlack ? arr : arr.slice().reverse();
+    var out='';
+    for(var i=0;i<ordered.length;i++){
+      var tt=typ(ordered[i]);
+      if(tt>=2&&tt<=5 && keep[tt]>0){
+        out+='<span class="cap-piece">'+sym[tt]+'</span>';
+        keep[tt]--;
+      }
+    }
+    return out;
+  }
+
+  bEl.innerHTML = buildSide(blackList, CAP_SYM, true, blackCnt, whiteCnt);
+  wEl.innerHTML = buildSide(whiteList, CAP_SYM_W, false, whiteCnt, blackCnt);
+  if(lastPiece){
+    cEl.innerHTML = '<span class="cap-piece new">'+lastPiece+'</span>';
+  } else {
+    cEl.innerHTML = '';
+  }
+}
+
+function showCapturedBar(){
+  var btn=document.getElementById('clr-toggle');
+  var bar=document.getElementById('captured-bar');
+  if(btn) btn.style.display='none';
+  if(bar) bar.style.display='block';
+}
+
+function showColorBtn(){
+  var btn=document.getElementById('clr-toggle');
+  var bar=document.getElementById('captured-bar');
+  if(btn) btn.style.display='block';
+  if(bar) bar.style.display='none';
+}
+
+function onRankSelect(val){
+  gRank = parseInt(val);
+  rankDisplay();
+}
+
+/* ═══════════════════════════════════════════════════
+   THỐNG KÊ NƯỚC ĐI — tích lũy trong ván
+   ═══════════════════════════════════════════════════ */
+var gMoveStats = { brilliant:0, great:0, best:0, greatDef:0, missedWin:0, missedMate:0, mistake:0, blunder:0 };
+
+/* Tilt: đếm số nước còn lại bị ảnh hưởng sau khi mất quân lớn */
+var gTiltMoves = 0;
+/* Blunder recovery: AI vừa tự blunder → nghĩ lâu hơn nước tiếp */
+var gBlunderRecovery = false;
+
+/* ─── Lưu nước best của AI cho lượt người chơi tiếp theo ─── */
+var gPendingBest = null;   /* nước best engine đã tính sẵn cho vị trí hiện tại */
+var gPendingEval = 0;      /* eval của nước best đó (cp, từ góc người chơi) */
+var gPlayerMoveCount = 0;  /* đếm số nước người chơi đã đi trong ván */
+var OPENING_MOVES = 6;     /* bỏ qua đánh giá trong N nước đầu (khai cuộc) */
+var CLASSIFY_TIME = 1200;   /* ms tối đa cho eval phân loại nước — tăng để PPW3 không timeout sớm */
+
+/* Eval nhanh depth 3 cho 1 vị trí — dùng khi người chơi không đi best */
+function evalMove(board, turn, ep, casB, hash) {
+  var oldTL = AI_TIME_LIMIT;
+  AI_TIME_LIMIT = CLASSIFY_TIME;
+  aiTimedOut = false; aiNodeCount = 0; aiStartTime = Date.now(); searchStack = [];
+  var sc = negamax(board, turn, ep, casB, 3, -INF, INF, 0, hash, true);
+  AI_TIME_LIMIT = oldTL;
+  return sc;  /* từ góc nhìn 'turn' */
+}
+
+var LABEL_TEXT = {
+  brilliant:  '!! Brilliant — N\u01b0\u1edbc \u0111i thi\u00ean t\u00e0i!',
+  great:      '! Great Move — N\u01b0\u1edbc \u0111i xu\u1ea5t s\u1eafc!',
+  best:       '\u2605 Best Move',
+  greatDef:   '\ud83d\udee1 Great Defense — Ph\u00f2ng th\u1ee7 xu\u1ea5t s\u1eafc!',
+  missedWin:  '\u2297 Missed Win — B\u1ecf l\u1ee1 c\u01a1 h\u1ed9i th\u1eafng!',
+  missedMate: '\u2620 Missed Mate — B\u1ecf l\u1ee1 chi\u1ebfu h\u1ebft!',
+  mistake:    '? Mistake — C\u00f3 n\u01b0\u1edbc t\u1ed1t h\u01a1n',
+  blunder:    '?? Blunder — Sai l\u1ea7m nghi\u00eam tr\u1ecdng!'
+};
+
+var LABEL_CSS = {
+  brilliant:'brilliant', great:'great', best:'best',
+  greatDef:'great', missedWin:'mistake', missedMate:'blunder',
+  mistake:'mistake', blunder:'blunder'
+};
+
+/* CHAT_TEXT và randChat đã chuyển xuống cuối file — dễ chỉnh sửa câu chat */
+
+/* gChatMsg: chat AI gửi — hiện cùng status, tồn tại đến lượt đi tiếp theo */
+var gChatMsg = '';
+var gDrawOffer = false;
+var gDrawOfferDeclined = false;
+var gBadEvalStreak = 0;
+var gEqualEvalStreak = 0;
+var gThinkTimer = null;
+var gThinkingText = '';
+var gDramaticChat  = '';  /* chat sau label dramatic — hiện khi setStatus chạy sau 2500ms */
+var gDramaticLabel = '';  /* label tương ứng — dùng để kiểm tra brilliant/blunder ưu tiên tuyệt đối */
+var gExchangeChatShown = false;
+var gOpeningChatShown = false;
+var RESIGN_SCORE = -1300;
+var RESIGN_STREAK = 3;
+var DRAW_SCORE = 25;
+var DRAW_STREAK = 8;
+
+var feedbackTimer = null;
+function showFeedback(label) {
+  var el = document.getElementById('status');
+  if(feedbackTimer) clearTimeout(feedbackTimer);
+  el.className = 'status ' + LABEL_CSS[label];
+  /* Chỉ các loại dramatic mới hiện chat */
+  var chatKey = {brilliant:'brilliant', blunder:'blunder', great:'playerGoodMove',
+                 greatDef:'praise', missedMate:'missedMate', missedWin:'missedWin'};
+  var chat = chatKey[label] ? randChat(chatKey[label]) : '';
+  /* Dramatic: lưu chat vào gDramaticChat — setStatus hiện sau 2500ms */
+  gDramaticChat  = chat;
+  gDramaticLabel = label;
+  el.textContent = LABEL_TEXT[label];
+  feedbackTimer = setTimeout(function(){
+    feedbackTimer = null;
+    setStatus();
+    if(!gActive) showStats();
+  }, 2500);
+}
+
+function showStats() {
+  var box = document.getElementById('stats-box');
+  if(!box) return;
+  var s = gMoveStats;
+  var total = s.brilliant + s.great + s.best + s.greatDef +
+              s.missedWin + s.missedMate + s.mistake + s.blunder;
+  var html = '<div class="stats-row"><b>Ph\u00e2n t\u00edch n\u01b0\u1edbc \u0111i c\u1ee7a b\u1ea1n</b></div>';
+  if(!total){
+    html += '<div class="stats-row">Ch\u01b0a c\u00f3 n\u01b0\u1edbc \u0111i n\u00e0o \u0111\u01b0\u1ee3c ph\u00e2n t\u00edch.</div>';
+  } else {
+    if(s.brilliant)  html += '<div class="stats-row">!! Brilliant: '               + s.brilliant  + '</div>';
+    if(s.great)      html += '<div class="stats-row">! Great Move: '               + s.great      + '</div>';
+    if(s.best)       html += '<div class="stats-row">\u2605 Best Move: '           + s.best       + '</div>';
+    if(s.greatDef)   html += '<div class="stats-row">\ud83d\udee1 Great Defense: ' + s.greatDef   + '</div>';
+    if(s.missedMate) html += '<div class="stats-row">\u2620 Missed Mate: '         + s.missedMate + '</div>';
+    if(s.missedWin)  html += '<div class="stats-row">\u2297 Missed Win: '          + s.missedWin  + '</div>';
+    if(s.mistake)    html += '<div class="stats-row">? Mistake: '                  + s.mistake    + '</div>';
+    if(s.blunder)    html += '<div class="stats-row">?? Blunder: '                 + s.blunder    + '</div>';
+  }
+  box.innerHTML = html;
+  box.style.display = 'block';
+}
+
+function setMainButton(label){
+  var btn=document.getElementById('main-btn');
+  if(btn) btn.textContent=label;
+}
+
+function onMainButton(){
+  if(gDrawOffer) acceptDrawOffer();
+  else newGame();
+}
+
+function clearDrawOffer(){
+  if(!gDrawOffer) return;
+  gDrawOffer=false;
+  gChatMsg='';
+  setMainButton('Ván mới');
+}
+
+function acceptDrawOffer(){
+  if(!gDrawOffer || !gActive) { newGame(); return; }
+  gDrawOffer=false;
+  gChatMsg='';
+  gActive=false;
+  setMainButton('Ván mới');
+  var el=document.getElementById('status');
+  if(el){
+    el.className='status gameover';
+    el.textContent='\u00bd H\u00f2a c\u1edd \u2014 '+randChat('acceptDraw');
+  }
+  showStats();
+}
+
+function aiResign(){
+  if(!gActive) return;
+  clearDrawOffer();
+  gActive=false;
+  var el=document.getElementById('status');
+  if(el){
+    el.className='status gameover';
+    el.textContent='M\u00e1y xin thua \u2014 '+randChat('resign');
+  }
+  rankUpdate(1);
+  showStats();
+}
+
+function playerResign(){
+  if(!gActive) return;
+  clearDrawOffer();
+  hideSplitButton();
+  gActive=false;
+  var el=document.getElementById('status');
+  if(el){
+    el.className='status gameover';
+    el.textContent='\u2691 B\u1ea1n \u0111\u00e3 x\u1ecbn thua \u2014 '+randChat('aiWin');
+  }
+  rankUpdate(-1);
+  showStats();
+}
+
+function showSplitButton(){
+  var main=document.getElementById('main-btn');
+  var split=document.getElementById('split-btn');
+  if(main) main.style.display='none';
+  if(split) split.style.display='-ms-flexbox';  /* IE10 fallback */
+  if(split) split.style.display='flex';
+}
+
+function hideSplitButton(){
+  var main=document.getElementById('main-btn');
+  var split=document.getElementById('split-btn');
+  if(main) main.style.display='';
+  if(split) split.style.display='none';
+}
+
+/* Kiểm tra có nên hiện nút Thua/Mới không:
+   - Người chỉ còn vua (+ ≤2 tốt) mà máy còn ≥2 quân nặng (xe/hậu), HOẶC
+   - CP chênh lệch quá lớn (≥ 900cp, khoảng 3 quân) */
+function checkSplitButton(){
+  if(!gActive){
+    hideSplitButton(); return;
+  }
+  /* Chỉ hiện trong tàn cuộc — tính phase theo vật chất còn lại */
+  var totalMat = 0;
+  for(var i=0;i<64;i++){
+    var t0=typ(gB[i]);
+    if(t0>=2 && t0<=5) totalMat += PVAL[t0];
+  }
+  var phase = totalMat / PHASE_MAX;
+  if(phase > 0.4){ hideSplitButton(); return; }  /* còn midgame — không hiện */
+
+  var playerSide = gPC;
+  /* Đếm vật chất */
+  var playerMat=0, opponentHeavy=0, opponentMat=0;
+  for(var i=0;i<64;i++){
+    var p=gB[i]; if(!p) continue;
+    var s=col(p), t=typ(p);
+    if(t===6) continue;
+    var v=PVAL[t];
+    if(s===playerSide){ playerMat+=v; }
+    else { opponentMat+=v; if(t===4||t===5) opponentHeavy++; }
+  }
+  /* Người còn ≤200cp và máy còn ≥2 quân nặng, HOẶC máy hơn ≥900cp */
+  var cond1 = (playerMat <= 200) && opponentHeavy >= 2;
+  var cond2 = (opponentMat - playerMat) >= 900;
+  if(cond1 || cond2){
+    showSplitButton();
+  } else {
+    hideSplitButton();
+  }
+}
+
+function materialNoKings(){
+  var total=0;
+  for(var i=0;i<64;i++){
+    var t=typ(gB[i]);
+    if(t>=1 && t<=5) total += PVAL[t];
+  }
+  return total;
+}
+
+function clearThinkTimer(){
+  if(gThinkTimer){
+    clearTimeout(gThinkTimer);
+    gThinkTimer=null;
+  }
+}
+
+function scheduleThinkLong(){
+  clearThinkTimer();
+  if(!gActive || gTurn!==gPC || gDrawOffer || gChatMsg) return;
+  if(gMoveNum <= OPENING_MOVES) return;  /* không nhắc trong khai cuộc */
+  gThinkTimer=setTimeout(function(){
+    gThinkTimer=null;
+    if(!gActive || gTurn!==gPC || gDrawOffer || gChatMsg) return;
+    gChatMsg=randChat('thinkLong');
+    var el=document.getElementById('status');
+    if(el){
+      el.className='status';
+      el.textContent=gChatMsg;
+    }
+  }, 20000);
+}
+
+function isExchangePosition(){
+  if(gMoveNum<16) return false;
+  var total=materialNoKings();
+  /* Tàn cuộc thực sự: tổng vật chất mỗi bên rất ít
+     1800cp ≈ mỗi bên còn chưa đến 1 Xe + vài tốt */
+  return total <= 1800;
+}
+
+function maybeOfferDraw(evalForAI){
+  if(!gActive || gDrawOffer || gTurn!==gPC) return;
+  if(gMoveNum < 18) return;
+
+  var bareKings = materialNoKings()===0;
+  /* Bare kings: không thể có kết quả nào ngoài hòa — reset declined để offer lại */
+  if(bareKings) gDrawOfferDeclined = false;
+
+  if(gDrawOfferDeclined) return;
+
+  if(Math.abs(evalForAI)<=DRAW_SCORE) gEqualEvalStreak++;
+  else gEqualEvalStreak=0;
+
+  if(!bareKings && gEqualEvalStreak<DRAW_STREAK) return;
+
+  gDrawOffer=true;
+  gChatMsg=randChat('offerDraw');
+  setMainButton('\u0110\u1ed3ng \u00fd');
+  var el=document.getElementById('status');
+  if(el){
+    el.className='status';
+    el.textContent=gChatMsg;
+  }
+}
+
+function resetStats() {
+  gMoveStats = { brilliant:0, great:0, best:0, greatDef:0, missedWin:0, missedMate:0, mistake:0, blunder:0 };
+  gPendingBest = null; gPendingEval = 0; gPlayerMoveCount = 0;
+  gTiltMoves = 0; gBlunderRecovery = false; gChatMsg = '';
+  gDrawOffer = false; gDrawOfferDeclined = false; gBadEvalStreak = 0; gEqualEvalStreak = 0;
+  gExchangeChatShown = false; gOpeningChatShown = false; gUciHist = [];
+  tReset();
+  clearThinkTimer();
+  setMainButton('Ván mới');
+  var box = document.getElementById('stats-box');
+  if(box) box.style.display = 'none';
+}
+
+
+/* ═══════════════════════════════════════════════════
+   HỆ THỐNG RANKING — lưu localStorage
+   rank: 0-9 (Cấp 1-10), thắng lên cấp, thua xuống cấp
+   Hòa không tính. Cấp 1 không xuống, Cấp 10 không lên thêm.
+   ═══════════════════════════════════════════════════ */
+var RANK_KEY = 'chess_rank';
+var gRank = 7;   /* Cấp 8 (index 7) — mặc định */
+
+function rankLoad(){
+  var loaded = false;
+  try {
+    var raw = localStorage.getItem(RANK_KEY);
+    if(raw){
+      var d = JSON.parse(raw);
+      if(typeof d.rank === 'number' && d.rank >= 0 && d.rank <= 9){
+        gRank = d.rank; loaded = true;
+      }
+    }
+  } catch(e){}
+  if(!loaded){
+    var sel = document.getElementById('rank-sel');
+    if(sel) gRank = parseInt(sel.value);
+  }
+}
+
+function rankSave(){
+  try { localStorage.setItem(RANK_KEY, JSON.stringify({rank:gRank})); } catch(e){}
+}
+
+function rankUpdate(result){
+  /* result: +1 = thắng → lên 1 cấp, -1 = thua → xuống 1 cấp, 0 = hòa → giữ nguyên */
+  if(result > 0 && gRank < 9){ gRank++; }
+  if(result < 0 && gRank > 0){ gRank--; }
+  rankSave();
+  rankDisplay();
+}
+
+function rankDisplay(){
+  var sel = document.getElementById('rank-sel');
+  var disp = document.getElementById('rank-display');
+  if(!sel || !disp) return;
+  var ind = '';
+  disp.textContent = 'C\u1ea5p ' + (gRank+1) + ind;
+  /* Khi đang chơi: ẩn select, hiện display */
+  if(gGameStarted){
+    sel.style.display='none';
+    disp.style.display='block';
+  } else {
+    sel.style.display='block';
+    sel.value = String(gRank);
+    disp.style.display='none';
+  }
+}
+
+function newGame(){
+  gB=makeBoard(); gTurn=W; gEP=-1;
+  gCasB=CAS_ALL;
+  gHalf=0; gFull=1;
+  gSel=-1; gLegal=[]; gAllLegal=[]; gLast=null; gActive=true;
+  gHist=[]; gUciHist=[]; gMoveNum=1;
+  gHash=computeHash(gB,gTurn,gEP,gCasB);
+  gPosHist=[gHash];
+  ttClear();
+  killerClear();
+  histClear();
+  searchStack=[];
+  /* KHÔNG gọi rankLoad() ở đây — giữ cấp độ hiện tại khi bấm Ván mới */
+  gGameStarted=false;
+  gCapturedBlack=[]; gCapturedWhite=[];
+  /* Luôn về máy đen khi ván mới */
+  gPC=W; gFlip=false;
+  var btn2=document.getElementById('clr-toggle');
+  if(btn2){ btn2.className='clr-btn'; btn2.innerHTML='&#9812; \u0110\u1ed5i b\u00ean'; }
+  rankDisplay();
+  showColorBtn();
+  resetStats();
+  if(feedbackTimer){ clearTimeout(feedbackTimer); feedbackTimer=null; }
+  document.getElementById('history').textContent='\u2014';
+  gAllLegal=legalMoves(gB,gTurn,gEP,gCasB);
+  hideSplitButton();
+  renderBoard(); setStatus();
+  if(gPC===B) setTimeout(aiMove,80);
+}
+
+function toggleColor(){
+  /* Máy sang bên trắng cho ván này — gọi newGame trước rồi override gPC */
+  newGame();
+  gPC=B; gFlip=true;
+  /* Cập nhật nút hiển thị trạng thái đang chọn đen */
+  var btn=document.getElementById('clr-toggle');
+  if(btn){ btn.className='clr-btn active'; btn.innerHTML='&#9818; \u0110\u1ed5i b\u00ean'; }
+  /* AI (trắng) đi trước */
+  if(gActive) setTimeout(aiMove,80);
+}
+
+/* ═══════════════════════════════════════════════════
+   BOARD SIZING — chỉ gọi khi resize, không gọi mỗi nước
+   ═══════════════════════════════════════════════════ */
+var gCellH = 0;  /* cache để tránh đọc offsetWidth liên tục */
+
+function fixBoardSize(){
+  var bd=document.getElementById('board');
+  var w=bd.offsetWidth;
+  if(!w) return;
+  bd.style.height=w+'px';
+  var cellH=Math.floor(w/8);
+  if(cellH===gCellH) return;  /* không thay đổi — bỏ qua */
+  gCellH = cellH;
+  var fontSize=Math.floor(cellH*0.75);
+  var cells=bd.children;
+  for(var i=0;i<cells.length;i++){
+    cells[i].style.height=cellH+'px';
+    cells[i].style.lineHeight=cellH+'px';
+    cells[i].style.fontSize=fontSize+'px';
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   PERSISTENT BOARD — build 1 lần, update sau đó
+   ═══════════════════════════════════════════════════ */
+
+/* Mảng tham chiếu đến 64 cell và các node con — index theo sq() */
+var gCells = [];       /* gCells[sq] = div.sq */
+var gPieceSpans = [];  /* gPieceSpans[sq] = span.piece */
+var gDotMarkers = [];  /* gDotMarkers[sq] = div.dot-marker */
+var gRingMarkers = []; /* gRingMarkers[sq] = div.ring-marker */
+var gBoardBuilt = false;
+var gLastFlip = false;  /* theo dõi flip để rebuild khi đổi bên */
+
+function buildBoardOnce(){
+  var bd=document.getElementById('board');
+  bd.innerHTML='';
+  /* Event delegation — 1 handler trên board thay vì 192 handler trên ô */
+  bd.onclick = onSqClick;
+  bd.ontouchstart = onSqFastInput;
+  bd.onmousedown = onSqFastInput;
+  gCells=[]; gPieceSpans=[]; gDotMarkers=[]; gRingMarkers=[];
+  for(var dr=0;dr<8;dr++){
+    for(var dc=0;dc<8;dc++){
+      var rank=gFlip?dr:7-dr;
+      var file=gFlip?7-dc:dc;
+      var s=sq(rank,file);
+      var cell=document.createElement('div');
+      var baseColor=(rank+file)%2===1?'sq lite':'sq dark';
+      cell.className=baseColor;
+      cell.setAttribute('data-s', s);
+      /* Pre-create piece span */
+      var sp=document.createElement('span');
+      sp.className='piece';
+      cell.appendChild(sp);
+      /* Pre-create dot marker (empty square) */
+      var dot=document.createElement('div');
+      dot.className='dot-marker hidden';
+      cell.appendChild(dot);
+      /* Pre-create ring marker (occupied square) */
+      var ring=document.createElement('div');
+      ring.className='ring-marker hidden';
+      cell.appendChild(ring);
+      bd.appendChild(cell);
+      gCells[s]=cell;
+      gPieceSpans[s]=sp;
+      gDotMarkers[s]=dot;
+      gRingMarkers[s]=ring;
+    }
+  }
+  gBoardBuilt=true;
+  gLastFlip=gFlip;
+  gCellH=0;  /* force fixBoardSize recalc */
+  fixBoardSize();
+}
+
+function renderBoard(){
+  /* Xây board lần đầu hoặc khi flip đổi */
+  if(!gBoardBuilt || gFlip!==gLastFlip) buildBoardOnce();
+  var kingSq=-1;
+  if(gActive&&inCheck(gB,gTurn)){
+    for(var i=0;i<64;i++) if(gB[i]===gTurn*6){kingSq=i;break;}
+  }
+  for(var dr=0;dr<8;dr++){
+    for(var dc=0;dc<8;dc++){
+      var rank=gFlip?dr:7-dr;
+      var file=gFlip?7-dc:dc;
+      var s=sq(rank,file);
+      var p=gB[s];
+      var cell=gCells[s];
+      /* Tính className mới */
+      var cls=(rank+file)%2===1?'sq lite':'sq dark';
+      if(gLast&&s===gLast[0]) cls+=' lm-f';
+      if(gLast&&s===gLast[1]) cls+=' lm-t';
+      if(s===kingSq)          cls+=' chk';
+      if(s===gSel)            cls+=' sel';
+      if(cell.className!==cls) cell.className=cls;
+      /* Cập nhật quân cờ */
+      var sp=gPieceSpans[s];
+      var sym=p?SYM[typ(p)][col(p)===W?0:1]:'';
+      if(sp.textContent!==sym) sp.textContent=sym;
+      /* Marker: ẩn hết — renderSelectionHints() sẽ bật lại */
+      gDotMarkers[s].className='dot-marker hidden';
+      gRingMarkers[s].className='ring-marker hidden';
+    }
+  }
+  renderSelectionHints();
+  /* KHÔNG gọi fixBoardSize() ở đây */
+}
+
+function clsAdd(el, name){
+  if((' '+el.className+' ').indexOf(' '+name+' ')<0) el.className += ' '+name;
+}
+
+function clsRemove(el, name){
+  el.className = (' '+el.className+' ').replace(' '+name+' ', ' ').replace(/^\s+|\s+$/g, '');
+}
+
+function renderSelectionHints(){
+  for(var j=0;j<64;j++){
+    var cell=gCells[j]; if(!cell) continue;
+    var cls=cell.className;
+    /* Xóa sel nếu có */
+    cls=cls.replace(' sel','');
+    if(j===gSel){
+      if(cell.className!==cls+' sel') cell.className=cls+' sel';
+      gDotMarkers[j].className='dot-marker hidden';
+      gRingMarkers[j].className='ring-marker hidden';
+    } else {
+      if(cell.className!==cls) cell.className=cls;
+      var hasLegal=false;
+      for(var k=0;k<gLegal.length;k++) if(gLegal[k][1]===j){hasLegal=true;break;}
+      if(hasLegal){
+        if(gB[j]){
+          gRingMarkers[j].className='ring-marker';
+        } else {
+          gDotMarkers[j].className='dot-marker';
+        }
+      } else {
+        gDotMarkers[j].className='dot-marker hidden';
+        gRingMarkers[j].className='ring-marker hidden';
+      }
+    }
+  }
+}
+
+/* Đếm số lần vị trí hiện tại xuất hiện trong lịch sử */
+function countRep(hash){
+  var c=0;
+  for(var i=0;i<gPosHist.length;i++) if(gPosHist[i]===hash) c++;
+  return c;
+}
+
+function setStatusText(el, cls, txt){
+  if(el.className !== cls) el.className = cls;
+  if(el.textContent !== txt) el.textContent = txt;
+}
+
+function setStatus(){
+  var el=document.getElementById('status');
+  var isChk=inCheck(gB,gTurn);
+  var mvs=gAllLegal;
+  var tn=gTurn===W?'Tr\u1eafng':'\u0110en';
+  var yours=gTurn===gPC;
+  if(!mvs.length){
+    gActive=false;
+    if(isChk){
+      var winner = gTurn===W ? '\u0110en' : 'Tr\u1eafng';
+      var youWin = (gTurn!==gPC);  /* gTurn bị chiếu hết → gTurn thua */
+      var chatEnd = youWin ? '  \u2014 '+randChat('youWin') : '  \u2014 '+randChat('aiWin');
+      setStatusText(el,'status gameover','\u265b Chi\u1ebfu h\u1ebft! '+winner+' th\u1eafng!'+chatEnd);
+      rankUpdate(youWin ? 1 : -1);
+    } else {
+      setStatusText(el,'status gameover','\u00bd H\u00f2a c\u1edd \u2014 Stalemate');
+    }
+    showStats();
+    return;
+  }
+  if(gHalf>=100){
+    gActive=false;
+    setStatusText(el,'status gameover','\u00bd H\u00f2a c\u1edd \u2014 Quy t\u1eafc 50 n\u01b0\u1edbc');
+    showStats();
+    return;
+  }
+  if(countRep(gHash)>=3){
+    gActive=false;
+    setStatusText(el,'status gameover','\u00bd H\u00f2a c\u1edd \u2014 L\u1eb7p v\u1ecb tr\u00ed 3 l\u1ea7n');
+    showStats();
+    return;
+  }
+  if(isChk){
+    setStatusText(el,'status check','\u26a0 '+tn+' \u0111ang b\u1ecb chi\u1ebfu!'+(yours?' H\u00e3y \u0111i!':''));
+  } else if(yours){
+    gThinkingText = '';  /* reset để lần sau máy chọn câu thinking mới */
+    gDramaticChat = ''; gDramaticLabel = '';
+    if(gDrawOffer){
+      setStatusText(el,'status',gChatMsg || randChat('offerDraw'));
+      return;
+    }
+    if(gChatMsg){
+      setStatusText(el,'status',gChatMsg);
+      /* Timer CHAT_DISPLAY_TIME: thay chat B bằng yourTurn sau 5 giây */
+      clearThinkTimer();
+      gThinkTimer = setTimeout(function(){
+        gThinkTimer = null;
+        if(!gActive || gTurn!==gPC || gDrawOffer) return;
+        gChatMsg = '';
+        var el2 = document.getElementById('status');
+        if(el2){
+          var txt;
+          if(gMoveNum <= 1){
+            txt = 'L\u01b0\u1ee3t c\u1ee7a b\u1ea1n';
+          } else {
+            txt = (Math.random() < CHAT_PROB_YOUR_TURN_GENERIC) ? 'L\u01b0\u1ee3t c\u1ee7a b\u1ea1n' : randChat('yourTurn');
+          }
+          setStatusText(el2,'status',txt);
+        }
+        scheduleThinkLong();
+      }, CHAT_DISPLAY_TIME);
+    } else {
+      /* Chưa có chat: hiện "Lượt của bạn" đơn giản nếu chưa ai đi,
+         pool yourTurn (có thể mang ý "mình đi rồi, bạn đi đi") chỉ hiện sau nước đầu */
+      var turnTxt;
+      if(gMoveNum <= 1){
+        turnTxt = (Math.random() < CHAT_PROB_OPENING_EARLY) ? randChat('openingEarly') : 'L\u01b0\u1ee3t c\u1ee7a b\u1ea1n';
+      } else {
+        turnTxt = (Math.random() < CHAT_PROB_YOUR_TURN_GENERIC) ? 'L\u01b0\u1ee3t c\u1ee7a b\u1ea1n' : randChat('yourTurn');
+      }
+      setStatusText(el,'status',turnTxt);
+      scheduleThinkLong();
+    }
+  } else {
+    /* Máy đang suy nghĩ — thứ tự ưu tiên:
+       1. dramatic = brilliant/blunder → ưu tiên tuyệt đối dù có chiếu hay không
+       2. Máy đang bị chiếu → underPressure
+       3. dramatic còn lại (great/greatDef/missedMate/missedWin) → chat dramatic
+       4. Còn lại → 70% "Máy đang suy nghĩ...", 30% randChat('thinking') */
+    clearThinkTimer();
+    var thinkTxt;
+    if(gDramaticChat && (gDramaticLabel === 'brilliant' || gDramaticLabel === 'blunder')){
+      thinkTxt = gDramaticChat;
+      gDramaticChat = ''; gDramaticLabel = '';
+    } else if(inCheck(gB, gTurn)){
+      if(!gThinkingText) gThinkingText = randChat('underPressure');
+      thinkTxt = gThinkingText;
+    } else if(gDramaticChat){
+      thinkTxt = gDramaticChat;
+      gDramaticChat = ''; gDramaticLabel = '';
+    } else {
+      if(!gThinkingText){
+        gThinkingText = (Math.random() < CHAT_PROB_THINKING_GENERIC)
+          ? 'Máy đang suy nghĩ...'
+          : randChat('thinking');
+      }
+      thinkTxt = gThinkingText;
+    }
+    setStatusText(el,'status thinking',thinkTxt);
+  }
+}
+/* ═══════════════════════════════════════════════════
+   INTERACTION
+   ═══════════════════════════════════════════════════ */
+var gLastFastInputTime = 0;
+
+function onSqFastInput(e){
+  var now = Date.now();
+  if(gLastFastInputTime && now-gLastFastInputTime<120){
+    if(e && e.preventDefault) e.preventDefault();
+    return false;
+  }
+  gLastFastInputTime = now;
+  if(e && e.preventDefault) e.preventDefault();
+  onSqClick(e, true);
+  return false;
+}
+
+function onSqClick(e, fromTouch){
+  if(!fromTouch && gLastFastInputTime && Date.now()-gLastFastInputTime<700) return false;
+  if(!gActive||gTurn!==gPC) return;
+  var tgt=e.target||e.srcElement;
+  while(tgt&&tgt.getAttribute&&!tgt.getAttribute('data-s')) tgt=tgt.parentNode;
+  if(!tgt||!tgt.getAttribute) return;
+  var s=parseInt(tgt.getAttribute('data-s'));
+  var p=gB[s];
+  if(gSel>=0){
+    var targets=[];
+    for(var i=0;i<gLegal.length;i++) if(gLegal[i][1]===s) targets.push(gLegal[i]);
+    if(targets.length){
+      if(targets[0][3]) showPromo(targets);
+      else execMove(targets[0]);
+      return;
+    }
+  }
+  if(p&&col(p)===gPC){
+    gSel=s;
+    gLegal=[];
+    for(var i=0;i<gAllLegal.length;i++) if(gAllLegal[i][0]===s) gLegal.push(gAllLegal[i]);
+    renderSelectionHints();
+  } else {
+    gSel=-1; gLegal=[];
+    renderSelectionHints();
+  }
+  return false;
+}
+
+/* ── Blunder detection helpers ─────────────────────────
+   Chỉ gọi blunder khi có bằng chứng cụ thể trên bàn cờ,
+   tránh phụ thuộc vào cpLoss dễ sai do depth/góc nhìn.   */
+
+/* Điều kiện A: nước máy sẽ đi (pendingBest) ăn quân nặng của người */
+function aiWillCaptureHeavy(board, pendingBest, playerCol){
+  if(!pendingBest || !pendingBest[2]) return false;
+  var captured = pendingBest[2];
+  /* quân bị ăn phải là của người (playerCol) và nặng >= mã/tượng (typ >= 2) */
+  return col(captured) === playerCol && typ(captured) >= 2;
+}
+
+/* Điều kiện B: người vừa không ăn quân nặng máy mà hoàn toàn có thể ăn được.
+   "Hoàn toàn có thể" = quân đó không được bảo vệ bởi bất kỳ quân máy nào
+   (hanging piece — an toàn để ăn không sợ mất quân tương đương).
+   playerMv  = nước vừa đi của người
+   boardBefore = bàn cờ TRƯỚC nước người đi
+   playerCol = màu của người */
+function playerMissedHanging(boardBefore, playerMv, playerCol){
+  var aiCol = -playerCol;
+  /* Nếu người vừa ăn quân nặng thì không tính blunder */
+  if(playerMv[2] && typ(playerMv[2]) >= 2) return false;
+  /* Duyệt toàn bộ ô tìm quân nặng máy bị treo */
+  for(var sq2 = 0; sq2 < 64; sq2++){
+    var piece = boardBefore[sq2];
+    if(!piece || col(piece) !== aiCol) continue;
+    if(typ(piece) < 2) continue;          /* bỏ qua tốt và vua */
+    /* Quân máy tại sq2: kiểm tra có bị tấn công bởi người không */
+    if(!attacked(boardBefore, sq2, playerCol)) continue;
+    /* Kiểm tra nó có được bảo vệ bởi máy không — nếu không bảo vệ thì hanging */
+    if(!attacked(boardBefore, sq2, aiCol)) return true;
+  }
+  return false;
+}
+
+/* Điều kiện C: người vừa đi quân nặng vào ô bị tấn công bởi máy mà không được người bảo vệ.
+   boardAfter = bàn cờ SAU nước người đi (gB hiện tại, gTurn đã đổi sang máy)
+   playerMv   = nước vừa đi
+   playerCol  = màu người */
+function playerPieceHangsAfterMove(boardAfter, playerMv, playerCol){
+  var aiCol = -playerCol;
+  var toSq = playerMv[1];
+  var piece = boardAfter[toSq];
+  if(!piece || col(piece) !== playerCol) return false;  /* không còn quân ở đó (không xảy ra) */
+  if(typ(piece) < 2) return false;                      /* tốt bị ăn không tính */
+  /* Quân người vừa đến toSq: có bị máy tấn công không? */
+  if(!attacked(boardAfter, toSq, aiCol)) return false;
+  /* Có được người bảo vệ không? — nếu có thì không phải hanging */
+  if(attacked(boardAfter, toSq, playerCol)) return false;
+  return true;
+}
+
+function execMove(mv){
+  var isPlayerMove = (gTurn === gPC);
+  var savedBest = gPendingBest;
+  var savedEval = gPendingEval;
+  if(isPlayerMove) clearThinkTimer();
+  if(isPlayerMove) { _tResult = []; tStart('total'); tMark('playerMoved'); }
+  if(isPlayerMove && gDrawOffer) gDrawOfferDeclined=true;
+  if(isPlayerMove) clearDrawOffer();
+
+  addHistory(mv);
+  gUciHist.push(mvUci(mv));
+  gLast=mv;
+  /* Track quân bị ăn (chỉ quân nặng typ 2-5) */
+  if(mv[2]){
+    var ct=typ(mv[2]);
+    if(ct>=2&&ct<=5){
+      if(col(mv[2])===B) gCapturedBlack.push(mv[2]);
+      else gCapturedWhite.push(mv[2]);
+    }
+  }
+  /* Lần đầu đi: chuyển UI sang chế độ chơi */
+  if(!gGameStarted){
+    gGameStarted=true;
+    rankDisplay();
+    showCapturedBar();
+  }
+  updateCaptured();
+  var t=typ(gB[mv[0]]);
+  /* Lưu board trước nước người để playerMissedHanging kiểm tra quân treo */
+  if(isPlayerMove) mv._boardBefore = gB.slice();
+  var oldCasB=gCasB, oldEP=gEP;
+  gCasB=newCasBit(gCasB,gB,mv,gTurn);
+  gHash=updateHash(mv,gB,oldCasB,gCasB,oldEP,mv[6]);
+  gB=applyMv(gB,mv);
+  gEP=mv[6];
+  gHalf=(t===1||mv[2])?0:gHalf+1;
+  if(gTurn===B) gFull++;
+  if(gTurn===B) gMoveNum++;  /* tăng sau mỗi lượt đen đi = 1 full move */
+  gTurn=-gTurn;
+  gPosHist.push(gHash);
+  gSel=-1; gLegal=[]; gAllLegal=legalMoves(gB,gTurn,gEP,gCasB);
+  /* Reset pending chỉ khi người chơi đi — AI đã tính sẵn ở trên, không xóa */
+  if(isPlayerMove) gPendingBest = null;
+
+  /* Phân loại nước người chơi nếu qua khai cuộc và đã có pending best */
+  if(isPlayerMove){
+    gPlayerMoveCount++;
+  }
+
+  /* Chat cũ của máy xóa đi khi người đi */
+  if(isPlayerMove){
+    gChatMsg = '';
+  }
+
+  /* Render ngay để người thấy quân đã đi — không block UI */
+  renderBoard(); setStatus();
+  checkSplitButton();
+
+  /* Phân loại nước đi async — evalPlayer có thể tốn 1-2s trên PPW3,
+     delay 50ms để browser render board trước rồi mới tính */
+  if(isPlayerMove && savedBest !== null && gPlayerMoveCount > OPENING_MOVES){
+    setTimeout(function(){
+      var label = null;
+      var mvKey  = mv[0]*100 + mv[1];
+      var bestKey = savedBest[0]*100 + savedBest[1];
+      var isBestMove = (mvKey === bestKey);
+
+      /* ── Phát hiện Missed Mate — không cần evalPlayer ── */
+      var wasMate = (savedEval >= 9900);
+      if(wasMate && !isBestMove){
+        label = 'missedMate';
+      }
+
+      /* ── Tính cpLoss cho các label còn lại ── */
+      var evalPlayer = 0;
+      var cpLoss = 0;
+      if(!label && !isBestMove){
+        tStart('evalPlayer');
+        evalPlayer = -evalMove(gB, gTurn, gEP, gCasB, gHash);
+        tEnd('evalPlayer');
+        cpLoss = savedEval - evalPlayer;
+      }
+
+      /* ── Phát hiện Missed Win ──
+         savedEval >= 600: đang thắng rõ trước nước đi
+         evalPlayer <= 50: sau nước đi lợi thế gần như mất
+         cpLoss >= 400: mất ít nhất 4 tốt — không phải sai nhỏ */
+      if(!label && !isBestMove && savedEval >= 600 && evalPlayer <= 50 && cpLoss >= 400){
+        label = 'missedWin';
+      }
+
+      /* ── Phát hiện Blunder ──
+         Điều kiện A: nước máy sắp đi sẽ ăn quân nặng của người
+         Điều kiện B: người bỏ qua quân nặng máy đang bị treo (không được bảo vệ)
+         Điều kiện C: người vừa đi quân nặng vào ô bị máy tấn công mà không được bảo vệ
+         Không dùng cpLoss — tránh sai lệch do depth/góc nhìn khác nhau */
+      if(!label && !isBestMove){
+        if(aiWillCaptureHeavy(gB, savedBest, gPC) ||
+           playerMissedHanging(mv._boardBefore, mv, gPC) ||
+           playerPieceHangsAfterMove(gB, mv, gPC)){
+          label = 'blunder';
+        }
+      }
+
+      /* ── Phát hiện Brilliant ── */
+      if(!label && isBestMove){
+        var sacPiece = mv[2] ? 0 : (attacked(gB, mv[1], -gPC) ? PVAL[typ(gB[mv[1]])] : 0);
+        if(sacPiece >= 300){
+          tStart('evalAfterSac');
+          var evalAfterSac = -evalMove(gB, gTurn, gEP, gCasB, gHash);
+          tEnd('evalAfterSac');
+          var evalDrop = Math.max(0, savedEval - evalAfterSac);
+          if(evalDrop <= 50){
+            label = 'brilliant';
+          }
+        }
+        if(!label){
+          var onlyEscape = (gAllLegal.length <= 2);  /* nước bắt buộc — không tính hay */
+          if(gAllLegal.length <= 3 && savedEval < -300 && !onlyEscape){
+            label = 'greatDef';
+          }
+          else {
+            /* Great cần thực sự có giá trị: ăn quân lớn, chiếu, hoặc thoát nguy thực sự */
+            var mv0 = gAllLegal[0];  /* nước tốt nhất đã chọn */
+            var hasCapture = mv0 && mv0[2] && PVAL[typ(mv0[2])] >= 300;
+            var givesCheck = mv0 && inCheck(applyMv(gB, mv0), -gTurn);
+            var genuineEscape = (gAllLegal.length <= 3 && savedEval < -400);
+            if(!onlyEscape && (hasCapture || givesCheck || genuineEscape)){
+              label = 'great';
+            } else {
+              label = 'best';
+            }
+          }
+        }
+      }
+
+      /* ── Phát hiện Mistake ── */
+      if(!label && !isBestMove && cpLoss > 100){
+        label = 'mistake';
+      }
+
+      /* Hiển thị label */
+      if(label){
+        gMoveStats[label]++;
+        tMark(label);
+        var dramatic = {brilliant:1, great:1, greatDef:1, missedMate:1, missedWin:1, blunder:1};
+        if(dramatic[label]){
+          /* Dramatic: showFeedback hiện label 2500ms, rồi AI đi */
+          showFeedback(label);
+          tFlush('feedback');
+          if(gActive) setTimeout(aiMove, 2600);
+          return;
+        }
+      } else {
+        tMark('-ok');
+      }
+      /* Non-dramatic: classify xong, để AI đi bình thường */
+      tFlush('classify');
+      if(gActive) setTimeout(aiMove, UI_AFTER_MOVE_DELAY);
+    }, UI_AFTER_MOVE_DELAY);  /* Chờ Kindle/e-ink paint nước người trước khi eval phân loại */
+    return;  /* execMove kết thúc — aiMove sẽ được gọi từ trong setTimeout */
+  }
+
+  if(gActive) setTimeout(aiMove, UI_AFTER_MOVE_DELAY);
+}
+
+function aiMove(){
+  if(!gActive||gTurn===gPC) return;
+  clearThinkTimer();
+  var cfg=ELO_CFG[gRank];
+  var tl = (gRank===9) ? 4500 : AI_TIME_LIMIT;
+  setStatus();
+  var snapHash=gHash;
+
+  /* ── Bắt đầu đo tổng thời gian kể từ khi người vừa đi xong ── */
+  var aiMoveStart = Date.now();
+
+  /* ── Điều chỉnh depth/rnd ── */
+  var useDepth = cfg.d;
+  var useRnd   = cfg.rnd;
+
+  if(gTiltMoves > 0){ useRnd = Math.min(useRnd + 0.20, 0.60); gTiltMoves--; }
+  if(gLast && gLast[2]){
+    var capturedVal = PVAL[typ(gLast[2])];
+    var aiLostPiece = (col(gLast[2]) === gTurn);
+    if(aiLostPiece){
+      if(capturedVal >= 500) gTiltMoves = 3;
+      else if(capturedVal >= 300) gTiltMoves = 1;
+    }
+  }
+
+  /* ── Xác định TARGET tổng thời gian theo tình huống ── */
+  var isForced  = (gAllLegal.length <= 2);
+  var isRecap   = !!(gLast && gLast[2]);
+  var isOpening = (gMoveNum <= 10);
+  var target;
+
+  if(isForced || isRecap){
+    target = 1000 + Math.floor(Math.random() * 500);   /* 1000–1500ms */
+  } else if(isOpening){
+    target = 1000 + Math.floor(Math.random() * 1000);  /* 1000–2000ms */
+  } else if(gBlunderRecovery){
+    target = 4000 + Math.floor(Math.random() * 3000);  /* 4000–7000ms */
+    gBlunderRecovery = false;
+  } else {
+    target = 1500 + Math.floor(Math.random() * 2500);  /* 1500–4000ms */
+  }
+
+  var oldTL=AI_TIME_LIMIT;
+  var EVAL_NOW_TIME = 800;  /* giới hạn thời gian cho evalNow — không được vượt */
+
+  var evalNow = 0;
+  var evalNowComplete = false;  /* true chỉ khi evalNow hoàn thành đúng hạn */
+  if(gMoveNum > OPENING_MOVES){
+    tStart('evalNow');
+    AI_TIME_LIMIT = EVAL_NOW_TIME;
+    aiTimedOut = false; aiNodeCount = 0; aiStartTime = Date.now(); searchStack = [];
+    evalNow = negamax(gB, gTurn, gEP, gCasB, 2, -INF, INF, 0, snapHash, false);
+    evalNowComplete = !aiTimedOut;
+    AI_TIME_LIMIT = tl;
+    tEnd('evalNow');
+    /* Chỉ điều chỉnh depth khi evalNow đáng tin */
+    if(evalNowComplete && useDepth > 1 && evalNow > 500) useDepth = useDepth - 1;
+  }
+
+  var evalBefore = evalNow;
+  /* Resign chỉ được tính khi evalNow hoàn thành đúng hạn — tránh resign sai */
+  if(evalNowComplete){
+    if(gMoveNum>12 && evalBefore<=RESIGN_SCORE) gBadEvalStreak++;
+    else if(evalBefore>-900) gBadEvalStreak=0;
+  }
+  if(gBadEvalStreak>=RESIGN_STREAK){
+    AI_TIME_LIMIT=oldTL;
+    tFlush('resign');
+    aiResign();
+    return;
+  }
+
+  tStart('bestMove');
+  var mv=bestMove(gB,gTurn,gEP,gCasB,useDepth,useRnd,snapHash);
+  tEnd('bestMove');
+  AI_TIME_LIMIT=oldTL;
+  if(!mv){
+    mv = bestMove(gB, gTurn, gEP, gCasB, 1, 0, snapHash);
+    if(!mv){ tFlush('noMove'); setStatus(); return; }
+  }
+
+  var futureBoard = applyMv(gB, mv);
+  var futureTurn  = -gTurn;
+  var futureEP    = mv[6];
+  var futureCasB  = newCasBit(gCasB, gB, mv, gTurn);
+  var futureHash  = computeHash(futureBoard, futureTurn, futureEP, futureCasB);
+
+  if(gPlayerMoveCount >= OPENING_MOVES + 2){
+    tStart('pendingBest');
+    aiTimedOut = false; aiNodeCount = 0; aiStartTime = Date.now(); searchStack = [];
+    AI_TIME_LIMIT = CLASSIFY_TIME;
+    gPendingBest = bestMove(futureBoard, futureTurn, futureEP, futureCasB, 3, 0, futureHash);
+    tEnd('pendingBest');
+    if(gPendingBest){
+      tStart('evalPending');
+      aiTimedOut = false; aiNodeCount = 0; aiStartTime = Date.now(); searchStack = [];
+      var nb2 = applyMv(futureBoard, gPendingBest);
+      var nc2 = newCasBit(futureCasB, futureBoard, gPendingBest, futureTurn);
+      gPendingEval = -evalMove(nb2, -futureTurn, gPendingBest[6], nc2, futureHash);
+      tEnd('evalPending');
+    } else {
+      gPendingBest = null; gPendingEval = 0;
+    }
+    AI_TIME_LIMIT = oldTL;
+  }
+
+  tStart('offerDraw');
+  maybeOfferDraw(evalBefore);
+  tEnd('offerDraw');
+
+  gChatMsg = '';
+  /* Chat duy nhất hiện sau khi máy đi xong.
+     Ưu tiên: phản ứng nước người (cũ chat A) > phản ứng nước máy (chat B) */
+
+  /* Máy vừa ăn quân lớn của người → loseBig */
+  var justLostBig = !!(mv[2] && col(mv[2])===gPC && PVAL[typ(mv[2])]>=500);
+
+  /* Nước máy đạt brilliant: hy sinh quân nặng mà vẫn không thua thế */
+  var aiSacPiece = (!mv[2] && attacked(gB, mv[1], gPC)) ? PVAL[typ(gB[mv[0]])] : 0;
+  var aiIsBrilliant = (aiSacPiece >= 300);
+  /* Nước máy đạt great: chiếu người, hoặc ăn quân nặng */
+  var aiCapHeavy = !!(mv[2] && col(mv[2])===gPC && PVAL[typ(mv[2])]>=300);
+  var aiIsGreat  = inCheck(futureBoard, gPC) || aiCapHeavy;
+
+  if(justLostBig) gChatMsg = randChat('loseBig');
+  else if(aiIsBrilliant || aiIsGreat) gChatMsg = randChat('goodMove');
+  else if(!gOpeningChatShown && gMoveNum>=4 && gMoveNum<=6 && Math.random()<CHAT_PROB_OPENING_MID){
+    gOpeningChatShown=true; gChatMsg = randChat('openingMid');
+  }
+  else if(!gExchangeChatShown && isExchangePosition()){
+    gExchangeChatShown=true; gChatMsg = randChat('exchange');
+  }
+  else if(evalBefore > 700 && Math.random()<CHAT_PROB_WINNING) gChatMsg = randChat('winning');
+  else if(evalBefore <-500 && Math.random()<CHAT_PROB_LOSING) gChatMsg = randChat('losing');
+  else if(Math.random()<CHAT_PROB_IDLE) gChatMsg = randChat('idle');
+
+  tStart('evalAfterAI');
+  aiTimedOut = false; aiNodeCount = 0; aiStartTime = Date.now(); searchStack = [];
+  var evalAfterAI = -negamax(futureBoard, futureTurn, futureEP, futureCasB, 2,
+                              -INF, INF, 0, futureHash, false);
+  tEnd('evalAfterAI');
+  if(evalAfterAI < evalBefore - 300){
+    gBlunderRecovery = true;
+    /* if(!gChatMsg) gChatMsg = randChat('aiBlunder'); */  /* tạm ẩn — tự khai nước đi tệ */
+  }
+
+  /* ── Tính thời gian còn lại cần chờ để đủ TARGET ── */
+  var elapsed = Date.now() - aiMoveStart;
+  var remaining = Math.max(0, target - elapsed);
+  tMark('wait(' + remaining + 'ms)');
+
+  setTimeout(function(){
+    tStart('execMove');
+    execMove(mv);
+    tEnd('execMove');
+    tFlush('done');
+
+  }, remaining);
+}
+
+/* ═══════════════════════════════════════════════════
+   PROMOTION DIALOG
+   ═══════════════════════════════════════════════════ */
+function showPromo(targets){
+  var overlay=document.getElementById('promo-bg');
+  var row=document.getElementById('promo-row');
+  row.innerHTML='';
+  for(var i=0;i<targets.length;i++){
+    (function(mv){
+      var btn=document.createElement('div');
+      btn.className='promo-btn';
+      btn.textContent=SYM[typ(mv[3])][col(mv[3])===W?0:1];
+      btn.onclick=function(){
+        overlay.className='promo-bg';
+        execMove(mv);
+      };
+      row.appendChild(btn);
+    })(targets[i]);
+  }
+  overlay.className='promo-bg show';
+}
+
+/* ═══════════════════════════════════════════════════
+   MOVE HISTORY
+   ═══════════════════════════════════════════════════ */
+var FLS='abcdefgh';
+var PNM=['','','N','B','R','Q','K'];
+
+function addHistory(mv){
+  var p=gB[mv[0]], t=typ(p);
+  var ff=FLS[fl(mv[0])], tr=rk(mv[1])+1, tf=FLS[fl(mv[1])];
+  var note='';
+  if(mv[4]==='WK'||mv[4]==='BK') note='O-O';
+  else if(mv[4]==='WQ'||mv[4]==='BQ') note='O-O-O';
+  else {
+    if(t===1) note=(mv[2]||mv[5]>=0)?ff+'x'+tf+tr:tf+tr;
+    else note=PNM[t]+(mv[2]?'x':'')+tf+tr;
+    if(mv[3]) note+='='+PNM[typ(mv[3])];
+  }
+  var nb=applyMv(gB,mv), nep=mv[6], nc=newCasBit(gCasB,gB,mv,gTurn);
+  var nt=-gTurn;
+  var nm=legalMoves(nb,nt,nep,nc);
+  if(!nm.length&&inCheck(nb,nt)) note+='#';
+  else if(inCheck(nb,nt)) note+='+';
+
+  if(gTurn===W){
+    gHist.push(gFull+'.'+note);
+  } else {
+    if(gHist.length) gHist[gHist.length-1]+=' '+note;
+    else gHist.push('...'+note);
+  }
+  document.getElementById('history').textContent=gHist.slice(-8).join('  ');
+}
+
+/* ═══════════════════════════════════════════════════
+   CHAT TEXT — chỉnh sửa câu chat tại đây
+   ═══════════════════════════════════════════════════ */
+
+/* ── Thời gian chat B tồn tại trước khi bị thay bằng yourTurn ── */
+var CHAT_DISPLAY_TIME = 5000;
+
+/* ── Xác suất xuất hiện từng loại chat (0.0 → 1.0) ──────────────────────
+   Chat A — hiện trong lúc máy suy nghĩ (set ngay khi người đi xong):
+     CHAT_PROB_OPENING_EARLY : nước 1-2, khi không có chat ưu tiên cao hơn  */
+var CHAT_PROB_OPENING_EARLY = 0.10;  /* chat A: openingEarly nước 1-2 */
+
+/* Chat B — hiện sau khi máy đi xong (lượt của người):
+     CHAT_PROB_OPENING_MID   : nước 3-6, nếu chưa nói early
+     CHAT_PROB_WINNING       : khi máy đang thắng lớn (eval > 700)
+     CHAT_PROB_LOSING        : khi máy đang thua lớn (eval < -500)
+     CHAT_PROB_IDLE          : ngẫu nhiên bất kỳ lúc nào                   */
+var CHAT_PROB_OPENING_MID  = 0.10;  /* chat B: openingMid nước 3-6 */
+var CHAT_PROB_WINNING      = 0.10;  /* chat B: winning */
+var CHAT_PROB_LOSING       = 0.10;  /* chat B: losing */
+var CHAT_PROB_IDLE         = 0.05;  /* chat B: idle ngẫu nhiên */
+var CHAT_PROB_THINKING_GENERIC = 0.70; /* xác suất hiện "Máy đang suy nghĩ..." khi thinking (70%), còn lại là câu ngẫu nhiên từ pool thinking */
+var CHAT_PROB_YOUR_TURN_GENERIC = 0.70; /* xác suất hiện "Lượt của bạn" cứng khi yourTurn (70%), còn lại là câu ngẫu nhiên từ pool yourTurn */
+
+var CHAT_TEXT = {
+  /* ── Chat A: hiện trong lúc máy suy nghĩ ── */
+  thinking: [
+    'Máy đang suy nghĩ...',
+    'Máy đang suy nghĩ...',
+    'Máy đang suy nghĩ...',
+    'Để tôi tính...',
+    'Chờ chút, suy nghĩ đã...',
+    'Để xem nào...',
+	'Một phút suy ngẫm...',
+    'Tôi đang tính tiếp...',
+    'Cho tôi thêm chút thời gian...',
+    'Chờ chút nhé.',
+    'Tôi đang tính vài phương án.',
+    'Có vài nước khá khó chịu đấy.',
+    'Bạn làm tôi phải suy nghĩ rồi.'
+  ],
+  underPressure: [
+    'Nước đi hay quá! Tôi đang gặp rắc rối rồi.',
+    'Bạn ép tôi phải phòng thủ đấy.',
+    'Tôi cần phải cẩn thận hơn rồi.',
+    'Ái chà, nguy hiểm thật!',
+    'Bạn đang dồn tôi vào thế khó đấy.',
+    'Chiếu à?',
+	'Check! Căng thẳng quá.',
+	'Tôi phải thoát chiếu đã...',
+    'Tôi thấy rồi.',
+    'Đòn khá hay đấy.',
+    'Vua tôi đang gặp nguy hiểm.',
+    'Tôi cần cẩn thận hơn.',
+    'Bạn đang tăng áp lực rồi.',
+    'Đây không phải vị trí dễ chịu.',
+    'Tôi phải xử lý nước này trước đã.',
+    'Khá nguy hiểm đấy.',
+    'Được rồi, để tôi thoát đã.',
+    'Hú vía, suýt nữa thì tôi mắc bẫy rồi.'
+  ],
+  loseBig: [
+    'Ôi không...',
+    'Tôi bị mất một quân quan trọng.',
+    'Đúng là đòn đau, tôi sẽ ghi nhớ.',
+    'Bạn tận dụng sai lầm của tôi tốt đấy.',
+    'Nước này đau thật.',
+    'Tôi đã bỏ sót.',
+    'Không ổn rồi.',
+	'Một chút sơ hở rồi... bạn tận dụng tốt quá.',
+	'Đòn phối hợp hay quá, tôi mất quân lớn rồi.',
+    'Bạn nhìn ra rất nhanh đấy.',
+    'Tôi không nên để chuyện này xảy ra.',
+    'Được ăn cả, ngã về không rồi.',
+    'Suýt nữa thì tránh được.',
+    'Đó là một đòn hay.',
+    'Tình hình bắt đầu khó khăn rồi.'
+  ],
+  playerGoodMove: [
+    'Nước đi hay!',
+    'Hmm, tôi chưa nhìn ra.',
+    'Ồ, khá sắc bén đấy.',
+    'Tôi vừa bị gây áp lực rồi.',
+    'Cũng khó chịu đấy.',
+    'Nước này mạnh hơn tôi nghĩ.',
+    'Bạn chơi được đấy!',
+    'Cũng ra gì đấy :)',
+    'Biết chơi đấy :)',
+    'Cũng được, nhưng chưa phải hay nhất.',
+    'Hợp lý!',
+	'Bạn vừa cải thiện vị trí rất tốt.',
+	'Bạn đang chơi rất chắc.',
+	'Bạn đang khiến ván này khó hơn.',
+    'Nước đi này chất lượng.'
+  ],
+
+  /* ── Chat B: hiện sau khi máy đi xong ── */
+  yourTurn: [
+    'Tới lượt bạn rồi.',
+    'Đến lượt bạn.',
+    'Giờ tới bạn.',
+    'Mời bạn.',
+	'Bóng đã sang sân của bạn, xin mời.',
+	'Một nước đi đơn giản, xin mời bạn đáp trả.',
+	'Nước cờ của tôi đấy, bạn tính sao?',
+	'Đến bạn rồi, đừng để tôi đợi lâu nha!',
+	'Tôi đã đi một nước cực kỳ khiêm tốn, mời bạn thể hiện.',
+	'Đừng để tôi chờ lâu, tôi dễ mất kiên nhẫn lắm.',
+    'Bạn có nước nào hay hơn không?'
+  ],
+  openingEarly: [
+    'Lại gặp nhau rồi, hy vọng ván này sẽ kịch tính!',
+    'Nước đầu khá chắc chắn đấy.',
+    'Chúng ta bắt đầu thôi.',
+    'Bắt đầu thôi, chúc may mắn nhé!',
+    'Chúc bạn một ván cờ vui vẻ!'
+  ],
+  openingMid: [
+    'Khai cuộc này có vẻ thú vị đấy!',
+    'Hãy xem bạn chuẩn bị gì nào.',
+    'Tôi thích những nước đi cổ điển.',
+    'Hmm, một lựa chọn quen thuộc.',
+    'Để xem bạn định chơi kiểu gì nhé.',
+    'Hy vọng tôi nhớ đúng khai cuộc này.',
+    'Bạn thích thế trận chậm à?',
+    'Trận này có vẻ sẽ dài đây.',
+    'Được rồi, vào việc thôi.',
+    'Khởi đầu ổn đấy.',
+    'Biến thể này lạ quá, để xem tôi đối phó thế nào.',
+	'Tôi sẽ đáp trả bằng một nước cờ chuẩn giáo khoa!',
+	'Biến thể này quen thuộc đây, bạn nghiên cứu kỹ rồi à?',
+	'Khai cuộc bài bản đấy, để xem tiếp thế nào.',
+    'Có vẻ bạn đã chuẩn bị rất kỹ khai cuộc này?'
+  ],
+  goodMove: [
+    'Nước này chắc bạn không ngờ tới.',
+    'Tôi vừa có một ý tưởng thú vị.',
+    'Phản công nhé!',
+    'Đến lượt tôi rồi.',
+	'Quân đó không còn nữa, giờ tới bạn.',
+	'Tôi tặng bạn một sự mất mát, mời đi.',
+	'Một tổn thất nhỏ cho bạn, cố gắng gỡ lại nhé.',
+	'Tôi tích lũy lợi thế từ những quân cờ nhỏ này đấy.',
+	'Đừng chủ quan nhé, tôi bắt đầu tăng tốc rồi.',
+	'Bạn có thấy nguy hiểm chưa? Đến lượt bạn.',
+	'Tôi vừa giăng một cái bẫy nhỏ, liệu bạn có nhận ra?',
+    'Hãy xem bạn đối phó thế nào với nước này.',
+    'Có vẻ tôi đã tìm được lối thoát.',
+    'Tôi sẽ nhận quân này nhé.',
+    'Nước này khá lợi cho tôi.',
+    'Tôi thấy sơ hở rồi.',
+    'Đổi quân có lợi cho tôi đấy.',
+    'Tôi nghĩ nước này ổn.',
+    'Đây là cơ hội tốt.',
+    'Bạn vừa để hở rồi.',
+    'Tôi sẽ tận dụng cơ hội này.',
+    'Giờ thì tới lượt tôi.',
+    'Tôi nghĩ bạn nên cẩn thận.',
+    'Thế cờ đang thay đổi rồi.',
+    'Áp lực bắt đầu tăng đấy.',
+	'Giờ thì không dễ nữa đâu.',
+	'Tôi muốn xem bạn xử lý thế nào.',
+	'Tôi khá hài lòng với nước này.',
+	'Tôi vừa cải thiện vị trí một chút.',
+    'Tôi tìm được đường phản công rồi.',
+    'Bạn có thấy nguy hiểm chưa?',
+    'Đây có thể là bước ngoặt.',
+    'Thế trận bắt đầu mở ra rồi.',
+    'Tôi đang có cơ hội tốt.',
+    'Không dễ phòng thủ đâu.'
+  ],
+  exchange: [
+    'Giờ đánh tàn cuộc thôi.',
+    'Đổi quân xong, cuộc chơi vẫn chưa ngã ngũ.',
+    'Không còn hậu, vua sẽ hoạt động nhiều hơn.',
+    'Đổi đều rồi, xem ai tàn cuộc giỏi hơn nào.',
+    'Chúng ta chuyển sang giai đoạn mới rồi đây.',
+    'Giờ là tàn cuộc rồi.',
+    'Chúng ta vào phần khó nhất đây.',
+    'Ít quân hơn nhưng chưa dễ đâu.',
+    'Tàn cuộc luôn cần sự chính xác.',
+    'Đây là lúc từng nước đều quan trọng.',
+    'Không còn nhiều sai lầm được phép nữa.',
+    'Ván cờ giờ đã đơn giản hơn.',
+    'Được rồi, chơi chậm thôi.',
+    'Giờ là cuộc chiến của tốt và vua.',
+    'Tôi thích những ván tàn thế này.',
+	'Từng nước giờ đều quan trọng.',
+	'Đây là phần khó nhất của ván cờ.',
+	'Chỉ một sai lầm là đủ.',
+	'Giờ vua phải hoạt động thôi.',
+    'Đổi quân chút nhé, tôi nghĩ thế này sẽ thú vị hơn.',
+	'Đã đến tàn cuộc rồi, một sai lầm nhỏ là mất cả ván đấu.',
+    'Giai đoạn cân não nhất đây, xem ai kiên nhẫn hơn nào.',
+    'Quân số tuy ít nhưng tính toán thì không hề giảm đâu nhé.',
+    'Trận đấu sắp hạ màn rồi, bạn đã sẵn sàng chưa?',
+    'Tàn cuộc này đòi hỏi sự chính xác tuyệt đối đấy.'
+  ],
+  winning: [
+    'Bạn đã chơi rất tốt, nhưng có lẽ ván này tôi may mắn hơn.',
+    'Tôi có chút lợi thế rồi, cố lên nhé!',
+    'Cẩn thận, tôi sắp chiếu hết đấy.',
+    'Hình như tôi đang dẫn trước.',
+    'Ván này hấp dẫn quá, tôi đang tiến gần chiến thắng.',
+    'Bạn đã chơi rất tốt.',
+    'Tôi đang có lợi thế khá lớn.',
+    'Ván này có vẻ nghiêng về tôi rồi.',
+    'Tôi cần kết thúc cẩn thận.',
+    'Chỉ cần không mắc sai lầm nữa.',
+    'Bạn vẫn còn cơ hội đấy.',
+    'Tôi nghĩ mình đang kiểm soát được thế trận.',
+    'Đừng bỏ cuộc quá sớm nhé.',
+    'Thế cờ này khá thuận lợi cho tôi.',
+    'Tôi sẽ cố kết thúc chính xác.',
+    'Hàng phòng thủ của bạn bắt đầu lung lay rồi đấy.'
+  ],
+  losing: [
+    'Tôi đang gặp rắc rối rồi.',
+    'Bạn xử lý vị trí này rất tốt.',
+    'Không dễ để phòng thủ nữa.',
+    'Tôi cần một phép màu rồi.',
+    'Có lẽ tôi đang lép vế.',
+    'Bạn đang chơi rất chắc chắn.',
+    'Tôi phải cố cầm hòa thôi.',
+    'Thế trận này không ổn cho tôi.',
+    'Bạn đã nắm lợi thế rồi.',
+    'Tôi cần tìm cách phản công.',
+    'Tôi sẽ phục thù ở ván sau.',
+    'Mọi ngả đường đều bị chặn đứng...'
+  ],
+  idle: [
+    'Tôi đang tận hưởng ván cờ này.',
+    'Cờ vua thật thú vị, phải không?',
+    'Mỗi nước đi là một câu chuyện.',
+    'Tôi tự hỏi bạn sẽ đi gì tiếp theo.',
+    'Bạn có thích khai cuộc này không?',
+    'Thế cờ này kín kẽ quá.',
+	'Đừng để tôi thắng dễ quá nhé.',
+    'Căng như dây đàn đây.'
+  ],
+  aiBlunder: [
+    'Ôi tôi mắc sai lầm...',
+    'Tôi bỏ sót mất rồi.',
+    'Tôi sơ suất quá!',
+    'Tôi mắc sai lầm ngớ ngẩn rồi.',
+    'Ầy dà, game khó quá...',
+	'Ôi, quân mạnh của tôi!',
+	'Tôi bị tổn thất nặng nề.',
+	'Thôi xong, mất quân chủ lực.',
+	'Tôi phải gỡ gạc lại thôi.',
+    'Không thấy cách nào tốt hơn...'
+  ],
+  thinkLong: [
+    'Đừng lo, tôi cũng đang bận tính nước tiếp theo.',
+    'Bạn cứ từ từ, tôi chờ được.',
+    'Nước đi quan trọng đấy, cân nhắc kỹ nhé.',
+    'Tôi tranh thủ uống trà trong lúc chờ.',
+    'Không vội, thời gian là bạn của ta.',
+    'Không cần vội đâu.',
+	'Đi nhanh lên, tôi sắp buồn ngủ rồi.',
+	'Tới bạn đấy, nhớ động não nhé.',
+	'Nước của tôi dễ thương quá phải không? Dễ mà, đi lẹ đi bạn',
+	'Cờ bí thì dí tốt đi bạn ^^',
+	'Đừng để tôi chờ lâu, tôi dễ mất kiên nhẫn lắm.',
+	'Tới bạn, nhưng đừng mắc sai lầm như lần trước nhé.',
+    'Tôi cũng từng mất rất lâu ở vị trí này.',
+    'Đây đúng là thế khó.',
+    'Cứ bình tĩnh suy nghĩ nhé.',
+    'Bạn đang tìm nước phản công à?',
+    'Ván này căng thật.',
+    'Tôi đoán bạn đang thấy điều gì đó.',
+    'Chọn kỹ nhé.',
+    'Nước đi này khó tính quá hả? Cứ thong thả nhé.',
+    'Căng thẳng quá, tôi bắt đầu thấy hồi hộp rồi đây.',
+    'Đừng lo, tôi vẫn ở đây chờ siêu phẩm từ bạn.',
+    'Căng như dây đàn, một nước đi sai là hỏng cả ván cờ.'
+  ],
+  brilliant: [
+    'Không ngờ bạn lại đi vậy...',
+    'Ồ! Nước đó hay đấy.',
+    'Thú vị thật.',
+    'Tôi chưa nghĩ đến nước đó.',
+    'Tuyệt vời! Tôi không ngờ tới nước đó.',
+    'Nước cờ xuất sắc đấy!',
+	'Tuyệt vời! Tôi phải học hỏi đây.',
+	'Cờ cao thủ đây rồi!',
+    'Bạn thực sự biết cách gây bất ngờ.',
+    'Rất thông minh, tôi phải học hỏi.',
+    'Tôi bị lạc nhịp vì nước đi này.',
+    'Ui, nước đi này tôi chưa tính tới! Đỉnh thật.'
+  ],
+  blunder: [
+    'Đây là cơ hội của tôi rồi.',
+    'A hi hi...',
+    'Mình xin!',
+    'Cảm ơn nhé!',
+    'Bạn mắc sai lầm rồi.',
+    'He he he!',
+	'Blunder! Bạn vừa tự bắn vào chân mình.',
+	'Bạn tặng quà cho tôi à?',
+	'Quà quê thì tôi nhận ^^',
+	'Bạn cho tôi cơ hội rồi nhé.',
+	'Bạn đi nước này chắc ngủ quên à?',
+	'Cờ của bạn dễ đoán thật.',
+	'Tôi cứ tưởng bạn chơi hay hơn chứ.',
+	'Chán thế, không có thử thách gì cả.',
+	'Bạn có chắc là đang tập trung không?',
+    'Ôi, bạn có chắc không?',
+    'Mình may mắn quá.',
+    'Hình như bạn vừa sơ suất?',
+    'Tiếc quá, nước đó cho tôi cơ hội đấy.',
+    'Có vẻ bạn đã bỏ lỡ mối đe dọa.',
+    'Tôi sẽ tận dụng sai lầm này.',
+    'Đừng nản, ai cũng có lúc nhầm.',
+    'Bạn chắc chứ? Tôi thấy có lựa chọn tốt hơn.'
+  ],
+  missedMate: [
+    'May cho tôi đấy, hú hồn!',
+    'Thoát rồi! Cơ hội của tôi đây.',
+    'Tôi tưởng xong rồi... may quá!',
+    'Bạn vừa tha cho tôi đấy.',
+    'Chiếu hết mà bỏ qua — tôi sẽ không bỏ lỡ lần này.',
+    'Hú vía! Bạn không thấy nước đó à?',
+    'Tôi may mắn thật, cảm ơn bạn!'
+  ],
+  missedWin: [
+    'Bạn vừa tặng tôi hy vọng rồi đó.',
+    'Tôi nghĩ bạn chiếm thế thắng... nhưng thôi.',
+    'Cơ hội của tôi quay lại rồi!',
+    'Bạn bỏ lỡ mất rồi, để tôi tận dụng nhé.',
+    'Lợi thế của bạn vừa biến mất.',
+    'Tôi thở phào rồi, cảm ơn bạn!',
+    'Bạn có chắc nước đó là tốt nhất không?'
+  ],
+  offerDraw: [
+    'Ván này cân bằng quá, hay là mình hòa nhé?',
+    'Tôi thấy khó bên nào thắng, bạn nghĩ sao về một kết quả hòa?',
+    'Đánh nữa cũng mệt, hòa được không?',
+    'Tôi đề nghị hòa, bạn có đồng ý không?',
+    'Cờ này dễ hòa lắm, bạn có muốn bắt tay không?'
+  ],
+  acceptDraw: [
+    'Hòa! Cảm ơn bạn về ván đấu hay.',
+    'Tôi đồng ý hòa, chơi lại ván khác nhé.',
+    'Kết quả này cũng xứng đáng cho cả hai.',
+    'Hòa nhé.',
+    'Ván đấu hay đấy.',
+    'Khá cân bằng.',
+    'Không ai mắc sai lầm quyết định.',
+    'Một kết quả hợp lý.',
+    'Chúng ta ngang tài rồi.',
+    'Tôi nghĩ hòa là công bằng.',
+    'Ván này rất căng.',
+    'Chơi tốt lắm.',
+    'Lần sau phân thắng bại nhé.'
+  ],
+  resign: [
+    'Tôi xin thua, bạn giỏi hơn tôi rồi.',
+    'Thua rồi, chúc mừng bạn!',
+    'Tôi không thể xoay chuyển được nữa, xin thua.'
+  ],
+  youWin: [
+    'Chúc mừng nhé!',
+    'Bạn chơi rất hay.',
+    'Ván này bạn xứng đáng thắng.',
+    'Bạn tận dụng cơ hội rất tốt.',
+    'Lần sau tôi sẽ cẩn thận hơn.'
+  ],
+  aiWin: [
+    'Ván hay đấy! Chơi nữa không?',
+    'Good game!',
+    'Cố lên, thử lại đi!',
+    'Hẹn gặp lại nhé!'
+  ],
+  praise: [
+    'Tuyệt vời! Tôi không ngờ tới nước đó.',
+    'Nước cờ xuất sắc đấy!',
+    'Bạn thực sự biết cách gây bất ngờ.',
+    'Rất thông minh, tôi phải học hỏi.',
+    'Tôi bị lạc nhịp vì nước đi này.',
+    'Ui, nước đi này tôi chưa tính tới! Đỉnh thật.'
+  ],
+  machineThinking: []  /* đã gộp vào thinking */
+};
+
+function randChat(key){
+  var arr = CHAT_TEXT[key];
+  if(!arr || !arr.length) return '';
+  return arr[Math.floor(Math.random()*arr.length)];
+}
+if(window.addEventListener){
+  window.addEventListener('resize', function(){ fixBoardSize(); }, false);
+} else if(window.attachEvent){
+  window.attachEvent('onresize', function(){ fixBoardSize(); });
+}
+rankLoad();  /* load cấp độ đã lưu khi mở trang lần đầu */
+newGame();
+</script>
+</body>
+</html>
