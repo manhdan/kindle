@@ -3818,6 +3818,7 @@ function aiMoveCore(){
   var worthPending = true;  /* bỏ gate Math.abs(evalNow) < 1200 — pendingBest hữu ích kể cả khi thế cờ ngã ngũ, và thế ngã ngũ thường đơn giản hơn nên pendingBest chạy nhanh hơn */
   if(mainTimedOut) aiDbgAdd('bestTO:postLeft'+postLeft);
   gPendingEvalComplete = false;  /* reset trước — chỉ set true khi cả pendingBest lẫn evalPending hoàn thành */
+  tMark('pGate|mn='+gMoveNum+'|om='+OPENING_MOVES+'|pc='+gPlayerMoveCount+'|mTO='+mainTimedOut);
   if(gMoveNum > OPENING_MOVES && worthPending){
     var dbgPendingT0 = Date.now();
     aiDbgAdd('pending');
@@ -3825,8 +3826,10 @@ function aiMoveCore(){
     var oldCI_pb = AI_CHECK_INTERVAL;
     aiTimedOut = false; aiNodeCount = 0; aiStartTime = Date.now(); searchStack = [];
     AI_TIME_LIMIT = PENDING_TOTAL_BUDGET;
-    AI_CHECK_INTERVAL = 256;  /* đủ nhanh, không overhead */
+    AI_CHECK_INTERVAL = 256;
+    tMark('pStart|tl='+AI_TIME_LIMIT+'|TO='+aiTimedOut);
     gPendingBest = bestMove(futureBoard, futureTurn, futureEP, futureCasB, 6, 0, futureHash);
+    tMark('pEnd|result='+(gPendingBest?mvUci(gPendingBest):'null')+'|TO='+aiTimedOut);
     AI_CHECK_INTERVAL = oldCI_pb;
     AI_TIME_LIMIT = oldTL;
     tEnd('pendingBest');
