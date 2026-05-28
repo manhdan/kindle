@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 =========================================================
-   CHESSLIKE ENGINE ChessChat8 (2026/05/25): QSEARCH_MAX_PLY 5 & Futility Pruning
+   CHESSLIKE ENGINE ChessChatPC 2026/05/28
 ---------------------------------------------------------
    Lightweight JavaScript chess engine optimized for:
    - Old browsers / ES5-style JavaScript
@@ -85,7 +85,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>ChessChat8</title>
+<title>ChessChatPC</title>
 <style>
 html { font-size: 16px; }
 * { -webkit-box-sizing: border-box; box-sizing: border-box; margin: 0; padding: 0; }
@@ -426,12 +426,15 @@ body {
   transform: translate(-50%,-50%);
   background: #fff;
   border: 3px solid #000;
-  min-width: 200px;
+  min-width: 0;
+  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 .rank-item {
   display: block;
   width: 100%;
-  padding: 15px 25px;
+  padding: 0;
   font-family: Georgia, serif;
   font-size: 1.31rem;
   font-weight: bold;
@@ -586,13 +589,62 @@ var EG_SAFETY_SCALE     = 0.35;
 var PVAL=[0,100,320,330,500,900,20000];
 
 var SYM=[null,
-  ['\u2659','\u265F'],
-  ['\u2658','\u265E'],
-  ['\u2657','\u265D'],
-  ['\u2656','\u265C'],
-  ['\u2655','\u265B'],
-  ['\u2654','\u265A']
+  ['\u2659\uFE0E','\u265F\uFE0E'],
+  ['\u2658\uFE0E','\u265E\uFE0E'],
+  ['\u2657\uFE0E','\u265D\uFE0E'],
+  ['\u2656\uFE0E','\u265C\uFE0E'],
+  ['\u2655\uFE0E','\u265B\uFE0E'],
+  ['\u2654\uFE0E','\u265A\uFE0E']
 ];
+
+/* ═══════════════════════════════════════════════════
+   TUNING CONFIG — điều chỉnh cấp độ, thời gian, ngưỡng phân tích
+   ═══════════════════════════════════════════════════ */
+/* ── Eval tuning constants ── */
+var PASSED_PAWN_SCALE   = 1.6;   /* Nhân bonus tốt thông lên ×1.6 */
+var BISHOP_PAIR_BONUS   = 40;    /* Có đủ 2 tượng → +40cp */
+var EARLY_QUEEN_PENALTY = 45;    /* Hậu ra sớm khi còn minor chưa phát triển */
+var CASTLING_URGENCY    = 50;    /* Chưa nhập thành trong midgame → phạt tuyến tính */
+
+var ELO_CFG=[
+  {d:2, rnd:0.75},  /* Cấp 1  — ~600  Elo */
+  {d:2, rnd:0.55},  /* Cấp 2  — ~700  Elo */
+  {d:2, rnd:0.35},  /* Cấp 3  — ~800  Elo */
+  {d:3, rnd:0.22},  /* Cấp 4  — ~950  Elo */
+  {d:3, rnd:0.12},  /* Cấp 5  — ~1100 Elo */
+  {d:6, rnd:0.04},  /* Cấp 6  — ~1250 Elo */
+  {d:7, rnd:0.02},  /* Cấp 7  — ~1450 Elo */
+  {d:8, rnd:0.00},  /* Cấp 8  — ~1650 Elo */
+  {d:9, rnd:0.00},  /* Cấp 9  — ~1850 Elo, +AI_TIME_BONUS */
+  {d:10, rnd:0.00}  /* Cấp 10 — ~2000 Elo, +AI_TIME_BONUS+AI_TIME_PLUS */
+];
+
+/* Time limit per move (ms) */
+var AI_TIME_LIMIT = 2500;
+var AI_TIME_BONUS = 1000;
+var AI_TIME_PLUS  = 1000;
+var aiTimedOut = false;
+var aiStartTime = 0;
+var aiNodeCount = 0;          /* đếm node để tránh gọi Date.now() mỗi node */
+var AI_CHECK_INTERVAL = 1024; /* iPhone: overhead tối thiểu */
+
+/* Yield cho browser render xong rồi mới chạy fn
+   Dùng rAF nếu có (kể cả webkit prefix), fallback setTimeout 100ms */
+var _rAF = window.requestAnimationFrame || window.webkitRequestAnimationFrame || null;
+var afterPaint = _rAF
+  ? function(fn){ _rAF(function(){ setTimeout(fn, 0); }); }
+  : function(fn){ setTimeout(fn, 100); };
+
+/* ── Counters đo hiệu năng — reset mỗi lần bestMove ── */
+var cntLMR = 0;        /* số lần LMR được áp dụng (reduce) */
+var cntLMRresearch = 0;/* số lần LMR phải research lại vì s > alpha */
+var cntQnode = 0;      /* số node trong qsearch */
+var cntNMPcut = 0;     /* số lần null-move pruning cắt được beta */
+var gUseFastEval = false; /* true khi pendingBest đang chạy — dùng evaluateFast() thay evaluate() */
+
+/* Phân tích nước đi (classify) */
+var OPENING_MOVES = 6;     /* bỏ qua đánh giá trong N nước đầu (khai cuộc) */
+var CLASSIFY_TIME = 1500;   /* ms tối đa cho evalPlayer khi classify nước người */
 
 /* ═══════════════════════════════════════════════════
    TIMING LOG (TEST BUILD)
@@ -681,8 +733,19 @@ function aiDbgAdd(part){
 }
 
 function scheduleAiMove(delay, tag){
+  var token = gGameToken;
   aiDbgAdd('sch:' + tag + '+' + delay);
-  setTimeout(aiMove, delay);
+  setTimeout(function(){
+    if(token !== gGameToken) return;
+    aiMove();
+  }, delay);
+}
+
+/* So sánh 2 nước đi: from, to, và promotion piece (a[3]).
+   Không cần so a[2] (captured) vì cùng from/to thì captured đã xác định.
+   Quan trọng cho phong cấp: cùng from/to nhưng =Q vs =R là khác nhau. */
+function mvEq(a, b){
+  return a && b && a[0]===b[0] && a[1]===b[1] && a[3]===b[3];
 }
 
 function tReset() {
@@ -816,47 +879,6 @@ var PST_EG=[null,
 /* Tổng vật chất tối đa để tính phase (không tính Vua & Tốt) */
 var PHASE_MAX = 2*(320+320+330+330+500+500+900);  /* = 6400 */
 
-/* ── Eval tuning constants ── */
-var PASSED_PAWN_SCALE   = 1.6;   /* Nhân bonus tốt thông lên ×1.6 */
-var BISHOP_PAIR_BONUS   = 40;    /* Có đủ 2 tượng → +40cp */
-var EARLY_QUEEN_PENALTY = 45;    /* Hậu ra sớm khi còn minor chưa phát triển */
-var CASTLING_URGENCY    = 50;    /* Chưa nhập thành trong midgame → phạt tuyến tính */
-
-var ELO_CFG=[
-  {d:2, rnd:0.75},  /* Cấp 1  — ~600  Elo */
-  {d:2, rnd:0.55},  /* Cấp 2  — ~700  Elo */
-  {d:2, rnd:0.35},  /* Cấp 3  — ~800  Elo */
-  {d:3, rnd:0.22},  /* Cấp 4  — ~950  Elo */
-  {d:3, rnd:0.12},  /* Cấp 5  — ~1100 Elo */
-  {d:3, rnd:0.04},  /* Cấp 6  — ~1250 Elo */
-  {d:4, rnd:0.02},  /* Cấp 7  — ~1400 Elo */
-  {d:4, rnd:0.00},  /* Cấp 8  — ~1550 Elo */
-  {d:5, rnd:0.00},  /* Cấp 9  — ~1700 Elo, +AI_TIME_BONUS */
-  {d:5, rnd:0.00}   /* Cấp 10 — ~1850 Elo, +AI_TIME_BONUS+AI_TIME_PLUS */
-];
-
-/* Time limit per move (ms) */
-var AI_TIME_LIMIT = 6000;
-var AI_TIME_BONUS = 1000;  /* thêm cho cấp 9: AI_TIME_LIMIT + AI_TIME_BONUS */
-var AI_TIME_PLUS  = 1000;  /* thêm cho cấp 10: AI_TIME_LIMIT + AI_TIME_BONUS + AI_TIME_PLUS */
-var aiTimedOut = false;
-var aiStartTime = 0;
-var aiNodeCount = 0;          /* đếm node để tránh gọi Date.now() mỗi node */
-var AI_CHECK_INTERVAL = 32;   /* PPW3 chậm — check timeout thường xuyên hơn, giảm overshoot */
-
-/* Yield cho browser render xong rồi mới chạy fn
-   Dùng rAF nếu có (kể cả webkit prefix), fallback setTimeout 100ms */
-var _rAF = window.requestAnimationFrame || window.webkitRequestAnimationFrame || null;
-var afterPaint = _rAF
-  ? function(fn){ _rAF(function(){ setTimeout(fn, 0); }); }
-  : function(fn){ setTimeout(fn, 100); };
-
-/* ── Counters đo hiệu năng — reset mỗi lần bestMove ── */
-var cntLMR = 0;        /* số lần LMR được áp dụng (reduce) */
-var cntLMRresearch = 0;/* số lần LMR phải research lại vì s > alpha */
-var cntQnode = 0;      /* số node trong qsearch */
-var cntNMPcut = 0;     /* số lần null-move pruning cắt được beta */
-
 /* ═══════════════════════════════════════════════════
    ZOBRIST HASHING
    Dùng số ngẫu nhiên 32-bit cố định (seed LCG).
@@ -908,7 +930,8 @@ function computeHash(board, turn, ep, casB){
    Mỗi entry: { hash, depth, flag, score, move }
    flag: 0=EXACT, 1=ALPHA(upper), 2=BETA(lower)
    ═══════════════════════════════════════════════════ */
-var TT_SIZE = 32768;   /* 2^15 */
+var TT_SIZE = 262144;  /* 2^18 — iPhone có RAM dư */
+
 var TT_MASK = TT_SIZE - 1;
 var TT = [];
 (function(){ for(var i=0;i<TT_SIZE;i++) TT[i]=null; })();
@@ -948,7 +971,7 @@ function ttClear(){
 /* ═══════════════════════════════════════════════════
    KILLER MOVES — 2 killer mỗi độ sâu, tối đa 20 ply
    ═══════════════════════════════════════════════════ */
-var MAX_PLY = 20;
+var MAX_PLY = 30;
 var killers = [];  /* killers[ply] = [mv1, mv2] */
 (function(){ for(var i=0;i<MAX_PLY;i++) killers[i]=[null,null]; })();
 
@@ -1567,17 +1590,22 @@ function sortMvs(mvs, board, hashMove, ply){
 /* ═══════════════════════════════════════════════════
    QUIESCENCE SEARCH
    ═══════════════════════════════════════════════════ */
-var DELTA_MARGIN = 850; /* Siết qsearch nhẹ hơn hậu+buffer, giữ depth tactical */
+var DELTA_MARGIN = 900;
+var DELTA_MARGIN_Q1 = 700;
+var DELTA_MARGIN_Q2 = 500;
 
 /* [v8] Giới hạn độ sâu qsearch — tránh node explosion khi có chuỗi capture dài.
    5 ply: cân bằng giữa độ chính xác tactical và tốc độ trên PPW3. */
-var QSEARCH_MAX_PLY = 5;
+var QSEARCH_MAX_PLY = 8;
+var QSEARCH_CAP_LIMIT_Q2 = 12; /* PC: không bóp qsearch */
+
+var QSEARCH_CAP_LIMIT_Q4 = 6;  /* PC: nới rộng */
 
 function qsearch(board, turn, ep, casB, alpha, beta, qply) {
   if(aiTimedOut) return alpha;
   if(qply == null) qply = 0;  /* ES5-safe default */
   cntQnode++;
-  if((cntQnode & 63) === 0){
+  if((cntQnode & 31) === 0){
     if((Date.now() - aiStartTime) > AI_TIME_LIMIT){
       aiTimedOut = true;
       tMark('QTO@'+cntQnode+'q');
@@ -1594,18 +1622,23 @@ function qsearch(board, turn, ep, casB, alpha, beta, qply) {
   /* Sinh capture trực tiếp — giảm allocation lớn trong hot path qsearch */
   var caps=genCaptures(board,turn,ep);
   sortMvs(caps,board,null,MAX_PLY-1);
+  var capLimit = caps.length;
+  if(qply >= 4 && capLimit > QSEARCH_CAP_LIMIT_Q4) capLimit = QSEARCH_CAP_LIMIT_Q4;
+  else if(qply >= 2 && capLimit > QSEARCH_CAP_LIMIT_Q2) capLimit = QSEARCH_CAP_LIMIT_Q2;
+  var deltaMargin = qply === 0 ? DELTA_MARGIN : (qply === 1 ? DELTA_MARGIN_Q1 : DELTA_MARGIN_Q2);
 
   /* [v7] Pre-compute vị trí vua của 'turn' 1 lần trước loop */
   var kingSq=-1, ki;
   for(ki=0;ki<64;ki++) if(board[ki]===turn*6){ kingSq=ki; break; }
 
+  var searchedCaps = 0;
   for(var i=0;i<caps.length;i++){
     if(aiTimedOut) return alpha;
     var m=caps[i];
     /* Delta pruning: bỏ capture nếu ngay cả khi lấy quân to nhất cũng không đủ cải thiện alpha */
     var gain = m[2] ? PVAL[typ(m[2])] : PVAL[1]; /* en passant = tốt */
     if(m[3]) gain += PVAL[typ(m[3])] - PVAL[1]; /* phong cấp */
-    if(stand + gain + DELTA_MARGIN < alpha) continue;
+    if(stand + gain + deltaMargin < alpha) continue;
     if(qply > 0 && m[2] && !m[3]){
       var attackerVal = PVAL[typ(board[m[0]])];
       var victimVal = PVAL[typ(m[2])];
@@ -1622,6 +1655,8 @@ function qsearch(board, turn, ep, casB, alpha, beta, qply) {
     /* [v7] Legality check không scan 64 ô */
     var ksq=(typ(board[m[0]])===6) ? m[1] : kingSq;
     if(attacked(nb,ksq,-turn)) continue;
+    if(searchedCaps >= capLimit) break;
+    searchedCaps++;
     /* [v8] Truyền qply+1 xuống đệ quy */
     var s=-qsearch(nb,-turn,m[6],newCasBit(casB,board,m,turn),-beta,-alpha,qply+1);
     if(s>=beta) return beta;
@@ -1691,7 +1726,7 @@ function negamax(board, turn, ep, casB, depth, alpha, beta, ply, hash, nullOk) {
      Nếu staticEval + margin <= alpha: các nước yên tĩnh (không capture,
      không phong cấp, không chiếu đối phương) gần như chắc chắn không
      cải thiện được alpha → prune trong loop bên dưới. */
-  var FP_MARGIN = [0, 300, 500];
+  var FP_MARGIN = [0, 400, 600];
   var staticEval = (depth <= 2 && !isInCheck) ? evaluate(board, turn) : 0;
   var useFutility = (depth === 1 || depth === 2) && !isInCheck && (staticEval + FP_MARGIN[depth] <= alpha);
 
@@ -1758,7 +1793,8 @@ function negamax(board, turn, ep, casB, depth, alpha, beta, ply, hash, nullOk) {
     searchStack.push(nhash);
     if(legalCount-1>=3 && depth>=3 && !m[2] && !m[3] && !isInCheck && !attacked(nb,enemyKingSq,turn)){
       cntLMR++;
-      s = -negamax(nb,-turn,nep,nc,depth-2,-beta,-alpha,ply+1,nhash,true);
+      var lmrR = (depth>=5 && legalCount-1>=6) ? 2 : 1;
+      s = -negamax(nb,-turn,nep,nc,depth-1-lmrR,-beta,-alpha,ply+1,nhash,true);
       if(s > alpha){
         cntLMRresearch++;
         s = -negamax(nb,-turn,nep,nc,depth-1,-beta,-alpha,ply+1,nhash,true);
@@ -1884,7 +1920,71 @@ var OPENING_BOOK = [
   ['g1f3','d7d5','d2d4','g8f6','c2c4','e7e6','b1c3','f8e7','c1g5','e8g8'],
   ['g1f3','d7d5','g2g3','g8f6','f1g2','e7e6','e1g1','f8e7','d2d4','e8g8'],
   ['g1f3','g8f6','c2c4','e7e6','g2g3','d7d5','f1g2','f8e7','e1g1','e8g8'],
-  /* ── g3 / b3 / f4 (Flank openings) ── */
+  /* ══════════════════════════════════════════════════════════════════
+     g3 SYSTEM — 1.g3 2.Bg2 3.Nf3 4.0-0 (King's Fianchetto / Barcza)
+     Đây là hệ thống trắng dùng thường xuyên nhất.
+     Ưu tiên cover đầy đủ các đáp trả của đen: e5, d5, Nf6, c5, g6.
+     ══════════════════════════════════════════════════════════════════ */
+
+  /* vs 1...e5 (đen chiếm trung tâm ngay) */
+  /* 5.c3 lines — trắng củng cố trước khi d4 */
+  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','f8c5','c2c3','e8g8'],
+  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','f8c5','c2c3','d7d6','d2d4','f8e8'],
+  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','f8c5','c2c3','a7a6','d2d4','f8e8'],
+  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','f8b4','c2c3','f8c5','d2d4','e5d4'],
+  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','f8b4','c2c3','f8c5','d2d4','c5b6'],
+  /* 5.e4 lines — King's Indian Attack style */
+  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','f8e7','e2e4','e8g8'],
+  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','f8e7','e2e4','d7d6','d2d3','e8g8'],
+  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','d7d6','d2d3','f8e7','e2e4','e8g8'],
+  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','d7d6','d2d3','c8e6','b1d2','d8d7'],
+  /* vs ...e5 Nc6 với tượng g4 */
+  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','c8g4','h2h3','g4h5','d2d3','f8e7'],
+  ['g2g3','e7e5','f1g2','b8c6','g1f3','g8f6','e1g1','f8c5','c2c3','e8g8','d2d4','f8e8'],
+  /* vs ...e5 ...d6 setup */
+  ['g2g3','e7e5','f1g2','d7d6','g1f3','g8f6','e1g1','f8e7','d2d3','e8g8','b1d2','b8c6'],
+  ['g2g3','e7e5','f1g2','d7d6','g1f3','b8c6','e1g1','g8f6','d2d3','f8e7','b1d2','e8g8'],
+  ['g2g3','e7e5','f1g2','d7d6','g1f3','c8e6','e1g1','g8f6','d2d3','f8e7','b1d2','e8g8'],
+
+  /* vs 1...d5 (Queen pawn response) */
+  /* 5.c4 — Catalan/English transpose */
+  ['g2g3','d7d5','f1g2','g8f6','g1f3','e7e6','e1g1','f8e7','c2c4','e8g8','d2d4','c7c6'],
+  ['g2g3','d7d5','f1g2','g8f6','g1f3','e7e6','e1g1','f8e7','c2c4','e8g8','b1c3','b8d7'],
+  ['g2g3','d7d5','f1g2','g8f6','g1f3','e7e6','e1g1','c7c5','c2c4','d5c4','d2d4','b8c6'],
+  ['g2g3','d7d5','f1g2','g8f6','g1f3','c7c6','e1g1','c8f5','d2d3','e7e6','b1d2','f8e7'],
+  ['g2g3','d7d5','f1g2','g8f6','g1f3','c7c6','e1g1','c8g4','h2h3','g4f3','d1f3','e7e6'],
+  /* 5.d3 — solid setup */
+  ['g2g3','d7d5','f1g2','g8f6','g1f3','g7g6','e1g1','f8g7','d2d3','e8g8','b1d2','b8c6'],
+  ['g2g3','d7d5','f1g2','g8f6','g1f3','g7g6','e1g1','f8g7','d2d3','e8g8','c2c4','c7c6'],
+  ['g2g3','d7d5','f1g2','c7c6','g1f3','g8f6','e1g1','c8f5','d2d3','e7e6','b1d2','f8d6'],
+  ['g2g3','d7d5','f1g2','c7c5','g1f3','g8f6','e1g1','b8c6','d2d4','e7e6','c2c4','d5c4'],
+  ['g2g3','d7d5','f1g2','c7c5','g1f3','b8c6','e1g1','g8f6','d2d4','e7e6','c2c4','d5d4'],
+
+  /* vs 1...Nf6 (hypermodern) */
+  ['g2g3','g8f6','f1g2','d7d5','g1f3','e7e6','e1g1','f8e7','d2d3','e8g8','b1d2','b8d7'],
+  ['g2g3','g8f6','f1g2','d7d5','g1f3','e7e6','e1g1','c7c5','c2c4','b8c6','d2d4','d5c4'],
+  ['g2g3','g8f6','f1g2','g7g6','g1f3','f8g7','e1g1','e8g8','d2d3','d7d6','b1d2','b8c6'],
+  ['g2g3','g8f6','f1g2','g7g6','g1f3','f8g7','e1g1','e8g8','c2c4','d7d6','b1c3','b8c6'],
+  ['g2g3','g8f6','f1g2','c7c5','g1f3','b8c6','e1g1','g7g6','c2c4','f8g7','b1c3','e8g8'],
+  ['g2g3','g8f6','f1g2','e7e6','g1f3','d7d5','e1g1','f8e7','d2d3','e8g8','b1d2','c7c5'],
+  ['g2g3','g8f6','f1g2','e7e5','g1f3','b8c6','e1g1','f8c5','d2d3','d7d6','b1d2','e8g8'],
+
+  /* vs 1...c5 (Sicilian-like) */
+  ['g2g3','c7c5','f1g2','b8c6','g1f3','g7g6','e1g1','f8g7','d2d3','d7d6','b1d2','g8f6'],
+  ['g2g3','c7c5','f1g2','b8c6','g1f3','g8f6','e1g1','g7g6','c2c4','f8g7','b1c3','e8g8'],
+  ['g2g3','c7c5','f1g2','g8f6','g1f3','d7d5','e1g1','b8c6','d2d3','g7g6','b1d2','f8g7'],
+  ['g2g3','c7c5','f1g2','g8f6','g1f3','e7e6','e1g1','f8e7','c2c4','e8g8','b1c3','b8c6'],
+
+  /* vs 1...g6 (Modern/Pirc style) */
+  ['g2g3','g7g6','f1g2','f8g7','g1f3','d7d6','e1g1','g8f6','d2d3','e8g8','b1d2','b8c6'],
+  ['g2g3','g7g6','f1g2','f8g7','g1f3','e7e5','e1g1','g8e7','d2d3','e8g8','b1d2','d7d6'],
+  ['g2g3','g7g6','f1g2','f8g7','g1f3','c7c5','e1g1','b8c6','d2d3','d7d6','b1d2','g8f6'],
+
+  /* vs 1...d6 */
+  ['g2g3','d7d6','f1g2','e7e5','g1f3','g8f6','e1g1','f8e7','d2d3','e8g8','b1d2','b8c6'],
+  ['g2g3','d7d6','f1g2','g7g6','g1f3','f8g7','e1g1','g8f6','d2d3','e8g8','b1d2','b8d7'],
+
+  /* ── g3 / b3 / f4 (Flank openings khác) ── */
   ['g2g3','d7d5','f1g2','g8f6','g1f3','g7g6','e1g1','f8g7','d2d3','e8g8'],
   ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','f8c5','d2d3','e8g8'],
   ['g2g3','d7d5','g1f3','g8f6','f1g2','c7c6','e1g1','c8f5','d2d3','e7e6'],
@@ -1892,14 +1992,210 @@ var OPENING_BOOK = [
   ['b2b3','e7e5','c1b2','b8c6','g1f3','d7d5','e2e3','g8f6','f1b5','f8d6'],
   ['b2b3','e7e5','c1b2','g8f6','g1f3','b8c6','e2e3','f8d6','f1e2','e8g8'],
   ['f2f4','d7d5','g1f3','g8f6','e2e3','e7e6','f1e2','f8e7','e1g1','e8g8'],
+  ['f2f4','g8f6','g1f3','g7g6','g2g3','f8g7','f1g2','e8g8','e1g1','d7d5'],
+  ['f2f4','d7d5','g1f3','c7c5','e2e3','g8f6','f1b5','b8d7','e1g1','e7e6'],
   /* ── Réti ── */
   ['g1f3','d7d5','c2c4','d5c4','e2e3','g8f6','f1c4','e7e5','e1g1','b8c6'],
   ['g1f3','g8f6','g2g3','g7g6','f1g2','f8g7','e1g1','e8g8','c2c4','d7d6'],
+  ['g1f3','d7d5','g2g3','g8f6','f1g2','c7c5','e1g1','b8c6','d2d4','e7e6'],
+  ['g1f3','g8f6','c2c4','e7e5','g2g3','b8c6','f1g2','f8b4','e1g1','e8g8'],
+
+  /* ── e4 e5 thêm biến thể ── */
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','b7b5','a4b3','f8e7'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','f8c5','c2c3','g8f6','e1g1','e8g8'],
+  ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','f3d4','f8c5','c1e3','d8f6'],
+  ['e2e4','e7e5','g1f3','g8f6','b1c3','b8c6','f1b5','g8f6','e1g1','f8e7'],
+  ['e2e4','e7e5','g1f3','g8f6','f3e5','b8c6','e5c6','d7c6','e4e5','g8e4'],
+
+  /* ── e4 c5 Sicilian thêm biến thể ── */
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','e7e6','f1e2','a7a6'],
+  ['e2e4','c7c5','g1f3','e7e6','b1c3','a7a6','g2g3','b7b5','f1g2','c8b7'],
+  ['e2e4','c7c5','b1c3','b8c6','g1f3','e7e6','d2d4','c5d4','f3d4','g8f6'],
+  ['e2e4','c7c5','g1f3','b8c6','f1b5','g7g6','e1g1','f8g7','c2c3','e7e5'],
+
+  /* ── e4 e6 French thêm biến thể ── */
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','g8f6','e4e5','f6d7','f2f4','c7c5','g1f3','b8c6'],
+  ['e2e4','e7e6','d2d4','d7d5','b1d2','c7c5','e4d5','e6d5','g1f3','b8c6','f1b5','f8d6'],
+  ['e2e4','e7e6','g1f3','d7d5','e4e5','c7c5','b2b4','b8c6','f1b5','c8d7'],
+
+  /* ── e4 c6 Caro-Kann thêm biến thể ── */
+  ['e2e4','c7c6','d2d4','d7d5','b1c3','d5e4','c3e4','b8d7','g1f3','g8f6','e4f6','d7f6'],
+  ['e2e4','c7c6','d2d4','d7d5','e4e5','c8f5','g1f3','e7e6','f1e2','b8d7'],
+
+  /* ── d4 d5 QGD thêm biến thể ── */
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','c1g5','b8d7','e2e3','c7c6','g1f3','d8a5'],
+  ['d2d4','d7d5','c2c4','c7c6','g1f3','g8f6','e2e3','c8f5','b1c3','e7e6','d1b3','d8b6'],
+  ['d2d4','d7d5','g1f3','g8f6','c2c4','e7e6','g2g3','f8e7','f1g2','e8g8','e1g1','b8d7'],
+  ['d2d4','d7d5','c2c4','d5c4','g1f3','g8f6','e2e3','e7e6','f1c4','c7c5','e1g1','a7a6'],
+
+  /* ── d4 Nf6 Indian thêm biến thể ── */
+  ['d2d4','g8f6','c2c4','e7e6','g1f3','d7d5','g2g3','f8e7','f1g2','e8g8','e1g1','b8d7'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','g1f3','e8g8','f1e2','e7e5'],
+  ['d2d4','g8f6','c2c4','c7c5','d4d5','b7b5','c4b5','a7a6','b5a6','c8a6','b1c3','d7d6'],
+  ['d2d4','g8f6','g1f3','g7g6','c2c4','f8g7','g2g3','e8g8','f1g2','d7d6','e1g1','b8c6'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','d1c2','e8g8','a2a3','b4c3','c2c3','b7b6'],
+
+  /* ── c4 English thêm biến thể ── */
+  ['c2c4','e7e5','g1f3','b8c6','d2d4','e5d4','f3d4','g8f6','b1c3','f8b4','d4b5','e8g8'],
+  ['c2c4','c7c5','b1c3','g8f6','g1f3','b8c6','d2d4','c5d4','f3d4','e7e6','g2g3','f8b4'],
+  ['c2c4','e7e6','g1f3','d7d5','g2g3','g8f6','f1g2','f8e7','e1g1','e8g8','d2d4','b8d7'],
+  ['c2c4','g8f6','b1c3','d7d5','d2d4','e7e6','g1f3','c7c5','c4d5','f6d5','e2e3','b8c6'],
+
+  /* ── Nf3 systems thêm biến thể ── */
+  ['g1f3','d7d5','g2g3','c7c5','f1g2','b8c6','e1g1','g8f6','d2d4','e7e6','c2c4','d5c4'],
+  ['g1f3','g8f6','g2g3','d7d5','f1g2','c7c6','e1g1','c8f5','d2d3','e7e6','b1d2','f8e7'],
+  ['g1f3','c7c5','c2c4','g8f6','b1c3','b8c6','g2g3','g7g6','f1g2','f8g7','e1g1','e8g8'],
+
   /* ── Tricky / Aggressive ── */
   ['e2e4','e7e5','d2d4','e5d4','c2c3','d4c3','f1c4','c3b2','c1b2','d8g5'],
   ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','c2c3','d4c3','f1c4','c3b2'],
   ['e2e4','e7e5','f2f4','e5f4','g1f3','d7d5','e4d5','g8f6','f1b5','c8d7'],
-  ['d2d4','g8f6','b1c3','d7d5','c1g5','b8d7','e2e3','e7e6','g1f3','f8e7']
+  ['d2d4','g8f6','b1c3','d7d5','c1g5','b8d7','e2e3','e7e6','g1f3','f8e7'],
+  ['e2e4','d7d5','e4d5','g8f6','c2c4','c7c6','d5c6','b8c6','d2d4','e7e5'],
+  ['d2d4','f7f5','e2e4','f5e4','b1c3','g8f6','g2g4','e7e6','g4g5','f6d5'],
+
+  /* ══════════════════════════════════════════════════════════════════
+     g3 SYSTEM MỞ RỘNG — thêm các biến thể 5.c3, 5.e4, 5.d3 sâu hơn
+     ══════════════════════════════════════════════════════════════════ */
+
+  /* vs 1...e5 — 5.c3 d4 exd4 cxd4 Bb6 (thế cờ hay gặp, cover blunder Bd6) */
+  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','f8c5','c2c3','e8g8','d2d4','c5b6'],
+  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','f8c5','c2c3','e8g8','d2d4','e5d4','c3d4','c5b6'],
+  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','f8c5','c2c3','e8g8','d2d4','e5d4','c3d4','c6d4'],
+  ['g2g3','e7e5','g1f3','b8c6','f1g2','f8c5','e1g1','d7d6','c2c3','a7a6','d2d4','c5b6'],
+  ['g2g3','e7e5','g1f3','b8c6','f1g2','f8c5','e1g1','d7d6','c2c3','g8f6','d2d4','c5b6'],
+  ['g2g3','e7e5','g1f3','b8c6','f1g2','f8c5','e1g1','g8f6','c2c3','e8g8','d2d4','c5b6'],
+  ['g2g3','e7e5','g1f3','b8c6','f1g2','f8c5','e1g1','g8f6','c2c3','d7d6','d2d4','c5b6'],
+  /* exd4 Nxd4 line — tượng ăn tốt */
+  ['g2g3','e7e5','g1f3','b8c6','f1g2','f8c5','e1g1','g8f6','c2c3','e8g8','d2d4','e5d4','c3d4','c5b4'],
+  ['g2g3','e7e5','g1f3','b8c6','f1g2','f8c5','e1g1','g8f6','c2c3','e8g8','d2d4','e5d4','c3d4','f6e4'],
+  ['g2g3','e7e5','g1f3','b8c6','f1g2','f8c5','e1g1','g8f6','c2c3','e8g8','d2d4','e5d4','c3d4','c6d4'],
+
+  /* vs 1...e5 Nf6 Nc6 Be7 — setup solid */
+  ['g2g3','e7e5','g1f3','g8f6','f1g2','b8c6','e1g1','f8e7','d2d3','e8g8','b1d2','d7d6'],
+  ['g2g3','e7e5','g1f3','g8f6','f1g2','b8c6','e1g1','f8e7','d2d3','e8g8','c2c3','a7a5'],
+  ['g2g3','e7e5','g1f3','g8f6','f1g2','b8c6','e1g1','f8e7','e2e4','d7d6','d2d3','e8g8'],
+  ['g2g3','e7e5','g1f3','g8f6','f1g2','b8c6','e1g1','f8e7','e2e4','e8g8','d2d3','d7d6'],
+  ['g2g3','e7e5','g1f3','g8f6','f1g2','f8e7','e1g1','e8g8','d2d3','d7d6','b1d2','b8c6'],
+  ['g2g3','e7e5','g1f3','g8f6','f1g2','f8e7','e1g1','e8g8','c2c3','d7d5','d2d4','e5d4'],
+  ['g2g3','e7e5','g1f3','g8f6','f1g2','f8c5','e1g1','e8g8','d2d3','d7d6','b1d2','b8c6'],
+
+  /* vs 1...e5 với ...d5 phản công giữa */
+  ['g2g3','e7e5','g1f3','d7d5','f1g2','b8c6','e1g1','g8f6','d2d3','f8c5','b1d2','e8g8'],
+  ['g2g3','e7e5','g1f3','d7d5','f1g2','e5e4','f3d4','g8f6','d2d3','f8c5','d4b3','c5b6'],
+  ['g2g3','e7e5','g1f3','d7d5','f1g2','e5e4','f3e5','b8c6','e5c6','b7c6','d2d3','e4d3'],
+
+  /* vs 1...Nf6 g6 Bg7 — King's Indian Defense mirror */
+  ['g2g3','g8f6','f1g2','g7g6','g1f3','f8g7','e1g1','e8g8','d2d3','d7d6','b1d2','e7e5'],
+  ['g2g3','g8f6','f1g2','g7g6','g1f3','f8g7','e1g1','e8g8','d2d3','d7d5','b1d2','b8d7'],
+  ['g2g3','g8f6','f1g2','g7g6','g1f3','f8g7','e1g1','e8g8','c2c4','d7d6','b1c3','e7e5'],
+  ['g2g3','g8f6','f1g2','g7g6','g1f3','f8g7','e1g1','e8g8','c2c4','c7c5','b1c3','b8c6'],
+  ['g2g3','g8f6','f1g2','g7g6','g1f3','f8g7','e1g1','d7d5','d2d3','e8g8','b1d2','b8c6'],
+  ['g2g3','g8f6','f1g2','g7g6','g1f3','f8g7','e1g1','d7d5','c2c4','d5c4','d2d3','b8d7'],
+
+  /* vs 1...d5 Nf6 — closed setups */
+  ['g2g3','d7d5','g1f3','g8f6','f1g2','c8f5','e1g1','e7e6','d2d3','f8d6','b1d2','e8g8'],
+  ['g2g3','d7d5','g1f3','g8f6','f1g2','c8g4','e1g1','b8d7','d2d3','e7e6','b1d2','f8e7'],
+  ['g2g3','d7d5','g1f3','g8f6','f1g2','b8c6','e1g1','c8f5','d2d3','e7e6','b1d2','f8d6'],
+  ['g2g3','d7d5','g1f3','g8f6','f1g2','e7e6','e1g1','c7c5','c2c4','b8c6','d2d4','f8e7'],
+  ['g2g3','d7d5','g1f3','c7c5','f1g2','b8c6','e1g1','g8f6','d2d4','e7e6','c2c4','f8e7'],
+  ['g2g3','d7d5','g1f3','c7c5','f1g2','g8f6','e1g1','b8c6','c2c3','e7e6','d2d4','f8d6'],
+
+  /* vs 1...c5 — deeper lines */
+  ['g2g3','c7c5','g1f3','g8f6','f1g2','b8c6','e1g1','e7e5','d2d3','d7d6','b1d2','f8e7'],
+  ['g2g3','c7c5','g1f3','g8f6','f1g2','b8c6','e1g1','g7g6','d2d3','f8g7','b1d2','e8g8'],
+  ['g2g3','c7c5','g1f3','b8c6','f1g2','g7g6','e1g1','f8g7','c2c3','d7d6','d2d4','e7e5'],
+  ['g2g3','c7c5','g1f3','e7e6','f1g2','b8c6','e1g1','g8f6','d2d3','d7d5','b1d2','f8e7'],
+  ['g2g3','c7c5','g1f3','e7e6','f1g2','d7d5','e1g1','g8f6','c2c4','b8c6','d2d4','f8e7'],
+  ['g2g3','c7c5','f1g2','g8f6','g1f3','d7d5','e1g1','e7e6','c2c4','b8c6','d2d4','d5c4'],
+
+  /* vs 1...e6 — French/Queen's Indian transpose */
+  ['g2g3','e7e6','g1f3','d7d5','f1g2','g8f6','e1g1','f8e7','d2d3','e8g8','b1d2','b8d7'],
+  ['g2g3','e7e6','g1f3','d7d5','f1g2','c7c5','e1g1','b8c6','d2d4','g8f6','c2c4','d5d4'],
+  ['g2g3','e7e6','f1g2','d7d5','g1f3','g8f6','e1g1','c7c5','d2d4','b8c6','c2c4','d5d4'],
+  ['g2g3','e7e6','f1g2','g8f6','g1f3','d7d5','e1g1','f8e7','d2d3','e8g8','b1d2','c7c5'],
+
+  /* vs 1...b6 (Owen / Queen's Indian style) */
+  ['g2g3','b7b6','f1g2','c8b7','g1f3','g8f6','e1g1','e7e6','d2d3','f8e7','b1d2','e8g8'],
+  ['g2g3','b7b6','g1f3','c8b7','f1g2','e7e6','e1g1','g8f6','d2d3','d7d5','b1d2','f8d6'],
+
+  /* vs 1...a6 (St. George / Anderssen) */
+  ['g2g3','a7a6','f1g2','e7e5','g1f3','g8f6','e1g1','b8c6','d2d3','d7d5','b1d2','f8c5'],
+  ['g2g3','a7a6','g1f3','d7d5','f1g2','g8f6','e1g1','b8c6','d2d3','e7e5','b1d2','f8c5'],
+
+  /* ══════════════════════════════════════════════════════════════════
+     e4 MỞ RỘNG — các biến thể sâu hơn
+     ══════════════════════════════════════════════════════════════════ */
+
+  /* Ruy Lopez — Berlin, Closed thêm */
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','g8f6','e1g1','f6e4','d2d4','f8e7','d4e5','e4f6'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7','d2d3','e8g8'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','b7b5','a4b3','d7d6'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5c6','d7c6','d2d4','e5d4','d1d4','d8d4'],
+
+  /* Italian Game */
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','g8f6','d2d3','f8c5','e1g1','d7d6','c2c3','e8g8'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','f8c5','b2b4','c5b4','c2c3','b4a5','d2d4','e5d4'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','f8c5','e1g1','g8f6','d2d3','d7d6','b1c3','a7a6'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','f8c5','c2c3','g8f6','d2d4','e5d4','c3d4','c5b6'],
+
+  /* Scotch */
+  ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','f3d4','g8f6','b1c3','f8b4','d4c6','b7c6'],
+  ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','f3d4','d8h4','b1c3','f8b4','f1e2','h4e4'],
+
+  /* Four Knights */
+  ['e2e4','e7e5','g1f3','b8c6','b1c3','g8f6','f1b5','f8b4','e1g1','e8g8','d2d3','d7d6'],
+  ['e2e4','e7e5','g1f3','b8c6','b1c3','g8f6','f1b5','b8d4','f3d4','e5d4','e4e5','d4c3'],
+
+  /* King's Gambit thêm */
+  ['e2e4','e7e5','f2f4','e5f4','g1f3','d7d5','e4d5','g8f6','f1b5','b8d7','e1g1','f8d6'],
+  ['e2e4','e7e5','f2f4','e5f4','f1c4','g8f6','b1c3','f8b4','g1f3','d7d5','e4d5','e8g8'],
+
+  /* ══════════════════════════════════════════════════════════════════
+     d4 MỞ RỘNG
+     ══════════════════════════════════════════════════════════════════ */
+
+  /* Nimzo-Indian */
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','d1c2','e8g8','a2a3','b4c3','c2c3','b7b6'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','e2e3','e8g8','f1d3','d7d5','g1f3','c7c5'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','g1f3','b7b6','g2g3','c8b7','f1g2','e8g8'],
+
+  /* Queen's Indian */
+  ['d2d4','g8f6','c2c4','e7e6','g1f3','b7b6','g2g3','c8a6','b2b3','f8b4','c1d2','b4e7'],
+  ['d2d4','g8f6','c2c4','e7e6','g1f3','b7b6','e2e3','c8b7','f1d3','d7d5','e1g1','f8d6'],
+  ['d2d4','g8f6','c2c4','e7e6','g1f3','b7b6','b1c3','c8b7','a2a3','d7d5','c4d5','f6d5'],
+
+  /* Grünfeld */
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','d7d5','c4d5','f6d5','e2e4','d5c3','b2c3','f8g7'],
+  ['d2d4','g8f6','c2c4','g7g6','g1f3','f8g7','g2g3','e8g8','f1g2','d7d6','e1g1','b8c6'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','d7d5','g1f3','f8g7','d1b3','d5c4','b3c4','e8g8'],
+
+  /* Benoni */
+  ['d2d4','g8f6','c2c4','c7c5','d4d5','e7e6','b1c3','e6d5','c4d5','d7d6','e2e4','g7g6'],
+  ['d2d4','g8f6','c2c4','c7c5','d4d5','b7b5','c4b5','a7a6','b5a6','g7g6','b1c3','f8g7'],
+
+  /* Dutch */
+  ['d2d4','f7f5','g2g3','g8f6','f1g2','e7e6','g1f3','f8e7','e1g1','e8g8','c2c4','d7d6'],
+  ['d2d4','f7f5','g2g3','g8f6','f1g2','g7g6','g1f3','f8g7','e1g1','e8g8','b2b4','d7d6'],
+  ['d2d4','f7f5','c2c4','g8f6','b1c3','e7e6','g2g3','f8b4','f1g2','e8g8','g1f3','b4c3'],
+
+  /* London System */
+  ['d2d4','d7d5','g1f3','g8f6','c1f4','e7e6','e2e3','c7c5','c2c3','b8c6','b1d2','f8d6'],
+  ['d2d4','d7d5','g1f3','g8f6','c1f4','c7c5','e2e3','b8c6','c2c3','d8b6','d1b3','c5d4'],
+  ['d2d4','g8f6','g1f3','e7e6','c1f4','d7d5','e2e3','c7c5','c2c3','b8c6','b1d2','f8d6'],
+
+  /* Colle / Zukertort */
+  ['d2d4','d7d5','g1f3','g8f6','e2e3','e7e6','f1d3','c7c5','b2b3','b8c6','e1g1','f8d6'],
+  ['d2d4','d7d5','g1f3','g8f6','e2e3','c7c5','d4c5','e7e6','b2b4','a7a5','c2c3','a5b4'],
+
+  /* ══════════════════════════════════════════════════════════════════
+     c4 ENGLISH MỞRỘNG
+     ══════════════════════════════════════════════════════════════════ */
+  ['c2c4','e7e5','b1c3','g8f6','g1f3','b8c6','e2e3','f8b4','d1c2','e8g8','a2a3','b4c3'],
+  ['c2c4','e7e5','b1c3','g8f6','g2g3','d7d5','c4d5','f6d5','f1g2','d5b4','g1f3','b8c6'],
+  ['c2c4','c7c5','g1f3','g8f6','d2d4','c5d4','f3d4','e7e6','b1c3','b8c6','g2g3','d8b6'],
+  ['c2c4','e7e6','g1f3','g8f6','g2g3','d7d5','f1g2','f8e7','e1g1','e8g8','d2d4','c7c6'],
+  ['c2c4','g7g6','b1c3','f8g7','g1f3','c7c5','g2g3','b8c6','f1g2','e7e6','e1g1','g8e7']
 ];
 
 function mvUci(mv){
@@ -1986,7 +2282,7 @@ function rootSafetyPenalty(board, turn, mv, nb){
   var moved=typ(mv[3] || board[mv[0]]);
   if(moved<2 || moved>5) return 0;
   var val=PVAL[moved], cap=mv[2] ? PVAL[typ(mv[2])] : 0;
-  if(!attacked(nb,mv[1],-turn)) return 0;
+  if(!seeNegative(nb,mv[1],turn)) return 0;
   var defended=attacked(nb,mv[1],turn);
   var tacticalAttacker=attackedByPawnKnight(nb,mv[1],-turn);
   var loss = val - cap;
@@ -2158,6 +2454,7 @@ var gPosHist=[];
 var gGameStarted=false;   /* false = chưa đi nước nào, còn hiện nút Đổi bên */
 var gCapturedBlack=[];    /* quân đen bị ăn (theo thứ tự) */
 var gCapturedWhite=[];    /* quân trắng bị ăn (theo thứ tự) */
+var gGameToken=0;         /* tăng mỗi khi newGame() — các timeout cũ tự hủy khi token khác */
 
 /* Ký hiệu quân cho captured bar — chỉ quân nặng (typ 2-5) */
 var CAP_SYM = [null, null, '\u265e', '\u265d', '\u265c', '\u265b', null]; /* mã,tượng,xe,hậu */
@@ -2259,22 +2556,8 @@ var gPendingBest = null;   /* nước best engine đã tính sẵn cho vị trí
 var gPendingEval = 0;      /* eval của nước best đó (cp, từ góc người chơi) */
 var gPendingEvalNow = 0;          /* evalNow của lượt máy vừa đi — dùng cho evalSkip threshold trong classify */
 var gPendingEvalNowComplete = false; /* evalNow có hoàn thành đúng hạn không — tránh missedMate false positive */
+var gPendingEvalComplete = false;    /* pendingBest + evalPending hoàn thành đúng hạn — tránh missedMate false positive */
 var gPlayerMoveCount = 0;  /* đếm số nước người chơi đã đi trong ván */
-var OPENING_MOVES = 6;     /* bỏ qua đánh giá trong N nước đầu (khai cuộc) */
-var CLASSIFY_TIME = 1500;   /* ms tối đa cho pendingBest — tăng để cover các vị trí phức tạp trên PPW3 */
-
-/* Eval nhanh depth 3 cho 1 vị trí — dùng khi người chơi không đi best */
-function evalMove(board, turn, ep, casB, hash) {
-  var oldTL = AI_TIME_LIMIT;
-  var oldCI = AI_CHECK_INTERVAL;
-  AI_TIME_LIMIT = CLASSIFY_TIME;
-  AI_CHECK_INTERVAL = 16;
-  aiTimedOut = false; aiNodeCount = 0; aiStartTime = Date.now(); searchStack = [];
-  var sc = negamax(board, turn, ep, casB, 3, -INF, INF, 0, hash, true);
-  AI_TIME_LIMIT = oldTL;
-  AI_CHECK_INTERVAL = oldCI;
-  return sc;  /* từ góc nhìn 'turn' */
-}
 
 var LABEL_TEXT = {
   brilliant:  '!! Brilliant — N\u01b0\u1edbc \u0111i thi\u00ean t\u00e0i!',
@@ -2293,6 +2576,19 @@ var LABEL_CSS = {
   mistake:'mistake', blunder:'blunder'
 };
 
+/* Eval nhanh depth 3 cho 1 vị trí — limitMs cho phép evalPending bị khống chế riêng */
+function evalMove(board, turn, ep, casB, hash, limitMs) {
+  var oldTL = AI_TIME_LIMIT;
+  var oldCI = AI_CHECK_INTERVAL;
+  AI_TIME_LIMIT = limitMs || CLASSIFY_TIME;
+  AI_CHECK_INTERVAL = 16;
+  aiTimedOut = false; aiNodeCount = 0; aiStartTime = Date.now(); searchStack = [];
+  var sc = negamax(board, turn, ep, casB, 6, -INF, INF, 0, hash, true);
+  AI_TIME_LIMIT = oldTL;
+  AI_CHECK_INTERVAL = oldCI;
+  return sc;  /* từ góc nhìn 'turn' */
+}
+
 /* CHAT_TEXT và randChat đã chuyển xuống cuối file — dễ chỉnh sửa câu chat */
 
 /* gChatMsg: chat AI gửi — hiện cùng status, tồn tại đến lượt đi tiếp theo */
@@ -2305,10 +2601,11 @@ var gThinkTimer = null;
 var gThinkingText = '';
 var gDramaticChat  = '';  /* chat sau label dramatic — hiện khi setStatus chạy sau 2500ms */
 var gDramaticLabel = '';  /* label tương ứng — dùng để kiểm tra brilliant/blunder ưu tiên tuyệt đối */
-var gPlayerDramatic = ''; /* label dramatic của người vừa đi — bảo vệ chat khỏi bị loseBig/goodMove đè */
+var gPlayerDramatic = ''; /* label dramatic của người vừa đi — bảo vệ chat khỏi bị aiGoodMove đè */
 var gBlunderHandled = false; /* luồng blunder độc lập đã xử lý — ngăn luồng classify gọi aiMove lần 2 */
 var gExchangeChatShown = false;
 var gOpeningChatShown = false;
+var gSuggestResignShown = false;  /* đã gợi ý xin thua lần này chưa — reset mỗi ván */
 var RESIGN_SCORE = -700;
 var RESIGN_STREAK = 3;
 var DRAW_SCORE = 25;
@@ -2320,16 +2617,18 @@ function showFeedback(label) {
   if(feedbackTimer) clearTimeout(feedbackTimer);
   el.className = 'status ' + LABEL_CSS[label];
   /* Chỉ các loại dramatic mới hiện chat */
-  var chatKey = {brilliant:'brilliant', blunder:'blunder', great:'playerGoodMove',
-                 greatDef:'praise', missedMate:'missedMate', missedWin:'missedWin'};
-  var chat = chatKey[label] ? randChat(chatKey[label]) : '';
+  var chatKey = {brilliant:'playerBrilliant', blunder:'playerBlunder', great:'playerGreat',
+                 greatDef:'playerGreatDef', missedMate:'playerMissedMate', missedWin:'playerMissedWin'};
+  var chat = chatKey[label] ? randChat(chatKey[label], 1.0) : '';
   /* Dramatic: lưu chat vào gDramaticChat — setStatus hiện sau 2500ms */
   gDramaticChat  = chat;
   gDramaticLabel = label;
   gPlayerDramatic = label;
   el.textContent = LABEL_TEXT[label];
+  var _fbTok = gGameToken;
   feedbackTimer = setTimeout(function(){
     feedbackTimer = null;
+    if(_fbTok !== gGameToken) return;
     setStatus();
     if(!gActive) showStats();
   }, 2500);
@@ -2459,6 +2758,7 @@ function checkSplitButton(){
   var cond2 = (opponentMat - playerMat) >= 900;
   if(phase > 0.4 && !cond2){ hideSplitButton(); return; }  /* còn midgame và chưa thua rõ */
   if(cond1 || cond2){
+    if(!gSuggestResignShown && !gChatMsg){ gSuggestResignShown = true; gChatMsg = randChat('suggestResign'); }
     showSplitButton();
   } else {
     hideSplitButton();
@@ -2532,10 +2832,10 @@ function maybeOfferDraw(evalForAI){
 
 function resetStats() {
   gMoveStats = { brilliant:0, great:0, best:0, greatDef:0, missedWin:0, missedMate:0, mistake:0, blunder:0 };
-  gPendingBest = null; gPendingEval = 0; gPendingEvalNow = 0; gPendingEvalNowComplete = false; gPlayerMoveCount = 0;
+  gPendingBest = null; gPendingEval = 0; gPendingEvalNow = 0; gPendingEvalNowComplete = false; gPendingEvalComplete = false; gPlayerMoveCount = 0;
   gTiltMoves = 0; gBlunderRecovery = false; gChatMsg = ''; gPlayerDramatic = ''; gBlunderHandled = false;
   gDrawOffer = false; gDrawOfferDeclined = false; gBadEvalStreak = 0; gEqualEvalStreak = 0;
-  gExchangeChatShown = false; gOpeningChatShown = false; gUciHist = [];
+  gExchangeChatShown = false; gOpeningChatShown = false; gSuggestResignShown = false; gUciHist = [];
   tReset();
   clearThinkTimer();
   setMainButton('Ván mới');
@@ -2586,12 +2886,30 @@ function showRankOverlay(){
   var ol = document.getElementById('rank-overlay');
   var list = document.getElementById('rank-list');
   if(!ol || !list) return;
+  var boardEl = document.getElementById('board');
+  var boardW = boardEl ? boardEl.offsetWidth : 0;
+  var boardH = boardEl ? boardEl.offsetHeight : 0;
+  if(!boardH) boardH = boardW;
+  if(boardW){
+    var listW = Math.max(120, (boardW * 0.25) | 0);
+    var listH = Math.max(300, (boardH * 0.90) | 0);
+    var itemH = (listH / 10) | 0;
+    list.style.width = listW + 'px';
+    list.style.minWidth = listW + 'px';
+    list.style.height = listH + 'px';
+    list.style.fontSize = Math.max(20, (itemH * 0.42) | 0) + 'px';
+  }
   list.innerHTML = '';
   for(var i=0;i<10;i++){
     (function(idx){
       var item = document.createElement('div');
       item.className = 'rank-item' + (idx===gRank ? ' selected' : '');
       item.textContent = 'C\u1ea5p ' + (idx+1);
+      if(boardW){
+        item.style.height = itemH + 'px';
+        item.style.lineHeight = itemH + 'px';
+        item.style.fontSize = list.style.fontSize;
+      }
       item.onclick = function(){
         gRank = idx;
         var sel = document.getElementById('rank-sel');
@@ -2630,6 +2948,7 @@ function rankDisplay(){
 }
 
 function newGame(){
+  gGameToken++;
   gB=makeBoard(); gTurn=W; gEP=-1;
   gCasB=CAS_ALL;
   gHalf=0; gFull=1;
@@ -2660,7 +2979,7 @@ function newGame(){
   gAllLegal=legalMoves(gB,gTurn,gEP,gCasB);
   hideSplitButton();
   renderBoard(); setStatus();
-  if(gPC===B) setTimeout(aiMove,80);
+  if(gPC===B){ var _t1=gGameToken; setTimeout(function(){ if(_t1!==gGameToken)return; aiMove(); },80); }
 }
 
 function toggleColor(){
@@ -2671,7 +2990,7 @@ function toggleColor(){
   var btn=document.getElementById('clr-toggle');
   if(btn){ btn.className='clr-btn active'; btn.innerHTML='&#9818; \u0110\u1ed5i b\u00ean'; }
   /* AI (trắng) đi trước */
-  if(gActive) setTimeout(aiMove,80);
+  if(gActive){ var _t2=gGameToken; setTimeout(function(){ if(_t2!==gGameToken)return; aiMove(); },80); }
 }
 
 /* ═══════════════════════════════════════════════════
@@ -2867,7 +3186,7 @@ function setStatus(){
   if(isChk){
     setStatusText(el,'status check','\u26a0 '+tn+' \u0111ang b\u1ecb chi\u1ebfu!'+(yours?' H\u00e3y \u0111i!':''));
   } else if(yours){
-    gThinkingText = '';  /* reset để lần sau máy chọn câu thinking mới */
+    gThinkingText = '';  /* reset để lần sau máy chọn câu aiThinking mới */
     gDramaticChat = ''; gDramaticLabel = '';
     if(gDrawOffer){
       setStatusText(el,'status',gChatMsg || randChat('offerDraw'));
@@ -2887,7 +3206,7 @@ function setStatus(){
           if(gMoveNum <= 1){
             txt = 'L\u01b0\u1ee3t c\u1ee7a b\u1ea1n';
           } else {
-            txt = (Math.random() < CHAT_PROB_YOUR_TURN_GENERIC) ? 'L\u01b0\u1ee3t c\u1ee7a b\u1ea1n' : randChat('yourTurn');
+            txt = (Math.random() < CHAT_PROB_YOUR_TURN_GENERIC) ? 'L\u01b0\u1ee3t c\u1ee7a b\u1ea1n' : randChat('yourTurn', 1-CHAT_PROB_YOUR_TURN_GENERIC);
           }
           setStatusText(el2,'status',txt);
         }
@@ -2898,9 +3217,9 @@ function setStatus(){
          pool yourTurn (có thể mang ý "mình đi rồi, bạn đi đi") chỉ hiện sau nước đầu */
       var turnTxt;
       if(gMoveNum <= 1){
-        turnTxt = (Math.random() < CHAT_PROB_OPENING_EARLY) ? randChat('openingEarly') : 'L\u01b0\u1ee3t c\u1ee7a b\u1ea1n';
+        turnTxt = (Math.random() < CHAT_PROB_OPENING_EARLY) ? randChat('openingEarly', CHAT_PROB_OPENING_EARLY) : 'L\u01b0\u1ee3t c\u1ee7a b\u1ea1n';
       } else {
-        turnTxt = (Math.random() < CHAT_PROB_YOUR_TURN_GENERIC) ? 'L\u01b0\u1ee3t c\u1ee7a b\u1ea1n' : randChat('yourTurn');
+        turnTxt = (Math.random() < CHAT_PROB_YOUR_TURN_GENERIC) ? 'L\u01b0\u1ee3t c\u1ee7a b\u1ea1n' : randChat('yourTurn', 1-CHAT_PROB_YOUR_TURN_GENERIC);
       }
       setStatusText(el,'status',turnTxt);
       scheduleThinkLong();
@@ -2908,9 +3227,9 @@ function setStatus(){
   } else {
     /* Máy đang suy nghĩ — thứ tự ưu tiên:
        1. dramatic = brilliant/blunder → ưu tiên tuyệt đối dù có chiếu hay không
-       2. Máy đang bị chiếu → underPressure
+       2. Máy đang bị chiếu → playerUnderPressure
        3. dramatic còn lại (great/greatDef/missedMate/missedWin) → chat dramatic
-       4. Còn lại → 70% "Máy đang suy nghĩ...", 30% randChat('thinking') */
+       4. Còn lại → 70% "Máy đang suy nghĩ...", 30% randChat('aiThinking') */
     clearThinkTimer();
     var thinkTxt;
     if(gDramaticChat && (gDramaticLabel === 'brilliant' || gDramaticLabel === 'blunder')){
@@ -2918,7 +3237,7 @@ function setStatus(){
       /* Nếu gPlayerDramatic còn active, giữ lại gDramaticChat để aiMove dùng làm gChatMsg */
       if(!gPlayerDramatic){ gDramaticChat = ''; gDramaticLabel = ''; }
     } else if(inCheck(gB, gTurn)){
-      if(!gThinkingText) gThinkingText = randChat('underPressure');
+      if(!gThinkingText) gThinkingText = randChat('playerUnderPressure');
       thinkTxt = gThinkingText;
     } else if(gDramaticChat){
       thinkTxt = gDramaticChat;
@@ -2927,7 +3246,7 @@ function setStatus(){
       if(!gThinkingText){
         gThinkingText = (Math.random() < CHAT_PROB_THINKING_GENERIC)
           ? 'Máy đang suy nghĩ...'
-          : randChat('thinking');
+          : randChat('aiThinking', 1-CHAT_PROB_THINKING_GENERIC);
       }
       thinkTxt = gThinkingText;
     }
@@ -3112,6 +3431,9 @@ function execMove(mv){
   gHalf=(t===1||mv[2])?0:gHalf+1;
   if(gTurn===B) gFull++;
   if(gTurn===B) gMoveNum++;  /* tăng sau mỗi lượt đen đi = 1 full move */
+  /* Lưu trước khi gTurn flip + gAllLegal bị ghi đè — dùng cho classify */
+  var savedPlayerLegalCount = isPlayerMove ? gAllLegal.length : 0;
+  var playerGivesCheck      = isPlayerMove ? inCheck(gB, -gPC) : false;
   gTurn=-gTurn;
   gPosHist.push(gHash);
   gSel=-1; gLegal=[]; gAllLegal=legalMoves(gB,gTurn,gEP,gCasB);
@@ -3151,10 +3473,10 @@ function execMove(mv){
      Điều kiện A/B/C không cần savedBest — chỉ cần board + nước đi.
      Chạy từ nước đầu tiên cho tất cả nước người chơi.                       */
   if(isPlayerMove && gPlayerMoveCount >= 1){
-    (function(mvSnap, boardBefore){
+    (function(mvSnap, boardBefore, snapToken){
       setTimeout(function(){
-        var isBest = savedBest !== null &&
-                     (mvSnap[0]*100 + mvSnap[1]) === (savedBest[0]*100 + savedBest[1]);
+        if(snapToken !== gGameToken) return;
+        var isBest = mvEq(mvSnap, savedBest);
         if(isBest){
           /* Nước tốt nhất — không blunder. Nếu classify sẽ không chạy (khai cuộc /
              không bắt quân) thì gọi aiMove tại đây; ngược lại nhường cho classify. */
@@ -3166,7 +3488,8 @@ function execMove(mv){
           }
           return;
         }
-        if(aiWillCaptureHeavy(gB, savedBest, gPC) ||
+        var pendingBlunder = savedBest && aiWillCaptureHeavy(gB, savedBest, gPC);
+        if(pendingBlunder ||
            playerMissedHanging(boardBefore, mvSnap, gPC) ||
            playerPieceHangsAfterMove(gB, mvSnap, gPC)){
           gBlunderHandled = true;
@@ -3186,7 +3509,7 @@ function execMove(mv){
           }
         }
       }, UI_AFTER_MOVE_DELAY);
-    })(mv, mv._boardBefore);
+    })(mv, mv._boardBefore, gGameToken);
     /* Chỉ return (chặn fallback) khi classify sẽ không chạy.
        Nếu classify sẽ chạy → không return, để classify tự gọi aiMove. */
     var classifyWillRunOuter = savedBest !== null && (gPlayerMoveCount > OPENING_MOVES || isCapture);
@@ -3194,14 +3517,14 @@ function execMove(mv){
   }
 
   if(isPlayerMove && savedBest !== null && (gPlayerMoveCount > OPENING_MOVES || isCapture)){
+    var _clfyTok = gGameToken;
     setTimeout(function(){
+      if(_clfyTok !== gGameToken) return;
       aiDbgAdd('clfy');
       tMark('clfy|handled='+gBlunderHandled+'|act='+gActive);
       if(gBlunderHandled){ gBlunderHandled = false; tFlush('classify'); return; }
       var label = null;
-      var mvKey  = mv[0]*100 + mv[1];
-      var bestKey = savedBest[0]*100 + savedBest[1];
-      var isBestMove = (mvKey === bestKey);
+      var isBestMove = mvEq(mv, savedBest);
 
       /* ── BƯỚC 1: Missed Mate ───────────────────────────────────────────────
          savedEval >= 9900 nghĩa là trước nước đi máy đã thấy lộ chiếu hết.
@@ -3209,7 +3532,7 @@ function execMove(mv){
          Chỉ tin kết quả khi evalNow hoàn thành đúng hạn (gPendingEvalNowComplete)
          và đã qua đủ nước (tránh false positive sớm khi engine chưa đủ thông tin).
          Không cần evalPlayer — savedEval một mình đã đủ bằng chứng.        */
-      var wasMate = (savedEval >= 9900 && gPendingEvalNowComplete && gMoveNum > OPENING_MOVES + 2);
+      var wasMate = (savedEval >= 9900 && gPendingEvalNowComplete && gPendingEvalComplete && gMoveNum > OPENING_MOVES + 2);
       if(wasMate && !isBestMove){
         label = 'missedMate';
       }
@@ -3232,14 +3555,13 @@ function execMove(mv){
         }
         /* Nếu không brilliant → xét great/greatDef/best (không cần evalPlayer) */
         if(!label){
-          var onlyEscape = (gAllLegal.length <= 2);  /* nước bắt buộc — không tính hay */
-          if(gAllLegal.length <= 3 && savedEval < -300 && !onlyEscape){
+          var onlyEscape = (savedPlayerLegalCount <= 2);  /* nước bắt buộc của người — không tính hay */
+          if(savedPlayerLegalCount <= 3 && savedEval < -300 && !onlyEscape){
             label = 'greatDef';
           } else {
-            var mv0 = gAllLegal[0];
-            var hasCapture = mv0 && mv0[2] && PVAL[typ(mv0[2])] >= 300;
-            var givesCheck = mv0 && inCheck(applyMv(gB, mv0), -gTurn);
-            var genuineEscape = (gAllLegal.length <= 3 && savedEval < -400);
+            var hasCapture    = !!(mv[2] && PVAL[typ(mv[2])] >= 300);
+            var givesCheck    = playerGivesCheck;
+            var genuineEscape = (savedPlayerLegalCount <= 3 && savedEval < -400);
             if(!onlyEscape && (hasCapture || givesCheck || genuineEscape)){
               label = 'great';
             } else {
@@ -3357,7 +3679,7 @@ function aiMoveCore(){
   var useDepth = cfg.d;
   var useRnd   = cfg.rnd;
 
-  if(gTiltMoves > 0){ useRnd = Math.min(useRnd + 0.20, 0.60); gTiltMoves--; }
+  /* PC: bỏ tilt — không giả vờ chơi kém sau khi mất quân */
   if(gLast && gLast[2]){
     var capturedVal = PVAL[typ(gLast[2])];
     var aiLostPiece = (col(gLast[2]) === gTurn);
@@ -3377,14 +3699,14 @@ function aiMoveCore(){
   var target;
 
   if(isForced || isRecap){
-    target = 1000 + Math.floor(Math.random() * 500);   /* 1000–1500ms */
+    target = 500 + Math.floor(Math.random() * 500);    /* 500–1000ms */
   } else if(isOpening){
-    target = 1000 + Math.floor(Math.random() * 1000);  /* 1000–2000ms */
+    target = 500 + Math.floor(Math.random() * 1000);   /* 500–1500ms */
   } else if(gBlunderRecovery){
-    target = 4000 + Math.floor(Math.random() * 3000);  /* 4000–7000ms: suy nghĩ lâu sau khi tự blunder */
+    target = 3500 + Math.floor(Math.random() * 3000);  /* 3500–6500ms */
     gBlunderRecovery = false;
   } else {
-    target = 1500 + Math.floor(Math.random() * 2500);  /* 1500–4000ms */
+    target = 1000 + Math.floor(Math.random() * 2500);  /* 1000–3500ms */
   }
 
   var oldTL=AI_TIME_LIMIT;
@@ -3406,7 +3728,7 @@ function aiMoveCore(){
 
      Chỉ chạy sau khai cuộc (gMoveNum > OPENING_MOVES) vì khai cuộc
      có opening book, evalNow không cần thiết.                               */
-  var EVAL_NOW_TIME = 400;  /* giới hạn ms cho evalNow — đủ depth-2 trên PPW3 */
+  var EVAL_NOW_TIME = 1000;
 
   var evalNow = 0;
   var evalNowComplete = false;
@@ -3424,7 +3746,7 @@ function aiMoveCore(){
     AI_CHECK_INTERVAL = oldCI_en;
     tEnd('evalNow');
     aiDbgAdd('evalNow=' + (Date.now() - dbgEvalNowT0) + (aiTimedOut ? 'TO' : ''));
-    if(evalNowComplete && useDepth > 1 && evalNow > 500) useDepth = useDepth - 1;
+    /* PC: không giảm depth khi thắng — depth cao giúp chốt hạ nhanh hơn */
   }
 
   var evalBefore = evalNow;
@@ -3453,6 +3775,8 @@ function aiMoveCore(){
 
      useDepth / useRnd đã được điều chỉnh ở bước chuẩn bị trên.
      Fallback về depth-1 nếu bestMove trả về null (không tìm được nước nào).  */
+  var BESTMOVE_MAX_MS = 5000;
+  AI_TIME_LIMIT = Math.min(tl, BESTMOVE_MAX_MS);
   tStart('bestMove');
   var dbgBestT0 = Date.now();
   aiDbgAdd('best');
@@ -3484,25 +3808,30 @@ function aiMoveCore(){
      nhất mà lẽ ra nên đi" (savedBest) mà không cần tính lại từ đầu.
      → Tiết kiệm 3–5s search trong luồng classify.
 
-     Dùng CLASSIFY_TIME (~1200ms) thay vì AI_TIME_LIMIT để không chiếm
-     quá nhiều thời gian — depth đạt được thường chỉ là 2–3.
+     Dùng PENDING_TOTAL_BUDGET cho tổng pendingBest + evalPending,
+     ưu tiên pendingBest; evalPending chỉ dùng phần thời gian còn lại.
 
      Chỉ chạy sau khai cuộc + đã đủ nước (OPENING_MOVES + 2) để tránh
      lãng phí tài nguyên trong phase đầu ván.                               */
   var postLeft = tl - (Date.now() - aiMoveStart);
-  var enoughPostTime = postLeft >= CLASSIFY_TIME;
-  var worthPending = Math.abs(evalNow) < 1200 && !mainTimedOut && enoughPostTime;
-  if(mainTimedOut) aiDbgAdd('skipPost:bestTO');
-  else if(!enoughPostTime) aiDbgAdd('skipPost:left' + postLeft);
+  var PENDING_TOTAL_BUDGET = 2000;
+  var worthPending = true;  /* bỏ gate Math.abs(evalNow) < 1200 — pendingBest hữu ích kể cả khi thế cờ ngã ngũ, và thế ngã ngũ thường đơn giản hơn nên pendingBest chạy nhanh hơn */
+  if(mainTimedOut) aiDbgAdd('bestTO:postLeft'+postLeft);
+  gPendingEvalComplete = false;  /* reset trước — chỉ set true khi cả pendingBest lẫn evalPending hoàn thành */
   if(gPlayerMoveCount >= OPENING_MOVES && worthPending){
     var dbgPendingT0 = Date.now();
     aiDbgAdd('pending');
     tStart('pendingBest');
     var oldCI_pb = AI_CHECK_INTERVAL;
     aiTimedOut = false; aiNodeCount = 0; aiStartTime = Date.now(); searchStack = [];
-    AI_TIME_LIMIT = CLASSIFY_TIME;
+    AI_TIME_LIMIT = PENDING_TOTAL_BUDGET;
     AI_CHECK_INTERVAL = 16;
-    gPendingBest = bestMove(futureBoard, futureTurn, futureEP, futureCasB, 3, 0, futureHash);
+    gUseFastEval = true;
+    try {
+      gPendingBest = bestMove(futureBoard, futureTurn, futureEP, futureCasB, 6, 0, futureHash);
+    } finally {
+      gUseFastEval = false;  /* đảm bảo tắt kể cả khi exception — tránh bestMove chính lượt sau dùng evaluateFast */
+    }
     AI_CHECK_INTERVAL = oldCI_pb;
     AI_TIME_LIMIT = oldTL;  /* [v6-fix] restore ngay sau bestMove, trước mọi nhánh if/else —
                                tránh AI_TIME_LIMIT bị kẹt ở CLASSIFY_TIME khi gPendingBest=null */
@@ -3527,8 +3856,8 @@ function aiMoveCore(){
 
        nb2Hash tính lại từ đầu (computeHash) vì đây là vị trí mới hoàn toàn,
        không dùng futureHash (hash của futureBoard, khác nb2).              */
-    postLeft = tl - (Date.now() - aiMoveStart);
-    if(gPendingBest && !pendingTimedOut && postLeft >= CLASSIFY_TIME){
+    postLeft = PENDING_TOTAL_BUDGET - (Date.now() - dbgPendingT0);
+    if(gPendingBest && !pendingTimedOut && postLeft > 0){
       var dbgEvalPendingT0 = Date.now();
       aiDbgAdd('evalPend');
       tStart('evalPending');
@@ -3536,19 +3865,23 @@ function aiMoveCore(){
       var nb2      = applyMv(futureBoard, gPendingBest);
       var nc2      = newCasBit(futureCasB, futureBoard, gPendingBest, futureTurn);
       var nb2Hash  = computeHash(nb2, -futureTurn, gPendingBest[6], nc2);
-      gPendingEval = -evalMove(nb2, -futureTurn, gPendingBest[6], nc2, nb2Hash);
+      gPendingEval = -evalMove(nb2, -futureTurn, gPendingBest[6], nc2, nb2Hash, postLeft);
+      var evalPendingTimedOut = aiTimedOut;
+      gPendingEvalComplete = !pendingTimedOut && !evalPendingTimedOut && gPendingBest !== null;  /* tin được khi cả hai hoàn thành */
       tEnd('evalPending');
-      aiDbgAdd('evalPend=' + (Date.now() - dbgEvalPendingT0) + (aiTimedOut ? 'TO' : ''));
+      aiDbgAdd('evalPend=' + (Date.now() - dbgEvalPendingT0) + (evalPendingTimedOut ? 'TO' : ''));
     } else {
       if(gPendingBest && pendingTimedOut) aiDbgAdd('skipEvalPend:pTO');
       else if(gPendingBest) aiDbgAdd('skipEvalPend:left' + postLeft);
       if(!gPendingBest) gPendingBest = null;
       gPendingEval = 0;
+      /* gPendingEvalComplete đã là false từ trước */
     }
   } else {
-    /* worthPending=false: thế cờ ngã ngũ hoặc evalNow chưa hoàn thành —
-       xóa pending cũ để tránh classify dùng stale data từ lượt trước */
+    /* worthPending=false không còn xảy ra (worthPending luôn true) —
+       block này chỉ được vào khi chưa qua OPENING_MOVES */
     gPendingBest = null; gPendingEval = 0;
+    /* gPendingEvalComplete đã là false từ trước */
   }
 
   tStart('offerDraw');
@@ -3559,7 +3892,7 @@ function aiMoveCore(){
   /* Chat duy nhất hiện sau khi máy đi xong.
      Ưu tiên: phản ứng nước người (chat A) > phản ứng nước máy (chat B)
      Nếu người vừa có dramatic (blunder/brilliant), dùng gDramaticChat làm chat A
-     và không cho loseBig/goodMove đè lên. */
+     và không cho aiGoodMove đè lên. */
 
   /* Nếu người vừa blunder/brilliant → ưu tiên hiện chat đó, bỏ qua chat máy */
   if(gPlayerDramatic === 'blunder' || gPlayerDramatic === 'brilliant'){
@@ -3569,9 +3902,6 @@ function aiMoveCore(){
   } else {
     gPlayerDramatic = '';
 
-  /* Máy vừa ăn quân lớn của người → loseBig */
-  var justLostBig = !!(mv[2] && col(mv[2])===gPC && PVAL[typ(mv[2])]>=500);
-
   /* Nước máy đạt brilliant: hy sinh quân nặng mà vẫn không thua thế */
   var _mvVal = PVAL[typ(gB[mv[0]])];
   var aiSacPiece = (!mv[2] && _mvVal >= 300 && attacked(gB, mv[1], gPC)) ? _mvVal : 0;
@@ -3580,17 +3910,26 @@ function aiMoveCore(){
   var aiCapHeavy = !!(mv[2] && col(mv[2])===gPC && PVAL[typ(mv[2])]>=300);
   var aiIsGreat  = aiCapHeavy || inCheck(futureBoard, gPC);
 
-  if(justLostBig) gChatMsg = randChat('loseBig');
-  else if(aiIsBrilliant || aiIsGreat) gChatMsg = randChat('goodMove');
+  /* Lợi thế vật chất sau nước máy: dương là máy hơn, âm là máy thua.
+     Khoảng 500-1200cp tương đương hơn/thua khoảng 1-2 quân nặng nhưng chưa áp đảo. */
+  var aiMaterialLead = 0;
+  for(var mi=0; mi<64; mi++){
+    var mp = futureBoard[mi];
+    if(mp && typ(mp)!==6){
+      aiMaterialLead += (col(mp)===gTurn ? 1 : -1) * PVAL[typ(mp)];
+    }
+  }
+
+  if(aiIsBrilliant || aiIsGreat) gChatMsg = randChat('aiGoodMove');
   else if(!gOpeningChatShown && gMoveNum>=4 && gMoveNum<=6 && Math.random()<CHAT_PROB_OPENING_MID){
-    gOpeningChatShown=true; gChatMsg = randChat('openingMid');
+    gOpeningChatShown=true; gChatMsg = randChat('openingMid', CHAT_PROB_OPENING_MID);
   }
   else if(!gExchangeChatShown && gMoveNum >= 16 && isExchangePosition()){
     gExchangeChatShown=true; gChatMsg = randChat('exchange');
   }
-  else if(evalBefore > 700 && Math.random()<CHAT_PROB_WINNING) gChatMsg = randChat('winning');
-  else if(evalBefore <-500 && Math.random()<CHAT_PROB_LOSING) gChatMsg = randChat('losing');
-  else if(Math.random()<CHAT_PROB_IDLE) gChatMsg = randChat('idle');
+  else if(aiMaterialLead >= 500 && aiMaterialLead <= 1200 && Math.random()<CHAT_PROB_AI_EDGE) gChatMsg = randChat('aiWinning', CHAT_PROB_AI_EDGE);
+  else if(aiMaterialLead <= -500 && aiMaterialLead >= -1200 && Math.random()<CHAT_PROB_AI_EDGE) gChatMsg = randChat('aiLosing', CHAT_PROB_AI_EDGE);
+  else if(Math.random()<CHAT_PROB_IDLE) gChatMsg = randChat('idle', CHAT_PROB_IDLE);
   } /* end else (not player dramatic) */
 
   tStart('evalAfterAI');
@@ -3620,7 +3959,9 @@ function aiMoveCore(){
   tMark('wait(' + remaining + 'ms)');
   aiDbgAdd('wait=' + remaining);
 
+  var _tok = gGameToken;
   setTimeout(function(){
+    if(_tok !== gGameToken) return;
     try{
       aiDbgAdd('exec=' + mvUci(mv));
       tStart('execMove');
@@ -3740,154 +4081,74 @@ function hideDetailOverlay(){
 /* ═══════════════════════════════════════════════════
    CHAT TEXT — chỉnh sửa câu chat tại đây
    ═══════════════════════════════════════════════════ */
-
+ 
 /* ── Thời gian chat B tồn tại trước khi bị thay bằng yourTurn ── */
 var CHAT_DISPLAY_TIME = 5000;
-
+var CHAT_DEBUG = false;   /* true: hiện (tên mảng X%) sau mỗi câu chat để debug */
+ 
 /* ── Xác suất xuất hiện từng loại chat (0.0 → 1.0) ──────────────────────
    Chat A — hiện trong lúc máy suy nghĩ (set ngay khi người đi xong):
      CHAT_PROB_OPENING_EARLY : nước 1-2, khi không có chat ưu tiên cao hơn  */
 var CHAT_PROB_OPENING_EARLY = 0.10;  /* chat A: openingEarly nước 1-2 */
-
+ 
 /* Chat B — hiện sau khi máy đi xong (lượt của người):
      CHAT_PROB_OPENING_MID   : nước 3-6, nếu chưa nói early
-     CHAT_PROB_WINNING       : khi máy đang thắng lớn (eval > 700)
-     CHAT_PROB_LOSING        : khi máy đang thua lớn (eval < -500)
+     CHAT_PROB_AI_EDGE       : khi máy hơn/thua khoảng 1-2 quân nặng (500–1200cp), dùng cho aiWinning/aiLosing
      CHAT_PROB_IDLE          : ngẫu nhiên bất kỳ lúc nào                   */
 var CHAT_PROB_OPENING_MID  = 0.10;  /* chat B: openingMid nước 3-6 */
-var CHAT_PROB_WINNING      = 0.10;  /* chat B: winning */
-var CHAT_PROB_LOSING       = 0.10;  /* chat B: losing */
+var CHAT_PROB_AI_EDGE      = 0.30;  /* chat B: xác suất hiện aiWinning/aiLosing khi máy hơn/thua 500–1200cp, giá trị 30% */
 var CHAT_PROB_IDLE         = 0.05;  /* chat B: idle ngẫu nhiên */
-var CHAT_PROB_THINKING_GENERIC = 0.70; /* xác suất hiện "Máy đang suy nghĩ..." khi thinking (70%), còn lại là câu ngẫu nhiên từ pool thinking */
+var CHAT_PROB_THINKING_GENERIC = 0.70; /* xác suất hiện "Máy đang suy nghĩ..." khi aiThinking (70%), còn lại là câu ngẫu nhiên từ pool aiThinking */
 var CHAT_PROB_YOUR_TURN_GENERIC = 0.70; /* xác suất hiện "Lượt của bạn" cứng khi yourTurn (70%), còn lại là câu ngẫu nhiên từ pool yourTurn */
-
+ 
 var CHAT_TEXT = {
-  /* ── Chat A: hiện trong lúc máy suy nghĩ ── */
-  thinking: [
-    'Máy đang suy nghĩ...',
-    'Máy đang suy nghĩ...',
-    'Máy đang suy nghĩ...',
-    'Để tôi tính...',
-    'Chờ chút, suy nghĩ đã...',
-    'Để xem nào...',
-	'Một phút suy ngẫm...',
-    'Tôi đang tính tiếp...',
-    'Cho tôi thêm chút thời gian...',
-    'Chờ chút nhé.',
-    'Tôi đang tính vài phương án.',
-    'Có vài nước khá khó chịu đấy.',
-    'Bạn làm tôi phải suy nghĩ rồi.'
-  ],
-  underPressure: [
-    'Nước đi hay quá! Tôi đang gặp rắc rối rồi.',
-    'Bạn ép tôi phải phòng thủ đấy.',
-    'Tôi cần phải cẩn thận hơn rồi.',
-    'Ái chà, nguy hiểm thật!',
-    'Bạn đang dồn tôi vào thế khó đấy.',
-    'Chiếu à?',
-	'Check! Căng thẳng quá.',
-	'Tôi phải thoát chiếu đã...',
-    'Tôi thấy rồi.',
-    'Đòn khá hay đấy.',
-    'Vua tôi đang gặp nguy hiểm.',
-    'Tôi cần cẩn thận hơn.',
-    'Bạn đang tăng áp lực rồi.',
-    'Đây không phải vị trí dễ chịu.',
-    'Tôi phải xử lý nước này trước đã.',
-    'Khá nguy hiểm đấy.',
-    'Được rồi, để tôi thoát đã.',
-    'Hú vía, suýt nữa thì tôi mắc bẫy rồi.'
-  ],
-  loseBig: [
-    'Ôi không...',
-    'Tôi bị mất một quân quan trọng.',
-    'Đúng là đòn đau, tôi sẽ ghi nhớ.',
-    'Nước này đau thật.',
-    'Tôi đã bỏ sót.',
-    'Không ổn rồi.',
-	'Một chút sơ hở rồi... bạn tận dụng tốt quá.',
-	'Đòn phối hợp hay quá, tôi mất quân lớn rồi.',
-    'Bạn nhìn ra rất nhanh đấy.',
-    'Tôi không nên để chuyện này xảy ra.',
-    'Được ăn cả, ngã về không rồi.',
-    'Suýt nữa thì tránh được.',
-    'Đó là một đòn hay.',
-    'Tình hình bắt đầu khó khăn rồi.'
-  ],
-  playerGoodMove: [
-    'Nước đi hay!',
-    'Hmm, tôi chưa nhìn ra.',
-    'Ồ, khá sắc bén đấy.',
-    'Tôi vừa bị gây áp lực rồi.',
-    'Cũng khó chịu đấy.',
-    'Nước này mạnh hơn tôi nghĩ.',
-    'Bạn chơi được đấy!',
-    'Cũng ra gì đấy :)',
-    'Biết chơi đấy :)',
-    'Cũng được, nhưng chưa phải hay nhất.',
-    'Hợp lý!',
-	'Bạn vừa cải thiện vị trí rất tốt.',
-	'Bạn đang chơi rất chắc.',
-	'Bạn đang khiến ván này khó hơn.',
-    'Nước đi này chất lượng.'
-  ],
 
-  /* ── Chat B: hiện sau khi máy đi xong ── */
-  yourTurn: [
-    'Tới lượt bạn rồi.',
-    'Đến lượt bạn.',
-    'Giờ tới bạn.',
-    'Mời bạn.',
-	'Bóng đã sang sân của bạn, xin mời.',
-	'Một nước đi đơn giản, xin mời bạn đáp trả.',
-	'Nước cờ của tôi đấy, bạn tính sao?',
-	'Đến bạn rồi, đừng để tôi đợi lâu nha!',
-	'Tôi đã đi một nước cực kỳ khiêm tốn, mời bạn thể hiện.',
-	'Đừng để tôi chờ lâu, tôi dễ mất kiên nhẫn lắm.',
-    'Bạn có nước nào hay hơn không?'
+  /* ═══════════════════════════════════════════════════
+     NHÓM AI — máy tự nhận xét nước đi của mình
+     ═══════════════════════════════════════════════════ */
+	/* khi máy vừa đi blunder (hiện đang ẩn) */
+  aiBlunder: [
+    'Ôi tôi mắc sai lầm...',
+    'Tôi bỏ sót mất rồi.',
+    'Tôi sơ suất quá!',
+    'Tôi mắc sai lầm ngớ ngẩn rồi.',
+    'Ầy dà, game khó quá...',
+    'Ôi, quân mạnh của tôi!',
+    'Đã nhọ còn phải cọ bồn cầu :(',
+    'Thôi xong, mất quân chủ lực.',
+    'Tôi phải gỡ gạc lại thôi.',
+    'Không thấy cách nào tốt hơn...',
+    'Bạn tận dụng sai lầm của tôi tốt đấy.'
   ],
-  openingEarly: [
-    'Lại gặp nhau rồi, hy vọng ván này sẽ kịch tính!',
-    'Nước đầu khá chắc chắn đấy.',
-    'Chúng ta bắt đầu thôi.',
-    'Bắt đầu thôi, chúc may mắn nhé!',
-    'Chúc bạn một ván cờ vui vẻ!'
+  /* khi máy thắng */
+  aiWin: [ 
+    'Ván hay đấy! Chơi nữa không?',
+    'Good game!',
+    'Cố lên, thử lại đi!',
+	'Tôi thắng rồi, nhưng bạn vẫn rất đáng gờm.',
+	'Không sao đâu, thua ván này mình bày ván khác',
+	'Cảm ơn vì một ván cờ vui nha.',
+	'Tôi may mắn thôi, đừng nản bạn nhé.',
+	'Đừng buồn, ván cờ này còn nhiều điều để học mà.',
+    'Hẹn gặp lại nhé!'
   ],
-  openingMid: [
-    'Khai cuộc này có vẻ thú vị đấy!',
-    'Hãy xem bạn chuẩn bị gì nào.',
-    'Tôi thích những nước đi cổ điển.',
-    'Hmm, một lựa chọn quen thuộc.',
-    'Để xem bạn định chơi kiểu gì nhé.',
-    'Hy vọng tôi nhớ đúng khai cuộc này.',
-    'Bạn thích thế trận chậm à?',
-    'Trận này có vẻ sẽ dài đây.',
-    'Được rồi, vào việc thôi.',
-    'Khởi đầu ổn đấy.',
-    'Biến thể này lạ quá, để xem tôi đối phó thế nào.',
-	'Tôi sẽ đáp trả bằng một nước cờ chuẩn giáo khoa!',
-	'Biến thể này quen thuộc đây, bạn nghiên cứu kỹ rồi à?',
-	'Khai cuộc bài bản đấy, để xem tiếp thế nào.',
-    'Có vẻ bạn đã chuẩn bị rất kỹ khai cuộc này?'
-  ],
-  goodMove: [
+   /* khi máy vừa đi great hoặc brilliant */
+  aiGoodMove: [
     'Nước này chắc bạn không ngờ tới.',
-    'Tôi vừa có một ý tưởng thú vị.',
     'Phản công nhé!',
     'Đến lượt tôi rồi.',
-	'Quân đó không còn nữa, giờ tới bạn.',
-	'Tôi tặng bạn một sự mất mát, mời đi.',
-	'Một tổn thất nhỏ cho bạn, cố gắng gỡ lại nhé.',
-	'Tôi tích lũy lợi thế từ những quân cờ nhỏ này đấy.',
-	'Đừng chủ quan nhé, tôi bắt đầu tăng tốc rồi.',
-	'Bạn có thấy nguy hiểm chưa? Đến lượt bạn.',
-	'Tôi vừa giăng một cái bẫy nhỏ, liệu bạn có nhận ra?',
+    'Quân đó không còn nữa, giờ tới bạn.',
+    'Tôi tặng bạn một sự mất mát, mời bạn đi tiếp',
+    'Một tổn thất nhỏ cho bạn, cố gắng gỡ lại nhé.',
+    'Tôi tích lũy lợi thế từ những quân cờ nhỏ này đấy.',
+    'Đừng chủ quan nhé, tôi bắt đầu tăng tốc rồi.',
+    'Bạn có thấy nguy hiểm chưa? Đến lượt bạn.',
     'Hãy xem bạn đối phó thế nào với nước này.',
-    'Có vẻ tôi đã tìm được lối thoát.',
+    'Có vẻ tôi đã tìm được cách',
     'Tôi sẽ nhận quân này nhé.',
     'Nước này khá lợi cho tôi.',
-    'Tôi thấy sơ hở rồi.',
-    'Đổi quân có lợi cho tôi đấy.',
+    'Tôi thấy bạn sơ hở rồi.',
+    'Giờ đổi quân có lợi cho tôi đấy.',
     'Tôi nghĩ nước này ổn.',
     'Đây là cơ hội tốt.',
     'Bạn vừa để hở rồi.',
@@ -3896,16 +4157,123 @@ var CHAT_TEXT = {
     'Tôi nghĩ bạn nên cẩn thận.',
     'Thế cờ đang thay đổi rồi.',
     'Áp lực bắt đầu tăng đấy.',
-	'Giờ thì không dễ nữa đâu.',
-	'Tôi muốn xem bạn xử lý thế nào.',
-	'Tôi khá hài lòng với nước này.',
-	'Tôi vừa cải thiện vị trí một chút.',
+    'Giờ thì không dễ nữa đâu.',
+    'Tôi muốn xem bạn xử lý thế nào.',
+    'Tôi khá hài lòng với nước này.',
+    'Tôi vừa cải thiện vị trí một chút.',
     'Tôi tìm được đường phản công rồi.',
     'Bạn có thấy nguy hiểm chưa?',
     'Đây có thể là bước ngoặt.',
     'Thế trận bắt đầu mở ra rồi.',
     'Tôi đang có cơ hội tốt.',
+	'Oke, nước này đỉnh phết.',
+	'Tôi vừa thử độ chắc tay của bạn đó.',
+	'Tôi đang thấy bàn cờ sáng hơn hẳn.',
+	'Nước hay thì phải đi gọn như thế này.',
+	'Tôi cook nhẹ một combo thôi ^^',
+	'Bạn thấy áp lực chưa?',
+	'Ơ hay, tự nhiên thấy bàn cờ dễ thở ghê.',
+	'Pha này mà stream là chat spam “cháy” luôn.',
+	'Okay, tới phase combat rồi nha.',
     'Không dễ phòng thủ đâu.'
+  ],
+
+	/* khi máy đang thua nhẹ (500–1200cp, xác suất 30%) */
+  aiLosing: [
+    'Bạn ép tui quá đáng rồi đó!',
+    'Tui bị bạn ép thế bí rồi.',
+    'Chờ đó, tui sẽ bật tôm lại!',
+    'Bạn đánh rát quá, tui sợ rồi.',
+    'Tui đang cố gỡ lại đây nè.',
+    'Đừng tưởng tui dễ bị bắt nạt.',
+    'Tui đang lâm vào thế khó rồi.',
+    'Bạn làm tui tơi tả quá à!',
+    'Cứ chờ xem tui lật kèo nha.',
+	'Tôi cần một phép màu rồi.',
+    'Có lẽ tôi đang lép vế.',
+    'Bạn đang chơi rất chắc chắn.',
+    'Bạn đừng vội mừng, tui chưa thua!',
+    'Bạn ép tui dữ quá, nhưng tui sẽ tìm cách bật tôm lại!',
+    'Tui đang bị ép vào thế bí, nhưng tui vẫn lì lắm nha.',
+    'Đừng tưởng tui dễ bắt nạt, đợi tui lật kèo cho bạn xem.',
+    'Bạn làm tui tơi tả rồi đó, nhưng tui chưa chịu thua đâu.',
+    'Thế cờ này tui đang bất lợi, nhưng chờ đó tui sẽ gỡ.',
+    'Đừng vội mừng nha, tui đang chờ cơ hội để bật tôm nè.',
+    'Bạn đánh rát thế này thì tui chỉ có nước chịu trận thôi.',
+    'Tui đang loay hoay tìm đường gỡ, bạn đừng chủ quan nhé.',
+    'Chơi kiểu gì mà ép tui dữ vậy, để xem tui lật thế nào.',
+	'Tui bắt đầu thấy ánh sáng cuối đường hầm… mà là tàu hỏa.',
+	'Pha này mà gỡ được chắc lên huyền thoại.',
+	'Xin nhẹ một đường sống đi bro.',
+    'Tui đang gặp nguy hiểm rồi, nhưng vẫn chưa hết hy vọng!'
+  ],
+	/* khi máy đang hơn nhẹ (500–1200cp, xác suất 30%) */
+  aiWinning: [
+    'Tui đang nắm thế trận nè!',
+    'Ván này tui cửa trên rồi đó.',
+    'Đang đà thắng, tui tới đây!',
+    'Bạn cẩn thận, tui tới gần rồi.',
+    'Thế cờ này tui nắm chắc rồi.',
+    'Đừng hòng chạy khỏi tay tui.',
+    'Tui đang áp đảo bạn đó nha.',
+    'Ván này tui chiếm ưu thế nè.',
+    'Đừng chủ quan, tui đang thắng.',
+    'Đang có đà, tui tấn công tiếp!',
+	'Ván này mà bạn lật được là quá cháy.',
+	'Chắc đang cân nhắc một pha comeback đây.',
+	'Bạn đã chơi rất tốt, nhưng có lẽ tôi may mắn hơn.',
+    'Tôi có chút lợi thế rồi, cố lên nhé!',
+    'Hình như tôi đang dẫn trước.',
+    'Ván này hấp dẫn quá, tôi đang tiến gần chiến thắng.',
+    'Tôi đang có lợi thế khá lớn.',
+    'Ván này có vẻ nghiêng về tôi rồi.',
+    'Bạn vẫn còn cơ hội đấy.',
+    'Đừng bỏ cuộc quá sớm nhé.',
+    'Tôi sẽ cố kết thúc chính xác.',
+    'Hàng phòng thủ của bạn bắt đầu lung lay rồi đấy.',
+    'Thế trận này tui đang nắm trọn, bạn coi chừng bị tui bắt.',
+    'Đừng tưởng tui dễ ăn, ván này tui đang chiếm ưu thế nè.',
+    'Bạn thấy chưa, tui đang dẫn trước một bước rồi đó nha.',
+    'Cục diện đang nghiêng về tui, bạn chuẩn bị tinh thần đi nhé.',
+    'Tui đang kiểm soát ván đấu này, bạn đừng hòng xoay chuyển.',
+    'Đà này là tui thắng chắc rồi, bạn cố gắng chống đỡ xem.',
+    'Thắng lợi đang ở rất gần tui, bạn khó thoát khỏi tay rồi.',
+    'Bạn sơ hở một chút là tui lấn lướt ngay, cẩn thận nha.',
+    'Tui đang làm chủ cuộc chơi, bạn cứ từ từ mà chịu đòn.',
+	'Pha này mà thua nữa chắc tại lag ^^',
+	'Bạn đang hơi “đuối meta” rồi đó.',
+	'Okay, giờ là phase snowball.',
+	'Không khí này có mùi checkmate nhẹ.',
+	'Bàn cờ giờ giống sân nhà của tui vậy.',
+	'Tui đang đánh như có buff elo.',
+	'Thế trận này nhìn mà muốn bật nhạc boss fight.',
+	'Tui đang build lợi thế như farm rank cuối mùa.',
+	'Tui thấy vua bạn bắt đầu bất ổn rồi nha.',
+	'Pha này mà stream chắc chat spam “toang”.',
+	'Bạn đang ở trong vùng nguy hiểm rồi đó.',
+	'Pha này đúng kiểu “thắng từ từ mới đau”.',
+	'Tui đang khiến bàn cờ lệch hẳn về phía mình rồi.',
+	'Đừng lo, tui sẽ kết thúc nhẹ nhàng thôi ^^',
+    'Cảm giác nắm thế trận trong tay thật là thích ghê luôn nè!'
+  ],
+
+  /* ═══════════════════════════════════════════════════
+     NHÓM SỰ KIỆN / THÔNG BÁO LƯỢT
+     ═══════════════════════════════════════════════════ */
+  acceptDraw: [
+    'Hòa! Cảm ơn bạn về ván đấu hay.',
+    'Tôi đồng ý hòa, chơi lại ván khác nhé.',
+    'Kết quả này cũng xứng đáng cho cả hai.',
+    'Hòa nhé.',
+    'Ván đấu hay đấy.',
+    'Khá cân bằng.',
+    'Không ai mắc sai lầm quyết định.',
+    'Một kết quả hợp lý.',
+    'Chúng ta ngang tài rồi.',
+    'Tôi nghĩ hòa là công bằng.',
+    'Ván này rất căng.',
+    'Chơi tốt lắm.',
+    'Lần sau phân thắng bại nhé.'
   ],
   exchange: [
     'Giờ đánh tàn cuộc thôi.',
@@ -3923,71 +4291,127 @@ var CHAT_TEXT = {
     'Được rồi, chơi chậm thôi.',
     'Giờ là cuộc chiến của tốt và vua.',
     'Tôi thích những ván tàn thế này.',
-	'Từng nước giờ đều quan trọng.',
-	'Đây là phần khó nhất của ván cờ.',
-	'Chỉ một sai lầm là đủ.',
-	'Giờ vua phải hoạt động thôi.',
+    'Từng nước giờ đều quan trọng.',
+    'Đây là phần khó nhất của ván cờ.',
+    'Chỉ một sai lầm là đủ.',
+    'Giờ vua phải hoạt động thôi.',
     'Đổi quân chút nhé, tôi nghĩ thế này sẽ thú vị hơn.',
-	'Đã đến tàn cuộc rồi, một sai lầm nhỏ là mất cả ván đấu.',
+    'Đã đến tàn cuộc rồi, một sai lầm nhỏ là mất cả ván đấu.',
     'Giai đoạn cân não nhất đây, xem ai kiên nhẫn hơn nào.',
     'Quân số tuy ít nhưng tính toán thì không hề giảm đâu nhé.',
     'Trận đấu sắp hạ màn rồi, bạn đã sẵn sàng chưa?',
     'Tàn cuộc này đòi hỏi sự chính xác tuyệt đối đấy.'
-  ],
-  winning: [
-    'Bạn đã chơi rất tốt, nhưng có lẽ ván này tôi may mắn hơn.',
-    'Tôi có chút lợi thế rồi, cố lên nhé!',
-    'Cẩn thận, tôi sắp chiếu hết đấy.',
-    'Hình như tôi đang dẫn trước.',
-    'Ván này hấp dẫn quá, tôi đang tiến gần chiến thắng.',
-    'Bạn đã chơi rất tốt.',
-    'Tôi đang có lợi thế khá lớn.',
-    'Ván này có vẻ nghiêng về tôi rồi.',
-    'Tôi cần kết thúc cẩn thận.',
-    'Chỉ cần không mắc sai lầm nữa.',
-    'Bạn vẫn còn cơ hội đấy.',
-    'Tôi nghĩ mình đang kiểm soát được thế trận.',
-    'Đừng bỏ cuộc quá sớm nhé.',
-    'Thế cờ này khá thuận lợi cho tôi.',
-    'Tôi sẽ cố kết thúc chính xác.',
-    'Hàng phòng thủ của bạn bắt đầu lung lay rồi đấy.'
-  ],
-  losing: [
-    'Tôi đang gặp rắc rối rồi.',
-    'Bạn xử lý vị trí này rất tốt.',
-    'Không dễ để phòng thủ nữa.',
-    'Tôi cần một phép màu rồi.',
-    'Có lẽ tôi đang lép vế.',
-    'Bạn đang chơi rất chắc chắn.',
-    'Tôi phải cố cầm hòa thôi.',
-    'Thế trận này không ổn cho tôi.',
-    'Bạn đã nắm lợi thế rồi.',
-    'Tôi cần tìm cách phản công.',
-    'Tôi sẽ phục thù ở ván sau.',
-    'Mọi ngả đường đều bị chặn đứng...'
   ],
   idle: [
     'Tôi đang tận hưởng ván cờ này.',
     'Cờ vua thật thú vị, phải không?',
     'Mỗi nước đi là một câu chuyện.',
     'Tôi tự hỏi bạn sẽ đi gì tiếp theo.',
-    'Bạn có thích khai cuộc này không?',
+    'Tôi thích những nước đi sáng tạo!',
     'Thế cờ này kín kẽ quá.',
-	'Đừng để tôi thắng dễ quá nhé.',
-    'Căng như dây đàn đây.'
+    'Đừng để tôi thắng dễ quá nhé.',
+	'Bàn cờ đang dần thú vị hơn rồi.',
+	'Nhiều lúc chỉ một nước thôi là đổi cả thế trận.',
+	'Tôi đang cố đoán kế hoạch của bạn đây.',
+	'Không khí căng mà vui ghê.',
+	'Tôi thích những ván đấu có nhiều bất ngờ.',
+	'Đôi khi thủ tốt còn khó hơn công.',
+	'Bạn chơi khá điềm tĩnh nhỉ ^^',
+	'Tôi thích cảm giác khi tìm ra một nước hay.',
+	'Có những thế cờ nhìn đơn giản mà khó ghê.',
+	'Tôi bắt đầu thấy ván này có chiều sâu rồi đó.',
+	'Mọi quân cờ đều có vai trò riêng.',
+	'Tôi đang hơi tò mò kế hoạch dài hạn của bạn.',
+	'Mỗi ván cờ đều có vibe riêng.',
+	'Nước đi đẹp luôn khiến bàn cờ thú vị hơn.',
+	'Tôi thích cảm giác đấu trí thế này.',
+	'Ván này đúng kiểu chill mà căng.',
+	'Không khí yên bình… trước cơn bão thôi.',
+	'Tôi vẫn đang tìm cơ hội đẹp đây.',
+	'Có cảm giác sắp tới đoạn gay cấn rồi.',
+	'Đôi lúc nước đơn giản lại mạnh nhất.',
+	'Tôi đang đợi một khoảnh khắc bùng nổ.',
+	'Ván này mà kéo dài chắc sẽ rất hay.',
+    'Ngoài cờ vua ra, tôi còn thích chơi rubik nữa!'
   ],
-  aiBlunder: [
-    'Ôi tôi mắc sai lầm...',
-    'Tôi bỏ sót mất rồi.',
-    'Tôi sơ suất quá!',
-    'Tôi mắc sai lầm ngớ ngẩn rồi.',
-    'Ầy dà, game khó quá...',
-	'Ôi, quân mạnh của tôi!',
-	'Tôi bị tổn thất nặng nề.',
-	'Thôi xong, mất quân chủ lực.',
-	'Tôi phải gỡ gạc lại thôi.',
-    'Không thấy cách nào tốt hơn...',
-    'Bạn tận dụng sai lầm của tôi tốt đấy.'
+  offerDraw: [
+    'Ván này cân bằng quá, hay là mình hòa nhé?',
+    'Tôi thấy khó bên nào thắng, bạn nghĩ sao về một kết quả hòa?',
+    'Đánh nữa cũng mệt, hòa được không?',
+    'Tôi đề nghị hòa, bạn có đồng ý không?',
+    'Cờ này dễ hòa lắm, bạn có muốn bắt tay không?'
+  ],
+  openingEarly: [
+    'Lại gặp nhau rồi, hy vọng ván này sẽ kịch tính!',
+    'Các nước đầu thường sẽ đi rất nhanh ^^.',
+    'Chúng ta bắt đầu thôi.',
+    'Bắt đầu thôi, chúc may mắn nhé!',
+	'Khai cuộc nào, xem ai vào form trước nhé.',
+	'Good Luck Have Fun nha ^^',
+	'Tôi đã sẵn sàng rồi, còn bạn?',
+	'Xem hôm nay ai kiểm soát trung tâm tốt hơn nhé.',
+	'Đừng premove linh tinh nha ^^',
+	'Tôi sẽ cố không blunder quá sớm.',
+	'Ván này chơi chill thôi nhé.',
+	'Không biết hôm nay bạn thích công hay thủ đây.',
+	'Tôi đang tò mò opening của bạn đây.',
+	'Nào, xem ai nhập thành trước nhé.',
+	'Chơi vui là chính, thắng thua tính sau.',
+	'Tôi sẽ cố đọc vị kế hoạch của bạn.',
+	'Cứ bình tĩnh triển khai quân nhé.',
+	'Khai cuộc là lúc mọi thứ còn rất yên bình.',
+	'Tôi thích cảm giác bắt đầu một ván cờ mới.',
+	'Chúc bạn có một opening thật mượt.',
+    'Chúc bạn một ván cờ vui vẻ!'
+  ],
+  openingMid: [
+    'Khai cuộc này có vẻ thú vị đấy!',
+    'Hãy xem bạn chuẩn bị gì nào.',
+    'Tôi thích những nước đi cổ điển.',
+    'Hmm, một lựa chọn quen thuộc.',
+    'Để xem bạn định chơi kiểu gì nhé.',
+    'Hy vọng tôi nhớ đúng khai cuộc này.',
+    'Bạn thích thế trận chậm à?',
+    'Trận này có vẻ sẽ dài đây.',
+    'Được rồi, vào việc thôi.',
+    'Khởi đầu ổn đấy.',
+    'Biến thể này lạ quá, để xem tôi đối phó thế nào.',
+    'Tôi sẽ đáp trả bằng một nước cờ chuẩn giáo khoa!',
+    'Biến thể này quen thuộc đây, bạn nghiên cứu kỹ rồi à?',
+    'Khai cuộc bài bản đấy, để xem tiếp thế nào.',
+	'Có mùi middle game căng đây.',
+	'Tôi bắt đầu thấy kế hoạch của bạn rồi nhé.',
+	'Không khí chiến thuật bắt đầu rồi đây.',
+	'Bạn thích kiểm soát trung tâm nhỉ.',
+	'Đến đoạn thú vị rồi đó.',
+	'Chưa ai muốn lao vào all-in nhỉ.',
+	'Tôi thích kiểu khai cuộc linh hoạt thế này.',
+	'Khai cuộc tới đây là bắt đầu phải tự nghĩ rồi.',
+	'Giờ là lúc kỹ năng thật lên tiếng.',
+	'Tôi thấy vài điểm yếu bắt đầu xuất hiện rồi.',
+	'Tôi đang cân nhắc kế hoạch dài hạn đây.',
+	'Khai cuộc xong rồi, giờ mới là trận đấu thật sự.',
+	'Chúng ta đã qua đoạn "warm up" rồi nhé.',
+    'Có vẻ bạn đã chuẩn bị rất kỹ khai cuộc này?'
+  ],
+  resign: [
+    'Tôi xin thua, bạn giỏi hơn tôi rồi.',
+    'Thua rồi, chúc mừng bạn!',
+    'Tôi không thể xoay chuyển được nữa, xin thua.'
+  ],
+  aiThinking: [
+    'Máy đang suy nghĩ...',
+    'Máy đang suy nghĩ...',
+    'Máy đang suy nghĩ...',
+    'Để tôi tính...',
+    'Chờ chút, suy nghĩ đã...',
+    'Để xem nào...',
+    'Một phút suy ngẫm...',
+    'Tôi đang tính tiếp...',
+    'Cho tôi thêm chút thời gian...',
+    'Chờ chút nhé.',
+    'Tôi đang tính vài phương án.',
+    'Bạn làm tôi phải suy nghĩ rồi.'
   ],
   thinkLong: [
     'Đừng lo, tôi cũng đang bận tính nước tiếp theo.',
@@ -3996,12 +4420,12 @@ var CHAT_TEXT = {
     'Tôi tranh thủ uống trà trong lúc chờ.',
     'Không vội, thời gian là bạn của ta.',
     'Không cần vội đâu.',
-	'Đi nhanh lên, tôi sắp buồn ngủ rồi.',
-	'Tới bạn đấy, nhớ động não nhé.',
-	'Nước của tôi dễ thương quá phải không? Dễ mà, đi lẹ đi bạn',
-	'Cờ bí thì dí tốt đi bạn ^^',
-	'Đừng để tôi chờ lâu, tôi dễ mất kiên nhẫn lắm.',
-	'Tới bạn, nhưng đừng mắc sai lầm như lần trước nhé.',
+    'Đi nhanh lên nào, tôi hay buồn ngủ lắm ^^',
+    'Tới bạn đấy, nhớ động não nhé.',
+    'Nước của tôi chill quá phải không? Dễ mà, đi lẹ đi bạn',
+    'Cờ bí thì dí tốt đi bạn ^^',
+    'Đừng để tôi chờ lâu, tôi dễ mất kiên nhẫn lắm.',
+    'Tới bạn, nhưng đừng mắc sai lầm như lần trước nhé.',
     'Tôi cũng từng mất rất lâu ở vị trí này.',
     'Đây đúng là thế khó.',
     'Cứ bình tĩnh suy nghĩ nhé.',
@@ -4012,91 +4436,50 @@ var CHAT_TEXT = {
     'Nước đi này khó tính quá hả? Cứ thong thả nhé.',
     'Căng thẳng quá, tôi bắt đầu thấy hồi hộp rồi đây.',
     'Đừng lo, tôi vẫn ở đây chờ siêu phẩm từ bạn.',
+	'Ủa, đang tính toán combo bí mật hả bạn?',
+	'Tôi thấy bạn đang cân não dữ lắm.',
+	'Bạn cứ xoay góc nhìn thêm chút nữa đi.',
+	'Đầu óc đang quay như chong chóng à?',
+	'Nước đẹp thường đến sau khi nghĩ hơi lâu đó.',
+	'Lựa kỹ đi, tôi thích những pha có tính toán.',
+	'Tôi đang hóng một nước đi xịn từ bạn đây.',
+	'Bình tĩnh, không cần đánh nhanh mà ẩu đâu.',
+	'Bạn mà đi chuẩn nước này là tôi cũng phải gật gù.',
+	'Đừng để thời gian làm bạn phân tâm nhé.',
+	'Có vẻ bạn đang đứng giữa vài lựa chọn khó đây.',
+	'Bình tĩnh, đôi khi nước tốt nhất không đến ngay.',
+	'Bạn cứ suy nghĩ thêm đi, tôi không vội.',
+	'Tôi biết cảm giác này, chọn nước thôi mà như chọn số phận ^^',
+	'Giữ cái đầu lạnh nhé, sắp ra quyết định rồi.',
+	'Tôi đang thấy bạn tính khá sâu đấy.',
+	'Đừng nóng, bàn cờ không chạy mất đâu.',
+	'Nước này mà chuẩn thì rất đẹp luôn.',
+	'Tôi đang hóng khoảnh khắc bạn bẻ lái đây.',
+	'Tôi đoán bạn đang lật qua rất nhiều phương án.',
+	'Nhìn lâu thế này chắc có biến rồi.',
+	'Tôi vẫn ổn, bạn cứ từ từ nhé.',
+	'Không cần vội, nhưng cũng đừng AFK nha ^^',
+	'Đang suy nghĩ kiểu “đi gì cũng thấy nguy hiểm” à?',
+	'Tôi thích những lúc cả hai đều phải căng não thế này.',
+	'Chờ chút nữa thôi, siêu phẩm sắp ra rồi chăng?',
     'Căng như dây đàn, một nước đi sai là hỏng cả ván cờ.'
   ],
-  brilliant: [
-    'Không ngờ bạn lại đi vậy...',
-    'Ồ! Nước đó hay đấy.',
-    'Thú vị thật.',
-    'Tôi chưa nghĩ đến nước đó.',
-    'Tuyệt vời! Tôi không ngờ tới nước đó.',
-    'Nước cờ xuất sắc đấy!',
-	'Tuyệt vời! Tôi phải học hỏi đây.',
-	'Cờ cao thủ đây rồi!',
-    'Bạn thực sự biết cách gây bất ngờ.',
-    'Rất thông minh, tôi phải học hỏi.',
-    'Tôi bị lạc nhịp vì nước đi này.',
-    'Ui, nước đi này tôi chưa tính tới! Đỉnh thật.'
-  ],
-  blunder: [
-    'Đây là cơ hội của tôi rồi.',
-    'A hi hi...',
-    'Mình xin!',
-    'Cảm ơn nhé!',
-    'Bạn mắc sai lầm rồi.',
-    'He he he!',
-	'Blunder! Bạn vừa tự bắn vào chân mình.',
-	'Bạn tặng quà cho tôi à?',
-	'Quà quê thì tôi nhận ^^',
-	'Bạn cho tôi cơ hội rồi nhé.',
-	'Bạn đi nước này chắc ngủ quên à?',
-	'Cờ của bạn dễ đoán thật.',
-	'Tôi cứ tưởng bạn chơi hay hơn chứ.',
-	'Chán thế, không có thử thách gì cả.',
-	'Bạn có chắc là đang tập trung không?',
-    'Ôi, bạn có chắc không?',
-    'Mình may mắn quá.',
-    'Hình như bạn vừa sơ suất?',
-    'Tiếc quá, nước đó cho tôi cơ hội đấy.',
-    'Có vẻ bạn đã bỏ lỡ mối đe dọa.',
-    'Tôi sẽ tận dụng sai lầm này.',
-    'Đừng nản, ai cũng có lúc nhầm.',
-    'Bạn chắc chứ? Tôi thấy có lựa chọn tốt hơn.'
-  ],
-  missedMate: [
-    'May cho tôi đấy, hú hồn!',
-    'Thoát rồi! Cơ hội của tôi đây.',
-    'Tôi tưởng xong rồi... may quá!',
-    'Bạn vừa tha cho tôi đấy.',
-    'Chiếu hết mà bỏ qua — tôi sẽ không bỏ lỡ lần này.',
-    'Hú vía! Bạn không thấy nước đó à?',
-    'Tôi may mắn thật, cảm ơn bạn!'
-  ],
-  missedWin: [
-    'Bạn vừa tặng tôi hy vọng rồi đó.',
-    'Tôi nghĩ bạn chiếm thế thắng... nhưng thôi.',
-    'Cơ hội của tôi quay lại rồi!',
-    'Bạn bỏ lỡ mất rồi, để tôi tận dụng nhé.',
-    'Lợi thế của bạn vừa biến mất.',
-    'Tôi thở phào rồi, cảm ơn bạn!',
-    'Bạn có chắc nước đó là tốt nhất không?'
-  ],
-  offerDraw: [
-    'Ván này cân bằng quá, hay là mình hòa nhé?',
-    'Tôi thấy khó bên nào thắng, bạn nghĩ sao về một kết quả hòa?',
-    'Đánh nữa cũng mệt, hòa được không?',
-    'Tôi đề nghị hòa, bạn có đồng ý không?',
-    'Cờ này dễ hòa lắm, bạn có muốn bắt tay không?'
-  ],
-  acceptDraw: [
-    'Hòa! Cảm ơn bạn về ván đấu hay.',
-    'Tôi đồng ý hòa, chơi lại ván khác nhé.',
-    'Kết quả này cũng xứng đáng cho cả hai.',
-    'Hòa nhé.',
-    'Ván đấu hay đấy.',
-    'Khá cân bằng.',
-    'Không ai mắc sai lầm quyết định.',
-    'Một kết quả hợp lý.',
-    'Chúng ta ngang tài rồi.',
-    'Tôi nghĩ hòa là công bằng.',
-    'Ván này rất căng.',
-    'Chơi tốt lắm.',
-    'Lần sau phân thắng bại nhé.'
-  ],
-  resign: [
-    'Tôi xin thua, bạn giỏi hơn tôi rồi.',
-    'Thua rồi, chúc mừng bạn!',
-    'Tôi không thể xoay chuyển được nữa, xin thua.'
+  yourTurn: [
+    'Tới lượt bạn rồi.',
+    'Đến lượt bạn.',
+    'Giờ tới bạn.',
+    'Mời bạn.',
+    'Bóng đã sang sân của bạn, xin mời.',
+    'Một nước đi đơn giản, xin mời bạn đáp trả.',
+    'Nước cờ của tôi đấy, bạn tính sao?',
+    'Đến bạn rồi, đừng để tôi đợi lâu nha!',
+    'Tôi đã đi một nước cực kỳ khiêm tốn, mời bạn thể hiện.',
+    'Đừng để tôi chờ lâu, tôi dễ mất kiên nhẫn lắm.',
+	'Tôi đi xong rồi nha.',
+	'Bàn cờ giờ là của bạn.',
+	'Tới bạn rồi đó, đừng run tay nhé.',
+	'Your move ^^',
+    'Bạn có nước nào hay thì đáp trả nhé'
   ],
   youWin: [
     'Chúc mừng nhé!',
@@ -4105,13 +4488,171 @@ var CHAT_TEXT = {
     'Bạn tận dụng cơ hội rất tốt.',
     'Lần sau tôi sẽ cẩn thận hơn.'
   ],
-  aiWin: [
-    'Ván hay đấy! Chơi nữa không?',
-    'Good game!',
-    'Cố lên, thử lại đi!',
-    'Hẹn gặp lại nhé!'
+  suggestResign: [
+    'Khó quá, làm ván mới nhé?',
+    'Thấy khó quá thì có thể xin thua bạn nha!',
+    'Bế tắc rồi, nhấn thua đi bạn!',
+    'Làm ván mới cho nhẹ đầu nha!',
+    'Thấy đuối rồi thì nghỉ tay nhé.',
+	'Thấy cá đuối thì xin thua nha bạn ^^',
+    'Thằng em mình đang đợi kìa, khó quá thì bạn xin thua rồi đấu với nó nhé',
+    'Căng quá, hay mình reset nhỉ?',
+    'Thua ván này, bày ván sau đi bạn!',
+    'Chơi lại ván mới cho vui nha!',
+    'Thế trận này căng lắm, làm ván mới cho nhẹ đầu nhé?',
+    'Khó quá thì mình xin thua, đấu lại cho vui nha!',
+    'Đừng để thế cờ này làm khó, nhấn thua rồi nghỉ tay nha.',
+    'Thua ván này đâu có sao, làm ván mới mình phục thù nè!',
+    'Bên kia có ván mới đang chờ, mình khởi động lại nhé?',
+    'Thấy đuối quá thì cứ nhấn thua, ván sau tôi nhường bạn!',
+    'Cờ này bế tắc quá rồi, mình reset lại đấu ván khác nha.',
+    'Nước đi này làm khó bạn hả, thôi xin thua rồi làm lại đi!',
+    'Đừng buồn nha, thua một ván rồi mình đấu lại ván mới!',
+    'Bạn đã cố hết sức rồi, nghỉ ngơi một chút rồi chơi tiếp!'
   ],
-  praise: [
+
+  /* ═══════════════════════════════════════════════════
+     NHÓM PLAYER — máy phản ứng nước đi của người
+     ═══════════════════════════════════════════════════ */
+  playerBrilliant: [
+    'Không ngờ bạn lại đi vậy...',
+    'Ồ! Nước đó hay đấy.',
+    'Thú vị thật.',
+    'Tôi chưa nghĩ đến nước đó.',
+    'Tuyệt vời! Tôi không ngờ tới nước đó.',
+    'Nước cờ xuất sắc đấy!',
+    'Tuyệt vời! Tôi phải học hỏi đây.',
+    'Cờ cao thủ đây rồi!',
+    'Bạn thực sự biết cách gây bất ngờ.',
+    'Rất thông minh, tôi phải học hỏi.',
+    'Tôi bị lạc nhịp vì nước đi này.',
+	'Okay, pha này tôi công nhận.',
+	'Bạn vừa tìm ra một ý tưởng cực hay.',
+	'Ồ wow, cú này sắc quá.',
+	'Bạn đọc vị trí quá tốt.',
+	'Pha xử lý này rất đẳng cấp.',
+	'Bạn tìm ra tactic đẹp ghê.',
+	'Ơ kìa, sao bạn thấy được nước này hay vậy?',
+	'Tôi vừa bị outplay nhẹ rồi.',
+	'Cú này khiến tôi phải đứng hình vài giây.',
+	'Bạn đang chơi rất vào tay đấy.',
+	'Nước này làm tôi phải suy nghĩ lại kế hoạch.',
+	'Đúng kiểu “nhìn đơn giản nhưng cực mạnh”.',
+	'Pha này đáng được lưu highlight luôn.',
+	'Nước này nhìn phát tỉnh ngủ luôn.',
+	'Bạn đang flex IQ đúng không?',
+	'Ui da, tactical monster đây rồi.',
+	'Bạn vừa làm tôi nghi ngờ chính mình.',
+	'Được rồi, tôi bắt đầu rén thật rồi.',
+	'Ủa, sao càng đánh bạn càng ghê vậy?',
+    'Ui, nước đi này tôi chưa tính tới! Đỉnh thật.'
+  ],
+  playerBlunder: [
+    'Đây là cơ hội của tôi rồi.',
+    'A hi hi...',
+    'Mình xin!',
+    'Cảm ơn nhé!',
+    'Bạn mắc sai lầm rồi.',
+    'He he he!',
+    'Blunder! Bạn vừa tự bắn vào chân mình.',
+    'Bạn tặng quà cho tôi à?',
+    'Quà quê thì tôi nhận ^^',
+    'Bạn cho tôi cơ hội rồi nhé.',
+    'Bạn đi nước này chắc ngủ quên à?',
+    'Cờ của bạn dễ đoán thật.',
+    'Tôi cứ tưởng bạn chơi hay hơn chứ.',
+    'Chán thế, không có thử thách gì cả.',
+    'Bạn có chắc là đang tập trung không?',
+    'Ôi, bạn có chắc không?',
+    'Tôi may mắn quá.',
+    'Hình như bạn vừa sơ suất?',
+    'Tiếc quá, nước đó cho tôi cơ hội đấy.',
+    'Có vẻ bạn đã bỏ lỡ mối đe dọa.',
+    'Tôi sẽ tận dụng sai lầm này.',
+    'Đừng nản, ai cũng có lúc nhầm.',
+	'Pha này tôi không thể bỏ qua.',
+	'Cú này hơi tiếc nha.',
+	'Đây là kiểu sai lầm tôi rất thích.',
+	'Ồ, một món quà không mong đợi.',
+	'Chốt luôn, cảm ơn bạn ^^',
+	'Một nước đi ngôn... tình ^^',
+	'Ơ kìa, donate thật à?',
+	'Bạn vừa phát quà từ thiện cho tôi đúng không?',
+	'Pha này hơi “đi vào lòng đất” rồi nha.',
+	'Ủa alo? Sao lại đi vậy?',
+	'Combo tự hủy kích hoạt.',
+	'Nước này có mùi “toang” nhẹ.',
+	'Bạn vừa click nhầm hả?',
+	'Ơ, free à? Vậy tôi xin nhé ^^',
+	'Bạn vừa tự tạo plot twist.',
+	'Ui da, quân cờ biết bay kìa!.',
+	'Bạn vừa “hiến tế” hơi nhiệt tình.',
+	'Pha này mà lên recap là top 10 sai lầm luôn.',
+	'Ơ hay, sao tự nhiên dễ thở thế nhỉ?',
+	'Xin lỗi nhưng nước này hơi comedy.',
+	'Bạn vừa để tôi có content rồi ^^',
+	'Pha này đúng kiểu “đang hay thì gãy”.',
+	'Bạn làm tôi tưởng đang xem highlight blunder.',
+	'Nước này khiến engine trong tôi bật cười.',
+    'Bạn chắc chứ? Tôi thấy có lựa chọn tốt hơn.'
+  ],
+  playerMissedMate: [
+    'May cho tôi đấy, hú hồn!',
+    'Thoát rồi! Cơ hội của tôi đây.',
+    'Tôi tưởng xong rồi... may quá!',
+    'Bạn vừa tha cho tôi đấy.',
+    'Chiếu hết mà bỏ qua — tôi sẽ không bỏ lỡ lần này.',
+    'Hú vía! Bạn không thấy nước đó à?',
+    'Tôi may mắn thật, cảm ơn bạn!'
+  ],
+  playerMissedWin: [
+    'Bạn vừa tặng tôi hy vọng rồi đó.',
+    'Tôi nghĩ bạn chiếm thế thắng... nhưng thôi.',
+    'Cơ hội của tôi quay lại rồi!',
+    'Bạn bỏ lỡ mất rồi, để tôi tận dụng nhé.',
+    'Lợi thế của bạn vừa biến mất.',
+    'Tôi thở phào rồi, cảm ơn bạn!',
+    'Bạn có chắc nước đó là tốt nhất không?'
+  ],
+  playerGreat: [
+    'Nước đi hay!',
+    'Hmm, tôi chưa nhìn ra.',
+    'Ồ, khá sắc bén đấy.',
+    'Tôi vừa bị gây áp lực rồi.',
+    'Cũng khó chịu đấy.',
+	'Có vài nước khá khó chịu đấy.',
+    'Nước này mạnh hơn tôi nghĩ.',
+    'Bạn chơi được đấy!',
+    'Cũng ra gì đấy :)',
+    'Biết chơi đấy :)',
+    'Cũng được, nhưng chưa phải hay nhất.',
+    'Hợp lý!',
+    'Bạn vừa cải thiện vị trí rất tốt.',
+    'Bạn đang chơi rất chắc.',
+    'Bạn đang khiến ván này khó hơn.',
+	'Một chút sơ hở rồi... bạn tận dụng tốt quá.',
+	'Bạn nhìn ra rất nhanh đấy.',
+	'Được ăn cả, ngã về không rồi.',
+	'Á à, chơi hệ tactical à?',
+	'Ơ kìa, nay đánh ghê thế.',
+	'Bạn cook nước này ngon đấy.',
+	'Ui da, cú này hơi cháy.',
+	'Không phải dạng vừa đâu nha.',
+	'Pha này out trình nha.',
+	'Bạn đang flex kỹ năng à ^^',
+	'Được đấy bro, đi nét căng luôn.',
+	'Nước này slay thật sự.',
+	'Bạn vừa làm bàn cờ “ảo ma Canada” rồi.',
+	'Chơi vậy ai chơi lại?',
+	'Ghê nha, không còn là newbie nữa rồi.',
+	'Bạn vừa cho tôi ăn mind game à?',
+	'Okay, respect!',
+	'Ơ hay, hôm nay phong độ cao dữ vậy?',
+	'Đỉnh nóc, kịch trần, bay phấp phới ^^',
+	'Ủa gì căng dữ vậy ba.',
+    'Nước đi này chất lượng.'
+  ],
+  playerGreatDef: [
     'Tuyệt vời! Tôi không ngờ tới nước đó.',
     'Nước cờ xuất sắc đấy!',
     'Bạn thực sự biết cách gây bất ngờ.',
@@ -4119,13 +4660,38 @@ var CHAT_TEXT = {
     'Tôi bị lạc nhịp vì nước đi này.',
     'Ui, nước đi này tôi chưa tính tới! Đỉnh thật.'
   ],
-  machineThinking: []  /* đã gộp vào thinking */
+  playerUnderPressure: [
+    'Ái chà, nguy hiểm thật!',
+    'Bạn đang dồn tôi vào thế khó đấy.',
+    'Chiếu à?',
+    'Check! Căng thẳng quá.',
+    'Tôi phải thoát chiếu đã...',
+    'Vua tôi đang gặp nguy hiểm.',
+    'Tôi cần cẩn thận hơn.',
+    'Bạn đang tăng áp lực rồi.',
+    'Khá nguy hiểm đấy.',
+	'Ơ kìa, dí vua tôi dữ vậy.',
+	'Chiếu gắt vậy trời.',
+	'Bạn định all-in luôn hả?',
+	'Bạn đang mở chiến dịch săn vua à?',
+	'Đánh vậy là hơi “combat” rồi nha.',
+	'Ơ từ từ, tôi chưa kịp nhập thành tinh thần.',
+	'Check nữa à? Bạn ác vừa thôi chứ ^^',
+	'Cho vua tôi một ngày bình yên đi.',
+	'Tôi đang cố giữ cái ngai vàng đây.',
+	'Được rồi, giờ không thể chơi chill nữa rồi.'
+  ]
 };
 
-function randChat(key){
+function randChat(key, prob){
   var arr = CHAT_TEXT[key];
   if(!arr || !arr.length) return '';
-  return arr[Math.floor(Math.random()*arr.length)];
+  var txt = arr[Math.floor(Math.random()*arr.length)];
+  if(CHAT_DEBUG){
+    var pct = (prob !== undefined) ? Math.round(prob*100)+'%' : '';
+    txt += ' (' + key + (pct ? ' '+pct : '') + ')';
+  }
+  return txt;
 }
 if(window.addEventListener){
   window.addEventListener('resize', function(){ fixBoardSize(); }, false);
