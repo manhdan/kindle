@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 =========================================================
-   CHESSLIKE ENGINE ChessChatPC 2026/05/28
+   CHESSLIKE ENGINE ChessChat9 (2026/05/27): pendingBest always-run + gUseFastEval + BESTMOVE_MAX_MS + gGameToken + mvEq + gPendingEvalComplete
 ---------------------------------------------------------
    Lightweight JavaScript chess engine optimized for:
    - Old browsers / ES5-style JavaScript
@@ -615,12 +615,12 @@ var ELO_CFG=[
   {d:6, rnd:0.04},  /* Cấp 6  — ~1250 Elo */
   {d:7, rnd:0.02},  /* Cấp 7  — ~1450 Elo */
   {d:8, rnd:0.00},  /* Cấp 8  — ~1650 Elo */
-  {d:9, rnd:0.00},  /* Cấp 9  — ~1850 Elo, +AI_TIME_BONUS */
-  {d:10, rnd:0.00}  /* Cấp 10 — ~2000 Elo, +AI_TIME_BONUS+AI_TIME_PLUS */
+  {d:11, rnd:0.00}, /* Cấp 9  — ~1850 Elo, +AI_TIME_BONUS */
+  {d:12, rnd:0.00}  /* Cấp 10 — ~2000 Elo, +AI_TIME_BONUS+AI_TIME_PLUS */
 ];
 
 /* Time limit per move (ms) */
-var AI_TIME_LIMIT = 2500;
+var AI_TIME_LIMIT = 3500;
 var AI_TIME_BONUS = 1000;
 var AI_TIME_PLUS  = 1000;
 var aiTimedOut = false;
@@ -971,7 +971,7 @@ function ttClear(){
 /* ═══════════════════════════════════════════════════
    KILLER MOVES — 2 killer mỗi độ sâu, tối đa 20 ply
    ═══════════════════════════════════════════════════ */
-var MAX_PLY = 30;
+var MAX_PLY = 40;
 var killers = [];  /* killers[ply] = [mv1, mv2] */
 (function(){ for(var i=0;i<MAX_PLY;i++) killers[i]=[null,null]; })();
 
@@ -3814,7 +3814,7 @@ function aiMoveCore(){
      Chỉ chạy sau khai cuộc + đã đủ nước (OPENING_MOVES + 2) để tránh
      lãng phí tài nguyên trong phase đầu ván.                               */
   var postLeft = tl - (Date.now() - aiMoveStart);
-  var PENDING_TOTAL_BUDGET = 2000;
+  var PENDING_TOTAL_BUDGET = 3000;  /* budget độc lập cho pending+evalPending */
   var worthPending = true;  /* bỏ gate Math.abs(evalNow) < 1200 — pendingBest hữu ích kể cả khi thế cờ ngã ngũ, và thế ngã ngũ thường đơn giản hơn nên pendingBest chạy nhanh hơn */
   if(mainTimedOut) aiDbgAdd('bestTO:postLeft'+postLeft);
   gPendingEvalComplete = false;  /* reset trước — chỉ set true khi cả pendingBest lẫn evalPending hoàn thành */
@@ -3857,7 +3857,7 @@ function aiMoveCore(){
        nb2Hash tính lại từ đầu (computeHash) vì đây là vị trí mới hoàn toàn,
        không dùng futureHash (hash của futureBoard, khác nb2).              */
     postLeft = PENDING_TOTAL_BUDGET - (Date.now() - dbgPendingT0);
-    if(gPendingBest && !pendingTimedOut && postLeft > 0){
+    if(gPendingBest && !pendingTimedOut && postLeft > 50){
       var dbgEvalPendingT0 = Date.now();
       aiDbgAdd('evalPend');
       tStart('evalPending');
