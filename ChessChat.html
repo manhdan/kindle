@@ -1,7 +1,8 @@
 <!DOCTYPE html>
 <!--
 =========================================================
-   CHESSLIKE ENGINE ChessChat9 (2026/05/27): pendingBest always-run + gUseFastEval + BESTMOVE_MAX_MS + gGameToken + mvEq + gPendingEvalComplete
+   CHESSLIKE ENGINE ChessChatPC (2026/05/28): fix brilliant sacPiece+SEE, fix evalPending ttClear, pending depth 8, FP margins 200/350, LMR depth-scale, check extension
+   Base: ChessChat9 (2026/05/27): pendingBest always-run + gUseFastEval + BESTMOVE_MAX_MS + gGameToken + mvEq + gPendingEvalComplete
 ---------------------------------------------------------
    Lightweight JavaScript chess engine optimized for:
    - Old browsers / ES5-style JavaScript
@@ -1726,7 +1727,9 @@ function negamax(board, turn, ep, casB, depth, alpha, beta, ply, hash, nullOk) {
      Nếu staticEval + margin <= alpha: các nước yên tĩnh (không capture,
      không phong cấp, không chiếu đối phương) gần như chắc chắn không
      cải thiện được alpha → prune trong loop bên dưới. */
-  var FP_MARGIN = [0, 400, 600];
+  /* FP_MARGIN: depth1=200cp (~1 tốt+), depth2=350cp (~mã nhỏ hơn).
+     Giảm từ 400/600 → bớt cắt nhầm nước phòng thủ quan trọng. */
+  var FP_MARGIN = [0, 200, 350];
   var staticEval = (depth <= 2 && !isInCheck) ? evaluate(board, turn) : 0;
   var useFutility = (depth === 1 || depth === 2) && !isInCheck && (staticEval + FP_MARGIN[depth] <= alpha);
 
@@ -1764,8 +1767,10 @@ function negamax(board, turn, ep, casB, depth, alpha, beta, ply, hash, nullOk) {
     /* [v8] Futility Pruning: bỏ nước yên tĩnh nếu không thể cải thiện alpha.
        Guard: chỉ prune khi useFutility=true (depth1/2, không chiếu, eval thấp)
        AND nước không phải capture, phong cấp, hoặc chiếu đối phương.
-       Không prune nước đầu tiên (legalCount===1) để tránh trả về no-move. */
-    if(useFutility && legalCount > 1 && !m[2] && !m[3] && !attacked(nb,enemyKingSq,turn)){
+       Không prune nước đầu tiên (legalCount===1) để tránh trả về no-move.
+       Không prune nước cho chiếu — chúng thường quan trọng và sẽ được extension. */
+    var givesCheck = attacked(nb, enemyKingSq, turn);
+    if(useFutility && legalCount > 1 && !m[2] && !m[3] && !givesCheck){
       continue;
     }
 
@@ -1785,22 +1790,28 @@ function negamax(board, turn, ep, casB, depth, alpha, beta, ply, hash, nullOk) {
     nhash^=ZK_CAS[ocf]; nhash^=ZK_CAS[nc];
 
     var s;
-    /* Late Move Reduction (LMR)
-       [v6] dùng legalCount-1 thay i — i đếm cả pseudo bị skip,
-       không phản ánh đúng thứ tự nước hợp lệ
-       [v7] LMR condition: dùng attacked(nb, enemyKingSq, turn) thay inCheck(nb,-turn)
-       — enemyKingSq không đổi khi turn đi nước, không cần scan 64 ô */
+    /* Check Extension: nếu nước này chiếu đối phương → tăng depth +1.
+       Tái dùng givesCheck đã tính ở futility step — không gọi attacked() lại.
+       Chỉ áp dụng ở depth >= 2 để tránh explosion ở leaf node. */
+    var ext = (depth >= 2 && givesCheck) ? 1 : 0;
+    /* Late Move Reduction (LMR) — không áp dụng khi có extension */
     searchStack.push(nhash);
-    if(legalCount-1>=3 && depth>=3 && !m[2] && !m[3] && !isInCheck && !attacked(nb,enemyKingSq,turn)){
+    if(!ext && legalCount-1>=3 && depth>=3 && !m[2] && !m[3] && !isInCheck && !givesCheck){
       cntLMR++;
-      var lmrR = (depth>=5 && legalCount-1>=6) ? 2 : 1;
-      s = -negamax(nb,-turn,nep,nc,depth-1-lmrR,-beta,-alpha,ply+1,nhash,true);
+      /* LMR reduction: scale theo depth và số nước đã xét.
+         depth≥8 + move≥12: reduce 3 — tận dụng depth cao của iPhone
+         depth≥5 + move≥6:  reduce 2
+         còn lại:            reduce 1 */
+      var lmrR = (depth>=8 && legalCount-1>=12) ? 3
+               : (depth>=5 && legalCount-1>=6)  ? 2
+               : 1;
+      s = -negamax(nb,-turn,nep,nc,depth-1+ext-lmrR,-beta,-alpha,ply+1,nhash,true);
       if(s > alpha){
         cntLMRresearch++;
-        s = -negamax(nb,-turn,nep,nc,depth-1,-beta,-alpha,ply+1,nhash,true);
+        s = -negamax(nb,-turn,nep,nc,depth-1+ext,-beta,-alpha,ply+1,nhash,true);
       }
     } else {
-      s = -negamax(nb,-turn,nep,nc,depth-1,-beta,-alpha,ply+1,nhash,true);
+      s = -negamax(nb,-turn,nep,nc,depth-1+ext,-beta,-alpha,ply+1,nhash,true);
     }
     searchStack.pop();
 
@@ -3543,7 +3554,16 @@ function execMove(mv){
          evalPlayer chỉ chạy ở đây nếu có dấu hiệu hy sinh (sacPiece >= 300). */
       var evalPlayer = 0;
       if(!label && isBestMove){
-        var sacPiece = mv[2] ? 0 : (attacked(gB, mv[1], -gPC) ? PVAL[typ(gB[mv[1]])] : 0);
+        /* sacPiece: giá trị quân người vừa đi — lấy từ _boardBefore[from] trước khi nước đi.
+           Chỉ brilliant khi:
+             1. Không capture (capture thì không gọi là hy sinh)
+             2. Ô đến bị tấn công bởi đối phương
+             3. SEE âm (seeNegative) — thực sự bất lợi nếu đứng yên trên ô đó
+             4. Giá trị quân đi >= 300 (ít nhất mã/tượng)
+           Điều kiện SEE là then chốt để tránh brilliant giả khi quân đến ô
+           bị tấn công nhưng thực ra được bảo vệ tốt hơn. */
+        var movedPieceVal = (mv._boardBefore && mv._boardBefore[mv[0]]) ? PVAL[typ(mv._boardBefore[mv[0]])] : 0;
+        var sacPiece = (!mv[2] && movedPieceVal >= 300 && attacked(gB, mv[1], -gPC) && seeNegative(gB, mv[1], gPC)) ? movedPieceVal : 0;
         if(sacPiece >= 300){
           tStart('evalAfterSac');
           evalPlayer = -evalMove(gB, gTurn, gEP, gCasB, gHash);
@@ -3814,7 +3834,7 @@ function aiMoveCore(){
      Chỉ chạy sau khai cuộc + đã đủ nước (OPENING_MOVES + 2) để tránh
      lãng phí tài nguyên trong phase đầu ván.                               */
   var postLeft = tl - (Date.now() - aiMoveStart);
-  var PENDING_TOTAL_BUDGET = 4000;  /* budget đủ cho pending depth 6 + evalPending */
+  var PENDING_TOTAL_BUDGET = 5000;  /* iPhone: tăng budget để pending depth 8 + evalPending đủ thời gian */
   var worthPending = true;  /* bỏ gate Math.abs(evalNow) < 1200 — pendingBest hữu ích kể cả khi thế cờ ngã ngũ, và thế ngã ngũ thường đơn giản hơn nên pendingBest chạy nhanh hơn */
   if(mainTimedOut) aiDbgAdd('bestTO:postLeft'+postLeft);
   gPendingEvalComplete = false;  /* reset trước — chỉ set true khi cả pendingBest lẫn evalPending hoàn thành */
@@ -3828,7 +3848,7 @@ function aiMoveCore(){
     AI_TIME_LIMIT = PENDING_TOTAL_BUDGET;
     AI_CHECK_INTERVAL = 256;
     tMark('pStart|tl='+AI_TIME_LIMIT+'|TO='+aiTimedOut);
-    gPendingBest = bestMove(futureBoard, futureTurn, futureEP, futureCasB, 6, 0, futureHash);
+    gPendingBest = bestMove(futureBoard, futureTurn, futureEP, futureCasB, 8, 0, futureHash);
     tMark('pEnd|result='+(gPendingBest?mvUci(gPendingBest):'null')+'|TO='+aiTimedOut);
     AI_CHECK_INTERVAL = oldCI_pb;
     AI_TIME_LIMIT = oldTL;
@@ -3862,6 +3882,10 @@ function aiMoveCore(){
       var nb2      = applyMv(futureBoard, gPendingBest);
       var nc2      = newCasBit(futureCasB, futureBoard, gPendingBest, futureTurn);
       var nb2Hash  = computeHash(nb2, -futureTurn, gPendingBest[6], nc2);
+      /* Xóa TT trước evalPending để tránh TT hit từ main search (depth 10-12)
+         làm evalPending trả về 0ms với kết quả không đáng tin. Sau khi clear,
+         search thật sự sẽ chạy và điền TT mới cho ván tiếp tục. */
+      ttClear();
       gPendingEval = -evalMove(nb2, -futureTurn, gPendingBest[6], nc2, nb2Hash, postLeft);
       var evalPendingTimedOut = aiTimedOut;
       gPendingEvalComplete = !pendingTimedOut && !evalPendingTimedOut && gPendingBest !== null;  /* tin được khi cả hai hoàn thành */
