@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 =========================================================
-   CHESSLIKE ENGINE ChessChatPC (2026/05/28): fix brilliant sacPiece+SEE, fix evalPending ttClear, pending depth 8, FP margins 200/350, LMR depth-scale, check extension
+   CHESSLIKE ENGINE ChessChatPC (2026/05/28): fix brilliant sacPiece+SEE, TT age generation O(1) clear, pending depth 8 isolated TT, FP margins 200/350, LMR depth-scale, check extension
    Base: ChessChat9 (2026/05/27): pendingBest always-run + gUseFastEval + BESTMOVE_MAX_MS + gGameToken + mvEq + gPendingEvalComplete
 ---------------------------------------------------------
    Lightweight JavaScript chess engine optimized for:
@@ -939,19 +939,25 @@ var TT = [];
 
 var TT_EXACT=0, TT_ALPHA=1, TT_BETA=2;
 
+/* TT Generation — "clear" bằng cách tăng gTTAge thay vì xóa 262144 slot.
+   Mỗi entry lưu age khi được ghi. ttProbe chỉ accept entry cùng age.
+   pendingBest/evalPending có thể chạy với age riêng (gTTAge+1) mà không
+   làm nhiễm TT của main search — O(1) isolation thay vì O(N) ttClear(). */
+var gTTAge = 0;
+
 function ttStore(hash, depth, flag, score, move){
   var idx = hash & TT_MASK;
   var e = TT[idx];
-  /* Replacement: luôn thay nếu depth >= cũ, hoặc slot trống */
-  if(!e || depth >= e.depth){
-    TT[idx] = {h:hash, depth:depth, flag:flag, score:score, move:move};
+  /* Replacement: ưu tiên entry cùng age + depth cao; luôn thay entry cũ age */
+  if(!e || e.age !== gTTAge || depth >= e.depth){
+    TT[idx] = {h:hash, depth:depth, flag:flag, score:score, move:move, age:gTTAge};
   }
 }
 
 function ttProbe(hash, depth, alpha, beta){
   var idx = hash & TT_MASK;
   var e = TT[idx];
-  if(!e || e.h !== hash || e.depth < depth) return null;
+  if(!e || e.age !== gTTAge || e.h !== hash || e.depth < depth) return null;
   if(e.flag === TT_EXACT) return e.score;
   if(e.flag === TT_ALPHA && e.score <= alpha) return alpha;
   if(e.flag === TT_BETA  && e.score >= beta)  return beta;
@@ -961,12 +967,13 @@ function ttProbe(hash, depth, alpha, beta){
 function ttGetMove(hash){
   var idx = hash & TT_MASK;
   var e = TT[idx];
-  if(e && e.h === hash) return e.move;
+  if(e && e.age === gTTAge && e.h === hash) return e.move;
   return null;
 }
 
 function ttClear(){
-  for(var i=0;i<TT_SIZE;i++) TT[i]=null;
+  /* O(1): tăng age — toàn bộ entry cũ bị bỏ qua tự động */
+  gTTAge = (gTTAge + 1) & 0x7fffffff;
 }
 
 /* ═══════════════════════════════════════════════════
@@ -3844,9 +3851,14 @@ function aiMoveCore(){
     aiDbgAdd('pending');
     tStart('pendingBest');
     var oldCI_pb = AI_CHECK_INTERVAL;
+    var oldTTAge = gTTAge;
     aiTimedOut = false; aiNodeCount = 0; aiStartTime = Date.now(); searchStack = [];
     AI_TIME_LIMIT = PENDING_TOTAL_BUDGET;
     AI_CHECK_INTERVAL = 256;
+    /* Dùng TT age mới cho pendingBest — không nhiễm TT từ main search,
+       nhưng vẫn được dùng TT slots (không phải null) để tránh cold-start.
+       O(1) thay vì ttClear() O(262144). */
+    ttClear();
     tMark('pStart|tl='+AI_TIME_LIMIT+'|TO='+aiTimedOut);
     gPendingBest = bestMove(futureBoard, futureTurn, futureEP, futureCasB, 8, 0, futureHash);
     tMark('pEnd|result='+(gPendingBest?mvUci(gPendingBest):'null')+'|TO='+aiTimedOut);
@@ -3882,9 +3894,8 @@ function aiMoveCore(){
       var nb2      = applyMv(futureBoard, gPendingBest);
       var nc2      = newCasBit(futureCasB, futureBoard, gPendingBest, futureTurn);
       var nb2Hash  = computeHash(nb2, -futureTurn, gPendingBest[6], nc2);
-      /* Xóa TT trước evalPending để tránh TT hit từ main search (depth 10-12)
-         làm evalPending trả về 0ms với kết quả không đáng tin. Sau khi clear,
-         search thật sự sẽ chạy và điền TT mới cho ván tiếp tục. */
+      /* Xóa TT trước evalPending để tránh TT hit từ pendingBest
+         làm evalPending trả về score không đáng tin. O(1) age bump. */
       ttClear();
       gPendingEval = -evalMove(nb2, -futureTurn, gPendingBest[6], nc2, nb2Hash, postLeft);
       var evalPendingTimedOut = aiTimedOut;
@@ -3898,6 +3909,9 @@ function aiMoveCore(){
       gPendingEval = 0;
       /* gPendingEvalComplete đã là false từ trước */
     }
+    /* Khôi phục TT age về main search age — lượt AI tiếp sẽ dùng TT sạch
+       của chính nó, không bị ảnh hưởng bởi pending age. */
+    gTTAge = oldTTAge;
   } else {
     /* worthPending=false không còn xảy ra (worthPending luôn true) —
        block này chỉ được vào khi chưa qua OPENING_MOVES */
