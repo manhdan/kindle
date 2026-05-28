@@ -3814,27 +3814,21 @@ function aiMoveCore(){
      Chỉ chạy sau khai cuộc + đã đủ nước (OPENING_MOVES + 2) để tránh
      lãng phí tài nguyên trong phase đầu ván.                               */
   var postLeft = tl - (Date.now() - aiMoveStart);
-  var PENDING_TOTAL_BUDGET = 3000;  /* budget độc lập cho pending+evalPending */
+  var PENDING_TOTAL_BUDGET = 4000;  /* budget đủ cho pending depth 6 + evalPending */
   var worthPending = true;  /* bỏ gate Math.abs(evalNow) < 1200 — pendingBest hữu ích kể cả khi thế cờ ngã ngũ, và thế ngã ngũ thường đơn giản hơn nên pendingBest chạy nhanh hơn */
   if(mainTimedOut) aiDbgAdd('bestTO:postLeft'+postLeft);
   gPendingEvalComplete = false;  /* reset trước — chỉ set true khi cả pendingBest lẫn evalPending hoàn thành */
-  if(gPlayerMoveCount >= OPENING_MOVES && worthPending){
+  if(gMoveNum > OPENING_MOVES && worthPending){
     var dbgPendingT0 = Date.now();
     aiDbgAdd('pending');
     tStart('pendingBest');
     var oldCI_pb = AI_CHECK_INTERVAL;
     aiTimedOut = false; aiNodeCount = 0; aiStartTime = Date.now(); searchStack = [];
     AI_TIME_LIMIT = PENDING_TOTAL_BUDGET;
-    AI_CHECK_INTERVAL = 16;
-    gUseFastEval = true;
-    try {
-      gPendingBest = bestMove(futureBoard, futureTurn, futureEP, futureCasB, 6, 0, futureHash);
-    } finally {
-      gUseFastEval = false;  /* đảm bảo tắt kể cả khi exception — tránh bestMove chính lượt sau dùng evaluateFast */
-    }
+    AI_CHECK_INTERVAL = 256;  /* đủ nhanh, không overhead */
+    gPendingBest = bestMove(futureBoard, futureTurn, futureEP, futureCasB, 6, 0, futureHash);
     AI_CHECK_INTERVAL = oldCI_pb;
-    AI_TIME_LIMIT = oldTL;  /* [v6-fix] restore ngay sau bestMove, trước mọi nhánh if/else —
-                               tránh AI_TIME_LIMIT bị kẹt ở CLASSIFY_TIME khi gPendingBest=null */
+    AI_TIME_LIMIT = oldTL;
     tEnd('pendingBest');
     var pendingTimedOut = aiTimedOut;
     aiDbgAdd('pending=' + (gPendingBest ? mvUci(gPendingBest) : 'null') + '/' + (Date.now() - dbgPendingT0) + (pendingTimedOut ? 'TO' : ''));
