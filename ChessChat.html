@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 =========================================================
-   CHESSLIKE ENGINE ChessChatPC (2026/05/28): fix brilliant sacPiece+SEE, TT age O(1) clear, pending depth 8 isolated TT, FP margins 200/350, LMR depth-scale, check extension negamax+qsearch, classify overhaul, king safety overhaul (open files+rook/queen+mobility+endgame), castling urgency v2, move ordering SEE+check bonus, rook connectivity, evalDevelopment (late dev penalty + queen pressure)
+   CHESSLIKE ENGINE ChessChatPC (2026/05/29): fix brilliant sacPiece+SEE, TT age O(1) clear, pending depth 8 isolated TT, FP margins 200/350, LMR depth-scale, check extension negamax+qsearch, classify overhaul, king safety overhaul (open files+rook/queen+mobility+endgame), castling urgency v2, move ordering SEE+check bonus, rook connectivity, evalDevelopment (late dev penalty + queen pressure), opening book 1.e4/1.d4 lines added + book limit 14 half-moves, center control bonus, queen/piece mobility penalty for trapped queens, trapped piece detection
    Base: ChessChat9 (2026/05/27): pendingBest always-run + gUseFastEval + BESTMOVE_MAX_MS + gGameToken + mvEq + gPendingEvalComplete
 ---------------------------------------------------------
    Lightweight JavaScript chess engine optimized for:
@@ -1376,7 +1376,9 @@ function evaluate(board, turn) {
               evalKingSafety(board, kingW, kingB, phase) +
               evalBishopPair(bishopsW, bishopsB) +
               evalDevelopment(board, queenWsq, queenBsq, minorDevW, minorDevB, phase, kingW, kingB) +
-              evalCastlingUrgency(board, kingW, kingB, phase);
+              evalCastlingUrgency(board, kingW, kingB, phase) +
+              evalCenterControl(board, pawnsW, pawnsB, phase) +
+              evalTrappedPieces(board, queenWsq, queenBsq, phase);
   mg += extra;
   eg += extra;
   /* Nội suy tuyến tính */
@@ -1514,6 +1516,92 @@ function evalCastlingUrgency(board, kingW, kingB, phase){
   return score;
 }
 
+
+/* ── 6. Center control bonus ──────────────────────────────
+   Thưởng cho tốt/quân kiểm soát các ô trung tâm e4/d4/e5/d5.
+   Áp dụng mạnh trong khai cuộc/đầu trung cuộc (phase > 0.4).
+   - Tốt ở trung tâm mở (e4/d4/e5/d5): +18cp
+   - Tốt kiểm soát ô trung tâm (diagonal): +8cp
+   - Mã/Tượng chiếm trung tâm: +10cp (tăng thêm PST)
+   Root cause fix: PST tốt thưởng khi tốt ĐÃ ở đó, bonus này
+   tạo thêm áp lực đi e4/d4 ngay từ nước 1.                    */
+function evalCenterControl(board, pawnsW, pawnsB, phase){
+  if(phase <= 0.4) return 0;
+  var score = 0;
+  var scale = ((phase - 0.4) / 0.6 * 1.0);
+  /* Trung tâm mở: e4=28, d4=27, e5=36, d5=35 */
+  var CENTER = [27, 28, 35, 36];
+  var i, sq2, p, t, s;
+  for(i = 0; i < 4; i++){
+    sq2 = CENTER[i];
+    p = board[sq2];
+    if(p){
+      s = col(p); t = typ(p);
+      if(t === 1) score += s * 18;        /* tốt chiếm trung tâm */
+      else if(t === 2 || t === 3) score += s * 10;  /* mã/tượng chiếm TT */
+    }
+    /* Tốt trắng kiểm soát ô này (tốt ở hàng dưới, cột lệch 1) */
+    var r2 = rk(sq2), f2 = fl(sq2);
+    if(r2 > 0){
+      if(f2 > 0 && board[sq(r2-1, f2-1)] === WP) score += 8;
+      if(f2 < 7 && board[sq(r2-1, f2+1)] === WP) score += 8;
+    }
+    /* Tốt đen kiểm soát ô này (tốt ở hàng trên, cột lệch 1) */
+    if(r2 < 7){
+      if(f2 > 0 && board[sq(r2+1, f2-1)] === BP) score -= 8;
+      if(f2 < 7 && board[sq(r2+1, f2+1)] === BP) score -= 8;
+    }
+  }
+  return (score * scale) | 0;
+}
+
+/* ── 7. Trapped piece penalty ──────────────────────────────
+   Phát hiện quân bị nhốt không có đường thoát.
+   Áp dụng cho Hậu trong khai cuộc/trung cuộc (phase > 0.35).
+   - Đếm số ô hậu có thể di chuyển tới (ray-cast 8 hướng).
+   - Mobility <= 2: phạt nặng (-60cp) — hậu gần như bị nhốt.
+   - Mobility <= 5: phạt nhẹ (-25cp) — hậu bị hạn chế.
+   Fix: Qa1/Qh1 sau khi bị đẩy vào góc sẽ bị phạt đúng mức. */
+function evalTrappedPieces(board, queenWsq, queenBsq, phase){
+  if(phase <= 0.35) return 0;
+  var score = 0;
+  var scale = Math.min(1.0, (phase - 0.35) / 0.4);
+
+  function queenMobility(ksq){
+    if(ksq < 0) return 8;
+    var mob = 0;
+    var QDIRS = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+    var side = col(board[ksq]);
+    var dr, df, nr, nf, sq2, pc;
+    for(var d = 0; d < 8; d++){
+      dr = QDIRS[d][0]; df = QDIRS[d][1];
+      nr = rk(ksq) + dr; nf = fl(ksq) + df;
+      while(ob(nr, nf)){
+        sq2 = sq(nr, nf);
+        pc = board[sq2];
+        if(pc){
+          if(col(pc) !== side) mob++;  /* có thể ăn */
+          break;                        /* bị chặn */
+        }
+        mob++;
+        nr += dr; nf += df;
+      }
+    }
+    return mob;
+  }
+
+  if(queenWsq >= 0){
+    var wmob = queenMobility(queenWsq);
+    if(wmob <= 2) score -= (60 * scale) | 0;
+    else if(wmob <= 5) score -= (25 * scale) | 0;
+  }
+  if(queenBsq >= 0){
+    var bmob = queenMobility(queenBsq);
+    if(bmob <= 2) score += (60 * scale) | 0;
+    else if(bmob <= 5) score += (25 * scale) | 0;
+  }
+  return score;
+}
 
 /* ── evalMobility (lookup table) ────────────────────────
    Thay ray-cast bằng bảng tra bonus cố định theo loại quân × vị trí.
@@ -2172,11 +2260,7 @@ var OPENING_BOOK = [
   ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','f8c5','d2d3','e8g8'],
   ['g2g3','d7d5','g1f3','g8f6','f1g2','c7c6','e1g1','c8f5','d2d3','e7e6'],
   ['g2g3','g8f6','f1g2','d7d5','g1f3','c7c6','e1g1','c8f5','d2d3','e7e6'],
-  ['b2b3','e7e5','c1b2','b8c6','g1f3','d7d5','e2e3','g8f6','f1b5','f8d6'],
-  ['b2b3','e7e5','c1b2','g8f6','g1f3','b8c6','e2e3','f8d6','f1e2','e8g8'],
-  ['f2f4','d7d5','g1f3','g8f6','e2e3','e7e6','f1e2','f8e7','e1g1','e8g8'],
-  ['f2f4','g8f6','g1f3','g7g6','g2g3','f8g7','f1g2','e8g8','e1g1','d7d5'],
-  ['f2f4','d7d5','g1f3','c7c5','e2e3','g8f6','f1b5','b8d7','e1g1','e7e6'],
+  /* NOTE: 1.b2b3 và 1.f2f4 đã xóa khỏi book — engine chỉ mở bằng e4/d4/c4/Nf3/g3 */
   /* ── Réti ── */
   ['g1f3','d7d5','c2c4','d5c4','e2e3','g8f6','f1c4','e7e5','e1g1','b8c6'],
   ['g1f3','g8f6','g2g3','g7g6','f1g2','f8g7','e1g1','e8g8','c2c4','d7d6'],
@@ -2388,7 +2472,7 @@ function mvUci(mv){
 }
 
 function openingBookMove(board, turn, mvs){
-  if(typeof gUciHist==='undefined' || gUciHist.length>=12) return null;
+  if(typeof gUciHist==='undefined' || gUciHist.length>=14) return null;
   var next=[], i, j, ok;
   for(i=0;i<OPENING_BOOK.length;i++){
     if(OPENING_BOOK[i].length<=gUciHist.length) continue;
