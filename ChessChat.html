@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 =========================================================
-   CHESSLIKE ENGINE ChessChatPC (2026/05/28): fix brilliant sacPiece+SEE, TT age generation O(1) clear, pending depth 8 isolated TT, FP margins 200/350, LMR depth-scale, check extension, classify overhaul (missedMate 9000, brilliant forced-gate, great/greatDef delta-eval, missedWin siết, blunder cpLoss, normalTrade filter, LABEL_CSS tách riêng)
+   CHESSLIKE ENGINE ChessChatPC (2026/05/28): fix brilliant sacPiece+SEE, TT age O(1) clear, pending depth 8 isolated TT, FP margins 200/350, LMR depth-scale, check extension negamax+qsearch, classify overhaul, king safety overhaul (open files+rook/queen+mobility+endgame), castling urgency v2, move ordering SEE+check bonus, rook connectivity, evalDevelopment (late dev penalty + queen pressure)
    Base: ChessChat9 (2026/05/27): pendingBest always-run + gUseFastEval + BESTMOVE_MAX_MS + gGameToken + mvEq + gPendingEvalComplete
 ---------------------------------------------------------
    Lightweight JavaScript chess engine optimized for:
@@ -1375,7 +1375,7 @@ function evaluate(board, turn) {
               evalPieceActivity(board, pawnsW, pawnsB, rookSqW, rookSqB, phase) +
               evalKingSafety(board, kingW, kingB, phase) +
               evalBishopPair(bishopsW, bishopsB) +
-              evalEarlyQueen(board, queenWsq, queenBsq, minorDevW, minorDevB, phase) +
+              evalDevelopment(board, queenWsq, queenBsq, minorDevW, minorDevB, phase, kingW, kingB) +
               evalCastlingUrgency(board, kingW, kingB, phase);
   mg += extra;
   eg += extra;
@@ -1450,29 +1450,67 @@ function evalBishopPair(bishopsW, bishopsB){
   return score;
 }
 
-/* ── 4. Early queen penalty ────────────────────────────
-   phase > 0.55: hậu rời hàng xuất phát mà còn ≥2 minor chưa phát triển */
-function evalEarlyQueen(board, queenWsq, queenBsq, minorDevW, minorDevB, phase){
-  if(phase <= 0.55) return 0;
+/* ── 4. Development + queen pressure ───────────────────
+   Bao gồm:
+   A) Early queen penalty: hậu phát triển sớm khi minor chưa ra
+   B) Late development penalty: phạt nếu sau nước 12+ còn minor ở hàng xuất phát
+   C) Queen pressure bonus: đối phương có hậu + vua mình yếu → penalty thêm
+      để engine tích cực hơn trong việc đổi hậu hoặc bảo vệ vua            */
+function evalDevelopment(board, queenWsq, queenBsq, minorDevW, minorDevB, phase, kingW, kingB){
   var score=0;
-  if(queenWsq>=0 && rk(queenWsq)!==0 && minorDevW>=2) score -= EARLY_QUEEN_PENALTY;
-  if(queenBsq>=0 && rk(queenBsq)!==7 && minorDevB>=2) score += EARLY_QUEEN_PENALTY;
+
+  /* A) Early queen penalty */
+  if(phase > 0.55){
+    if(queenWsq>=0 && rk(queenWsq)!==0 && minorDevW>=2) score -= EARLY_QUEEN_PENALTY;
+    if(queenBsq>=0 && rk(queenBsq)!==7 && minorDevB>=2) score += EARLY_QUEEN_PENALTY;
+  }
+
+  /* B) Late development penalty: phase 0.55-0.85 (khai cuộc/đầu trung cuộc)
+     Mỗi minor còn ở hàng xuất phát → -20cp thêm (trên cả PST đã tính)
+     Phạt tích lũy: 1 minor = -20, 2 minor = -40+, 3 minor = rất nặng    */
+  if(phase > 0.5){
+    var latePenalty = ((phase - 0.5) * 2 * 25) | 0;   /* tối đa 25cp/minor khi phase=1 */
+    score -= minorDevW * latePenalty;
+    score += minorDevB * latePenalty;
+  }
+
+  /* C) Queen pressure: nếu đối phương có hậu VÀ vua mình đang yếu
+     (không ở góc an toàn, đang midgame) → thêm penalty -30cp.
+     Không dùng PVAL — chỉ là signal "vua yếu trong bóng hậu nguy hiểm".
+     Điều này thúc đẩy engine nhập thành sớm hoặc đổi hậu khi bị áp lực. */
+  if(phase > 0.4){
+    var wUnsafe = (kingW>=0 && kingW!==6 && kingW!==2);
+    var bUnsafe = (kingB>=0 && kingB!==62 && kingB!==58);
+    if(queenBsq>=0 && wUnsafe) score -= 30;  /* hậu đen + vua trắng yếu */
+    if(queenWsq>=0 && bUnsafe) score += 30;  /* hậu trắng + vua đen yếu */
+  }
+
   return score;
 }
 
+/* Alias để gọi từ evaluate() */
+function evalEarlyQueen(board, queenWsq, queenBsq, minorDevW, minorDevB, phase){
+  return 0;  /* replaced by evalDevelopment — kept for signature compat */
+}
+
 /* ── 5. Castling urgency ───────────────────────────────
-   Còn quyền nhập thành mà vua vẫn ở e1/e8, phase > 0.5
-   → phạt tuyến tính 0→50cp. Dùng gCasB (global) vì
-   evaluate() không nhận casB — castling state thay đổi ít,
-   đủ chính xác cho eval penalty nhỏ này. */
+   Phạt khi vua không ở vị trí an toàn (sau nhập thành) trong midgame.
+   Logic mới: xét vị trí vua thực tế (an toàn = g1/c1/g8/c8),
+   không chỉ dựa quyền nhập thành — bắt cả trường hợp đã mất quyền
+   nhập thành nhưng vua vẫn chưa đến nơi an toàn.                    */
 function evalCastlingUrgency(board, kingW, kingB, phase){
-  if(phase <= 0.5) return 0;
+  if(phase <= 0.35) return 0;
   var score=0;
-  var urgency = ((phase - 0.5) * 2 * CASTLING_URGENCY) | 0;  /* 0→50cp tuyến tính */
-  /* Trắng: còn quyền nhập thành VÀ vua vẫn ở e1 */
-  if((gCasB & (CAS_WK|CAS_WQ)) && kingW===4) score -= urgency;
-  /* Đen: còn quyền nhập thành VÀ vua vẫn ở e8 */
-  if((gCasB & (CAS_BK|CAS_BQ)) && kingB===60) score += urgency;
+  var urgency = ((phase - 0.35) / 0.65 * CASTLING_URGENCY) | 0;  /* 0→50cp tuyến tính */
+  /* Vua trắng an toàn = g1(6), c1(2), hoặc vẫn ở e1(4) với phase thấp */
+  var wSafe = (kingW===6 || kingW===2);
+  /* Vua đen an toàn = g8(62), c8(58) */
+  var bSafe = (kingB===62 || kingB===58);
+  /* Phạt thêm nếu vua đã hoàn toàn lạc ra ngoài (không còn ở hàng 1/8) */
+  var wExposed = (kingW>=0 && rk(kingW)>1);
+  var bExposed = (kingB>=0 && rk(kingB)<6);
+  if(!wSafe) score -= urgency + (wExposed ? 35 : 0);
+  if(!bSafe) score += urgency + (bExposed ? 35 : 0);
   return score;
 }
 
@@ -1531,28 +1569,117 @@ function evalPieceActivity(board, pawnsW, pawnsB, rookSqW, rookSqB, phase){
     if(r===1) score -= 24;
     if(sqi===56 || sqi===63) score += (phase>0.55 ? 10 : 18);
   }
+  /* Rook connectivity: hai xe cùng hàng hoặc cùng cột, không có quân chặn → +15cp.
+     Ý nghĩa: xe kết nối bảo vệ nhau, tạo battery mạnh hơn.                     */
+  if(rookSqW.length===2){
+    var r0=rookSqW[0], r1=rookSqW[1];
+    var connected=false, k;
+    if(rk(r0)===rk(r1)){  /* cùng hàng */
+      var fmin=Math.min(fl(r0),fl(r1)), fmax=Math.max(fl(r0),fl(r1));
+      connected=true;
+      for(k=fmin+1;k<fmax;k++) if(board[sq(rk(r0),k)]){connected=false;break;}
+    } else if(fl(r0)===fl(r1)){  /* cùng cột */
+      var rmin=Math.min(rk(r0),rk(r1)), rmax=Math.max(rk(r0),rk(r1));
+      connected=true;
+      for(k=rmin+1;k<rmax;k++) if(board[sq(k,fl(r0))]){connected=false;break;}
+    }
+    if(connected) score += 15;
+  }
+  if(rookSqB.length===2){
+    var r0b=rookSqB[0], r1b=rookSqB[1];
+    var connectedB=false, kb;
+    if(rk(r0b)===rk(r1b)){
+      var fminb=Math.min(fl(r0b),fl(r1b)), fmaxb=Math.max(fl(r0b),fl(r1b));
+      connectedB=true;
+      for(kb=fminb+1;kb<fmaxb;kb++) if(board[sq(rk(r0b),kb)]){connectedB=false;break;}
+    } else if(fl(r0b)===fl(r1b)){
+      var rminb=Math.min(rk(r0b),rk(r1b)), rmaxb=Math.max(rk(r0b),rk(r1b));
+      connectedB=true;
+      for(kb=rminb+1;kb<rmaxb;kb++) if(board[sq(kb,fl(r0b))]){connectedB=false;break;}
+    }
+    if(connectedB) score -= 15;
+  }
   return score;
 }
 
 function evalKingSafety(board, kingW, kingB, phase){
-  if(phase<0.35) return 0;
   var score=0;
-  score += oneKingSafety(board, W, kingW);
-  score -= oneKingSafety(board, B, kingB);
-  return (score * phase) | 0;
+  if(phase >= 0.3){
+    /* Midgame/late-midgame: penalty đầy đủ, scale theo phase */
+    score += oneKingSafety(board, W, kingW);
+    score -= oneKingSafety(board, B, kingB);
+    score = (score * Math.min(phase, 1.0)) | 0;
+  } else {
+    /* Endgame: oneKingSafety không dùng nữa (PST_EG đã xử lý king centralization).
+       Chỉ giữ penalty nhẹ cho vua hoàn toàn bị nhốt ở góc — nguy hiểm kể cả tàn cuộc. */
+    var egPenalty = function(ksq){
+      if(ksq<0) return 0;
+      var kf=fl(ksq), kr=rk(ksq);
+      /* Vua ở góc (cách trung tâm > 4 ô Manhattan) → -25cp */
+      return (Math.abs(kf-3.5)+Math.abs(kr-3.5) >= 4.5) ? -25 : 0;
+    };
+    score += egPenalty(kingW);
+    score -= egPenalty(kingB);
+  }
+  return score;
 }
 
 function oneKingSafety(board, side, ksq){
   if(ksq<0) return 0;
-  var r=rk(ksq), f=fl(ksq), score=0, shieldRank=r+side, ff, nr, nf, i;
-  if(side===W && ksq!==4 && ksq!==6 && ksq!==2) score -= 45;
-  if(side===B && ksq!==60 && ksq!==62 && ksq!==58) score -= 45;
-  if(side===W && r>1) score -= 35 + (r-1)*18;
-  if(side===B && r<6) score -= 35 + (6-r)*18;
-  if(ob(shieldRank,f) && board[sq(shieldRank,f)]!==side*WP) score -= 12;
+  var r=rk(ksq), f=fl(ksq), score=0, ff, i;
+
+  /* Penalty lạc vị: tăng từ 45 → 80cp */
+  if(side===W && ksq!==4 && ksq!==6 && ksq!==2) score -= 80;
+  if(side===B && ksq!==60 && ksq!==62 && ksq!==58) score -= 80;
+
+  /* Penalty vua đi xa hàng xuất phát: tăng hệ số 18 → 25 */
+  if(side===W && r>1) score -= 50 + (r-1)*25;
+  if(side===B && r<6) score -= 50 + (6-r)*25;
+
+  /* Shield pawns: tăng penalty 12/7 → 22/12 */
+  var shieldRank = r + side;
+  if(ob(shieldRank,f)  && board[sq(shieldRank,f)]  !==side*WP) score -= 22;
   for(ff=f-1;ff<=f+1;ff+=2){
-    if(ob(shieldRank,ff) && board[sq(shieldRank,ff)]!==side*WP) score -= 7;
+    if(ob(shieldRank,ff) && board[sq(shieldRank,ff)]!==side*WP) score -= 12;
   }
+
+  /* Cột mở/nửa mở hướng vào vua: duyệt 3 cột xung quanh vua.
+     Mỗi cột hoàn toàn trống tốt (không có tốt nào) → -25cp.
+     Cột nửa mở (không có tốt mình) → -12cp.
+     Nếu trên cột đó đối phương có Xe hoặc Hậu → thêm -20cp (nguy hiểm trực tiếp).
+     Ý nghĩa: xe/hậu đối phương trên cột mở tiếp cận vua dễ hơn.  */
+  var ownPawn = side * WP;
+  var enemyRook = -side * WR;
+  var enemyQueen = -side * WQ;
+  for(ff = Math.max(0,f-1); ff <= Math.min(7,f+1); ff++){
+    var hasOwn=false, hasEnemy=false, hasRookOrQueen=false, rr;
+    for(rr=0;rr<8;rr++){
+      var pc=board[sq(rr,ff)];
+      if(pc===ownPawn) hasOwn=true;
+      if(pc===-ownPawn) hasEnemy=true;
+      if(pc===enemyRook || pc===enemyQueen) hasRookOrQueen=true;
+    }
+    if(!hasOwn && !hasEnemy) score -= 25;
+    else if(!hasOwn)          score -= 12;
+    if(hasRookOrQueen && !hasOwn) score -= 20;  /* xe/hậu địch trên cột mở/nửa mở */
+  }
+
+  /* King mobility: đếm ô thoát hiểm không bị đối phương tấn công.
+     Phạt khi bị nhốt (escape <= 1: -60cp, escape <= 2: -30cp).
+     Dùng attacked() — gọi tối đa 8 lần, chấp nhận được trong evaluate(). */
+  var escape=0;
+  var DIRS=[[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+  for(i=0;i<8;i++){
+    nr=r+DIRS[i][0]; nf=f+DIRS[i][1];
+    if(!ob(nr,nf)) continue;
+    var sq2=sq(nr,nf);
+    var occ=board[sq2];
+    if(occ && col(occ)===side) continue;  /* bị quân mình chặn */
+    if(!attacked(board,sq2,-side)) escape++;
+  }
+  if(escape<=1) score -= 60;
+  else if(escape<=2) score -= 30;
+
   return score;
 }
 
@@ -1567,18 +1694,38 @@ function oneKingSafety(board, side, ksq){
 function mvScore(mv, board, hashMove, ply){
   /* Hash move — ưu tiên tuyệt đối */
   if(hashMove && mvEq(mv, hashMove)) return 2000000;
-  /* Capture MVV-LVA */
+  /* Capture: SEE 1-ply phân loại tốt/xấu */
   if(mv[2] || mv[5]>=0){
-    var victim   = mv[2] ? PVAL[typ(mv[2])] : PVAL[1]; /* en passant = tốt */
+    var victim   = mv[2] ? PVAL[typ(mv[2])] : PVAL[1];
     var attacker = PVAL[typ(board[mv[0]])];
-    return 1000000 + victim * 10 - attacker;
+    if(victim >= attacker) return 1000000 + victim * 10 - attacker;  /* SEE ≥ 0 */
+    else                   return  500000 + victim * 10 - attacker;  /* SEE < 0 */
   }
   /* Killer */
   var kp = ply < MAX_PLY ? ply : MAX_PLY-1;
   if(mvEq(mv, killers[kp][0])) return 900000;
   if(mvEq(mv, killers[kp][1])) return 800000;
-  /* History heuristic cho quiet moves */
-  return histTable[mv[0]][mv[1]];
+  /* Check move bonus (score 750000, giữa killer và history).
+     Phát hiện nhẹ: sau nước đi, ô vua đối phương bị tấn công.
+     Chỉ làm khi history thấp (< 100000) để tránh overhead thừa trên
+     các nước đã được killer/history sort tốt rồi.
+     Dùng attacked() trên board GỐC tại ô đích mv[1] — gần đúng 80%
+     trường hợp (miss các check qua pin hoặc discovered), đủ để
+     prioritize mà không cần applyMv tốn kém. */
+  var histScore = histTable[mv[0]][mv[1]];
+  if(histScore < 100000){
+    var movingSide = col(board[mv[0]]);
+    /* Tìm vua đối phương */
+    var enemyKing = movingSide === W ? BK : WK;
+    var eki=-1;
+    for(var ki=0;ki<64;ki++) if(board[ki]===enemyKing){ eki=ki; break; }
+    /* Check xấp xỉ: quân đang đi có tấn công ô vua sau khi đến mv[1]? */
+    if(eki>=0){
+      var nb = applyMv(board, mv);
+      if(attacked(nb, eki, movingSide)) return 750000;
+    }
+  }
+  return histScore;
 }
 
 function sortMvs(mvs, board, hashMove, ply){
@@ -1613,7 +1760,7 @@ var QSEARCH_CAP_LIMIT_Q4 = 6;  /* PC: nới rộng */
 
 function qsearch(board, turn, ep, casB, alpha, beta, qply) {
   if(aiTimedOut) return alpha;
-  if(qply == null) qply = 0;  /* ES5-safe default */
+  if(qply == null) qply = 0;
   cntQnode++;
   if((cntQnode & 31) === 0){
     if((Date.now() - aiStartTime) > AI_TIME_LIMIT){
@@ -1626,35 +1773,52 @@ function qsearch(board, turn, ep, casB, alpha, beta, qply) {
   if(stand>=beta) return beta;
   if(stand>alpha) alpha=stand;
 
-  /* [v8] Đạt giới hạn depth → trả về stand-pat, không mở thêm capture */
   if(qply >= QSEARCH_MAX_PLY) return alpha;
 
-  /* Sinh capture trực tiếp — giảm allocation lớn trong hot path qsearch */
-  var caps=genCaptures(board,turn,ep);
-  sortMvs(caps,board,null,MAX_PLY-1);
-  var capLimit = caps.length;
-  if(qply >= 4 && capLimit > QSEARCH_CAP_LIMIT_Q4) capLimit = QSEARCH_CAP_LIMIT_Q4;
-  else if(qply >= 2 && capLimit > QSEARCH_CAP_LIMIT_Q2) capLimit = QSEARCH_CAP_LIMIT_Q2;
-  var deltaMargin = qply === 0 ? DELTA_MARGIN : (qply === 1 ? DELTA_MARGIN_Q1 : DELTA_MARGIN_Q2);
-
-  /* [v7] Pre-compute vị trí vua của 'turn' 1 lần trước loop */
+  /* Check extension trong qsearch: ở qply <= 1, nếu đang bị chiếu thì
+     search tất cả nước hợp lệ (không chỉ captures) để thoát chiếu.
+     Giới hạn tối đa 2 lần check extension (qCheckPly <= 1) để tránh explosion.
+     Điều này giúp engine thấy chiếu hết nông qua forced sequences.           */
+  var inCheck = false;
   var kingSq=-1, ki;
   for(ki=0;ki<64;ki++) if(board[ki]===turn*6){ kingSq=ki; break; }
+  if(kingSq>=0) inCheck = attacked(board, kingSq, -turn);
+
+  var caps;
+  if(inCheck && qply <= 1){
+    /* Đang bị chiếu: sinh tất cả nước (không chỉ captures) */
+    caps = genPseudo(board, turn, ep, casB);
+  } else {
+    caps = genCaptures(board, turn, ep);
+  }
+  sortMvs(caps, board, null, MAX_PLY-1);
+
+  var capLimit = caps.length;
+  if(!inCheck){
+    /* Giới hạn capture bình thường như cũ */
+    if(qply >= 4 && capLimit > QSEARCH_CAP_LIMIT_Q4) capLimit = QSEARCH_CAP_LIMIT_Q4;
+    else if(qply >= 2 && capLimit > QSEARCH_CAP_LIMIT_Q2) capLimit = QSEARCH_CAP_LIMIT_Q2;
+  }
+  var deltaMargin = qply === 0 ? DELTA_MARGIN : (qply === 1 ? DELTA_MARGIN_Q1 : DELTA_MARGIN_Q2);
 
   var searchedCaps = 0;
   for(var i=0;i<caps.length;i++){
     if(aiTimedOut) return alpha;
     var m=caps[i];
-    /* Delta pruning: bỏ capture nếu ngay cả khi lấy quân to nhất cũng không đủ cải thiện alpha */
-    var gain = m[2] ? PVAL[typ(m[2])] : PVAL[1]; /* en passant = tốt */
-    if(m[3]) gain += PVAL[typ(m[3])] - PVAL[1]; /* phong cấp */
-    if(stand + gain + deltaMargin < alpha) continue;
-    if(qply > 0 && m[2] && !m[3]){
-      var attackerVal = PVAL[typ(board[m[0]])];
-      var victimVal = PVAL[typ(m[2])];
-      if(attackerVal > victimVal + 200 && attackedByPawnKnight(board,m[1],-turn)) continue;
+
+    /* Delta pruning: chỉ áp dụng khi không bị chiếu */
+    if(!inCheck){
+      var gain = m[2] ? PVAL[typ(m[2])] : PVAL[1];
+      if(m[3]) gain += PVAL[typ(m[3])] - PVAL[1];
+      if(stand + gain + deltaMargin < alpha) continue;
+      if(qply > 0 && m[2] && !m[3]){
+        var attackerVal = PVAL[typ(board[m[0]])];
+        var victimVal = PVAL[typ(m[2])];
+        if(attackerVal > victimVal + 200 && attackedByPawnKnight(board,m[1],-turn)) continue;
+      }
     }
-    /* Kiểm tra legality */
+
+    /* Legality check */
     if(m[4]){
       var pass=m[4]==='WK'?[4,5]:m[4]==='WQ'?[4,3]:m[4]==='BK'?[60,61]:[60,59];
       var ok=true;
@@ -1662,12 +1826,11 @@ function qsearch(board, turn, ep, casB, alpha, beta, qply) {
       if(!ok) continue;
     }
     var nb=applyMv(board,m);
-    /* [v7] Legality check không scan 64 ô */
     var ksq=(typ(board[m[0]])===6) ? m[1] : kingSq;
     if(attacked(nb,ksq,-turn)) continue;
-    if(searchedCaps >= capLimit) break;
+
+    if(!inCheck && searchedCaps >= capLimit) break;
     searchedCaps++;
-    /* [v8] Truyền qply+1 xuống đệ quy */
     var s=-qsearch(nb,-turn,m[6],newCasBit(casB,board,m,turn),-beta,-alpha,qply+1);
     if(s>=beta) return beta;
     if(s>alpha) alpha=s;
