@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 =========================================================
-   CHESSLIKE ENGINE ChessChatPC (2026/05/28): fix brilliant sacPiece+SEE, TT age generation O(1) clear, pending depth 8 isolated TT, FP margins 200/350, LMR depth-scale, check extension
+   CHESSLIKE ENGINE ChessChatPC (2026/05/28): fix brilliant sacPiece+SEE, TT age generation O(1) clear, pending depth 8 isolated TT, FP margins 200/350, LMR depth-scale, check extension, classify overhaul (missedMate 9000, brilliant forced-gate, great/greatDef delta-eval, missedWin siết, blunder cpLoss, normalTrade filter, LABEL_CSS tách riêng)
    Base: ChessChat9 (2026/05/27): pendingBest always-run + gUseFastEval + BESTMOVE_MAX_MS + gGameToken + mvEq + gPendingEvalComplete
 ---------------------------------------------------------
    Lightweight JavaScript chess engine optimized for:
@@ -254,7 +254,9 @@ body {
 .status.thinking { background: #ddd; }
 .status.brilliant{ background: #000; color: #fff; }   /* !! */
 .status.great    { background: #333; color: #fff; }   /* !  */
+.status.greatDef { background: #2a4a2a; color: #fff; } /* 🛡 Great Defense — xanh đậm */
 .status.best     { background: #555; color: #fff; }   /* ★  */
+.status.missedWin{ background: #7a3a00; color: #fff; } /* ⊗ Missed Win — cam đậm */
 .status.mistake  { background: #888; color: #fff; }   /* ?  */
 .status.blunder  { background: #444; color: #fff; }   /* ?? */
 
@@ -2590,11 +2592,14 @@ var LABEL_TEXT = {
 
 var LABEL_CSS = {
   brilliant:'brilliant', great:'great', best:'best',
-  greatDef:'great', missedWin:'mistake', missedMate:'blunder',
+  /* greatDef và missedWin giờ có class riêng — UI không còn "hòa" vào great/mistake.
+     CSS cần thêm .greatDef và .missedWin nếu muốn màu sắc khác; mặc định fallback
+     về .great và .mistake nếu chưa định nghĩa (browser dùng inherited style). */
+  greatDef:'greatDef', missedWin:'missedWin', missedMate:'blunder',
   mistake:'mistake', blunder:'blunder'
 };
 
-/* Eval nhanh depth 3 cho 1 vị trí — limitMs cho phép evalPending bị khống chế riêng */
+/* Eval depth 6 cho 1 vị trí — limitMs cho phép evalPending/evalPlayer bị khống chế riêng */
 function evalMove(board, turn, ep, casB, hash, limitMs) {
   var oldTL = AI_TIME_LIMIT;
   var oldCI = AI_CHECK_INTERVAL;
@@ -3317,6 +3322,25 @@ function onSqClick(e, fromTouch){
   return false;
 }
 
+/* ── Trade detection helpers ────────────────────────────
+   Dùng để lọc các nước đổi quân bình thường khỏi blunder. */
+
+/* Người vừa bắt quân nặng (typ >= 2) */
+function isSimpleTrade(mv){
+  return !!(mv && mv[2] && typ(mv[2]) >= 2);
+}
+
+/* Trade gần bằng giá trị: lệch <= 120cp (khoảng 1 tốt+).
+   Dùng _boardBefore[from] để lấy giá trị quân đã đi.
+   Ví dụ: Xe đổi Xe (500 vs 500), Mã đổi Tượng (320 vs 330) → hòa. */
+function isRoughlyEqualTrade(mv){
+  if(!mv || !mv[2]) return false;
+  if(!mv._boardBefore || !mv._boardBefore[mv[0]]) return false;
+  var a = PVAL[typ(mv._boardBefore[mv[0]])];
+  var b = PVAL[typ(mv[2])];
+  return Math.abs(a - b) <= 120;
+}
+
 /* ── Blunder detection helpers ─────────────────────────
    Chỉ gọi blunder khi có bằng chứng cụ thể trên bàn cờ,
    tránh phụ thuộc vào cpLoss dễ sai do depth/góc nhìn.   */
@@ -3339,6 +3363,9 @@ function playerMissedHanging(boardBefore, playerMv, playerCol){
   var aiCol = -playerCol;
   /* Nếu người vừa ăn quân nặng thì không tính blunder */
   if(playerMv[2] && typ(playerMv[2]) >= 2) return false;
+  /* Nếu là trade bình thường (gần bằng giá trị) thì không tính blunder —
+     để classify/cpLoss xử lý nếu thực sự tệ */
+  if(isSimpleTrade(playerMv) && isRoughlyEqualTrade(playerMv)) return false;
   /* Duyệt toàn bộ ô tìm quân nặng máy bị treo */
   for(var sq2 = 0; sq2 < 64; sq2++){
     var piece = boardBefore[sq2];
@@ -3506,10 +3533,15 @@ function execMove(mv){
           }
           return;
         }
-        var pendingBlunder = savedBest && aiWillCaptureHeavy(gB, savedBest, gPC);
-        if(pendingBlunder ||
-           playerMissedHanging(boardBefore, mvSnap, gPC) ||
-           playerPieceHangsAfterMove(gB, mvSnap, gPC)){
+        /* Trade bình thường (gần bằng giá trị) → bỏ qua blunder detection ở đây,
+           để classify/cpLoss xử lý nếu thực sự tệ. Tránh gán blunder nhầm
+           cho Xe đổi Xe, Mã đổi Tượng, v.v. */
+        var normalTrade = isSimpleTrade(mvSnap) && isRoughlyEqualTrade(mvSnap);
+        var pendingBlunder = !normalTrade && savedBest && aiWillCaptureHeavy(gB, savedBest, gPC);
+        if(!normalTrade && (
+             pendingBlunder ||
+             playerMissedHanging(boardBefore, mvSnap, gPC) ||
+             playerPieceHangsAfterMove(gB, mvSnap, gPC))){
           gBlunderHandled = true;
           gMoveStats['blunder']++;
           tMark('blunder');
@@ -3545,12 +3577,14 @@ function execMove(mv){
       var isBestMove = mvEq(mv, savedBest);
 
       /* ── BƯỚC 1: Missed Mate ───────────────────────────────────────────────
-         savedEval >= 9900 nghĩa là trước nước đi máy đã thấy lộ chiếu hết.
-         Người không đi nước đó → bỏ lỡ cơ hội kết thúc ván.
-         Chỉ tin kết quả khi evalNow hoàn thành đúng hạn (gPendingEvalNowComplete)
-         và đã qua đủ nước (tránh false positive sớm khi engine chưa đủ thông tin).
-         Không cần evalPlayer — savedEval một mình đã đủ bằng chứng.        */
-      var wasMate = (savedEval >= 9900 && gPendingEvalNowComplete && gPendingEvalComplete && gMoveNum > OPENING_MOVES + 2);
+         isMateScore: savedEval >= 9000 — bắt cả mate-in-1 đến mate-in-N sâu.
+         Ngưỡng 9000 thay vì 9900 để bắt được mate dài hơn (negamax trả về
+         MATE - ply, nên mate-in-10 = 10000-10 = 9990; mate-in-50 = 9950;
+         nhưng sau truncation/timeout có thể về ~9000-9500).
+         Vẫn giữ guard gPendingEvalComplete để tránh false positive khi
+         evalPending timeout cho kết quả không đáng tin.                      */
+      var isMateScore = function(sc){ return sc >= 9000; };
+      var wasMate = (isMateScore(savedEval) && gPendingEvalNowComplete && gPendingEvalComplete && gMoveNum > OPENING_MOVES + 2);
       if(wasMate && !isBestMove){
         label = 'missedMate';
       }
@@ -3572,29 +3606,47 @@ function execMove(mv){
         var movedPieceVal = (mv._boardBefore && mv._boardBefore[mv[0]]) ? PVAL[typ(mv._boardBefore[mv[0]])] : 0;
         var sacPiece = (!mv[2] && movedPieceVal >= 300 && attacked(gB, mv[1], -gPC) && seeNegative(gB, mv[1], gPC)) ? movedPieceVal : 0;
         if(sacPiece >= 300){
-          tStart('evalAfterSac');
-          evalPlayer = -evalMove(gB, gTurn, gEP, gCasB, gHash);
-          tEnd('evalAfterSac');
-          var evalDrop = Math.max(0, savedEval - evalPlayer);
-          if(evalDrop <= 50){
-            label = 'brilliant';
-          }
-        }
-        /* Nếu không brilliant → xét great/greatDef/best (không cần evalPlayer) */
-        if(!label){
-          var onlyEscape = (savedPlayerLegalCount <= 2);  /* nước bắt buộc của người — không tính hay */
-          if(savedPlayerLegalCount <= 3 && savedEval < -300 && !onlyEscape){
-            label = 'greatDef';
-          } else {
-            var hasCapture    = !!(mv[2] && PVAL[typ(mv[2])] >= 300);
-            var givesCheck    = playerGivesCheck;
-            var genuineEscape = (savedPlayerLegalCount <= 3 && savedEval < -400);
-            if(!onlyEscape && (hasCapture || givesCheck || genuineEscape)){
-              label = 'great';
-            } else {
-              label = 'best';
+          /* Gate thêm: không brilliant nếu là nước duy nhất hợp lệ (forced).
+             Sacrifice "đi đúng sách" nhưng thực ra không có lựa chọn khác
+             không xứng đáng gọi là brilliant. */
+          var notForced = (savedPlayerLegalCount > 1);
+          if(notForced){
+            tStart('evalAfterSac');
+            evalPlayer = -evalMove(gB, gTurn, gEP, gCasB, gHash);
+            tEnd('evalAfterSac');
+            var evalDrop = Math.max(0, savedEval - evalPlayer);
+            if(evalDrop <= 50){
+              label = 'brilliant';
             }
           }
+        }
+        /* Nếu không brilliant → xét great/greatDef/best
+           Logic mới: ưu tiên delta eval (cải thiện thực sự) hơn legalCount.
+           legalCount vẫn dùng nhưng chỉ là yếu tố phụ, không phải điều kiện chính.
+
+           greatDef: phòng thủ xuất sắc — đang thua nặng (savedEval < -300)
+             VÀ nước đi cải thiện eval đáng kể (cần evalPlayer để đo).
+             Không còn phụ thuộc vào legalCount <= 3 vì nhiều nước phòng thủ hay
+             vẫn có nhiều lựa chọn trên bàn.
+             Tuy nhiên để tránh gọi evalPlayer ở đây (tốn thêm 100-300ms),
+             dùng một heuristic an toàn: đang thua rõ + isBestMove + là capture/check.
+
+           great: nước tấn công/chiến thuật xuất sắc — là best + có forcing element
+             (capture quân nặng, chiếu, hoặc thoát bẫy khi ít nước).
+             Bỏ điều kiện onlyEscape=legalCount<=2 vì quá cứng.               */
+        var onlyEscape = (savedPlayerLegalCount <= 1);  /* thực sự forced: 1 nước duy nhất */
+        var isTactical = !!(mv[2] && PVAL[typ(mv[2])] >= 300);  /* bắt quân nặng */
+        var givesCheck = playerGivesCheck;
+        var escapeMove = (savedPlayerLegalCount <= 3 && savedEval < -400);
+
+        if(!onlyEscape && savedEval < -300 && (isTactical || givesCheck || escapeMove)){
+          /* Đang thua rõ + nước có forcing element → Great Defense */
+          label = 'greatDef';
+        } else if(!onlyEscape && (isTactical || givesCheck)){
+          /* Thế cân bằng hoặc đang thắng + capture/chiếu xuất sắc → Great */
+          label = 'great';
+        } else {
+          label = 'best';
         }
       }
 
@@ -3610,15 +3662,19 @@ function execMove(mv){
            - Người đang thua rõ (savedEval < -250) → luôn chạy để bắt mistake  */
       var cpLoss = 0;
       if(!label && !isBestMove){
-        var shouldRunEvalPlayer = function(sv, evalNowVal, isBest){
-          if(isBest) return false;                          /* đã best — không cần */
-          if(Math.abs(evalNowVal) <= 150) return false;    /* thế cân bằng — cpLoss không đáng kể */
-          if(sv < -250) return true;                       /* người đang thua rõ — luôn chạy */
-          if(sv > 900) return false;                       /* người đang thắng rất rõ — skip an toàn */
-          return true;                                     /* còn lại: chạy */
+        /* shouldRunEvalPlayer: quyết định có cần tính cpLoss không.
+           Nguyên tắc: chạy khi có khả năng phân biệt mistake vs ok.
+           - Thế hoàn toàn cân bằng (|evalNow| <= 100): cpLoss nhỏ → skip
+           - Đang thắng rõ (savedEval >= 500): cần chạy để bắt missedWin
+             (bỏ skip cũ khi savedEval > 900 — sai vì bỏ sót missedWin lớn)
+           - Đang thua nặng (savedEval < -400): chạy để bắt mistake
+           - Còn lại: chạy nếu thế không cân bằng rõ ràng                   */
+        var shouldRunEvalPlayer = function(sv, evalNowVal){
+          if(Math.abs(evalNowVal) <= 100) return false;   /* thế cân, cpLoss không đáng */
+          if(isMateScore(sv)) return false;               /* missedMate đã xử lý ở bước 1 */
+          return true;                                    /* mọi thế khác: chạy */
         };
-        if(!shouldRunEvalPlayer(savedEval, gPendingEvalNow, isBestMove)){
-          /* Không đủ điều kiện chạy evalPlayer — bỏ qua */
+        if(!shouldRunEvalPlayer(savedEval, gPendingEvalNow)){
           tMark('evalSkip');
         } else {
           tStart('evalPlayer');
@@ -3629,17 +3685,26 @@ function execMove(mv){
       }
 
       /* ── BƯỚC 5: Missed Win ────────────────────────────────────────────────
-         savedEval >= 600: người đang thắng rõ TRƯỚC nước đi
-         evalPlayer <= 50: sau nước đi lợi thế gần như biến mất
-         cpLoss >= 400: mất ít nhất 4 tốt — đủ nghiêm trọng để gắn nhãn     */
-      if(!label && !isBestMove && savedEval >= 600 && evalPlayer <= 50 && cpLoss >= 400){
+         Điều kiện: người đang thắng rõ TRƯỚC nước đi (savedEval >= 500)
+         VÀ sau nước đi lợi thế giảm mạnh (cpLoss >= 300)
+         VÀ vị trí sau nước đi không còn thắng rõ (evalPlayer < 150).
+         Siết từ cpLoss>=400/evalPlayer<=50 cũ → tránh false positive
+         ở thế chiến thuật phức tạp nơi eval dao động nhiều.                */
+      if(!label && !isBestMove && savedEval >= 500 && cpLoss >= 300 && evalPlayer < 150){
         label = 'missedWin';
       }
 
-      /* ── BƯỚC 6: Mistake ───────────────────────────────────────────────────
-         cpLoss > 100: mất hơn 1 tốt so với nước tốt nhất.
-         Ngưỡng thấp hơn missedWin — bắt các sai lầm vừa không nghiêm trọng.*/
-      if(!label && !isBestMove && cpLoss > 100){
+      /* ── BƯỚC 6: Blunder (qua cpLoss) ────────────────────────────────────
+         cpLoss >= 250: mất ≥ 2.5 tốt — nghiêm trọng nhưng không phải missedWin.
+         Blunder nhẹ hơn từ luồng độc lập (aiWillCaptureHeavy, hanging piece)
+         đã được bắt ở trên; đây là blunder chiến lược qua eval.            */
+      if(!label && !isBestMove && cpLoss >= 250){
+        label = 'blunder';
+      }
+
+      /* ── BƯỚC 7: Mistake ───────────────────────────────────────────────────
+         cpLoss >= 100: mất hơn 1 tốt — sai lầm vừa, không nghiêm trọng.   */
+      if(!label && !isBestMove && cpLoss >= 100){
         label = 'mistake';
       }
 
