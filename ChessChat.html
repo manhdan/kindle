@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 =========================================================
-   CHESSLIKE ENGINE ChessChatPC (2026/05/29b): qsearch check evasion qply<=2, dev penalty 40cp, queen pressure 40cp, castling urgency 70cp+open center+35→40, book e4/d4 depth14
+   CHESSLIKE ENGINE ChessChatPC (2026/05/29c): king safety uncastled scan wide + pawn shield kingside/queenside, fix nr/nf undeclared var
    Base: ChessChat9 (2026/05/27): pendingBest always-run + gUseFastEval + BESTMOVE_MAX_MS + gGameToken + mvEq + gPendingEvalComplete
 ---------------------------------------------------------
    Lightweight JavaScript chess engine optimized for:
@@ -1701,32 +1701,63 @@ function evalKingSafety(board, kingW, kingB, phase){
 
 function oneKingSafety(board, side, ksq){
   if(ksq<0) return 0;
-  var r=rk(ksq), f=fl(ksq), score=0, ff, i;
+  var r=rk(ksq), f=fl(ksq), score=0, ff, i, nr, nf;
 
-  /* Penalty lạc vị: tăng từ 45 → 80cp */
+  /* Penalty lạc vị */
   if(side===W && ksq!==4 && ksq!==6 && ksq!==2) score -= 80;
   if(side===B && ksq!==60 && ksq!==62 && ksq!==58) score -= 80;
 
-  /* Penalty vua đi xa hàng xuất phát: tăng hệ số 18 → 25 */
+  /* Penalty vua đi xa hàng xuất phát */
   if(side===W && r>1) score -= 50 + (r-1)*25;
   if(side===B && r<6) score -= 50 + (6-r)*25;
 
-  /* Shield pawns: tăng penalty 12/7 → 22/12 */
+  /* Shield pawns xung quanh vua hiện tại */
   var shieldRank = r + side;
   if(ob(shieldRank,f)  && board[sq(shieldRank,f)]  !==side*WP) score -= 22;
   for(ff=f-1;ff<=f+1;ff+=2){
     if(ob(shieldRank,ff) && board[sq(shieldRank,ff)]!==side*WP) score -= 12;
   }
 
-  /* Cột mở/nửa mở hướng vào vua: duyệt 3 cột xung quanh vua.
-     Mỗi cột hoàn toàn trống tốt (không có tốt nào) → -25cp.
-     Cột nửa mở (không có tốt mình) → -12cp.
-     Nếu trên cột đó đối phương có Xe hoặc Hậu → thêm -20cp (nguy hiểm trực tiếp).
-     Ý nghĩa: xe/hậu đối phương trên cột mở tiếp cận vua dễ hơn.  */
+  /* Khi vua chưa nhập thành (e1/e8), kiểm tra thêm pawn shield
+     theo cả hai hướng nhập thành tiềm năng (kingside g/h, queenside b/c).
+     Tốt f/g/h nguyên → an toàn nhập thành kingside.
+     Tốt b/c/d nguyên → an toàn nhập thành queenside.
+     Mất tốt f hoặc g → mất 20cp (cột gần vua), mất tốt h → 10cp.        */
+  var uncastled = (side===W && ksq===4) || (side===B && ksq===60);
+  if(uncastled){
+    var homeRank = (side===W) ? 1 : 6;  /* hàng xuất phát tốt */
+    var ownP = side*WP;
+    /* Kingside potential: f,g,h */
+    if(!board[sq(homeRank,5)]) score -= 20;   /* f */
+    if(!board[sq(homeRank,6)]) score -= 20;   /* g — quan trọng nhất */
+    if(!board[sq(homeRank,7)]) score -= 10;   /* h */
+    /* Queenside potential: b,c,d */
+    if(!board[sq(homeRank,1)]) score -= 10;   /* b */
+    if(!board[sq(homeRank,2)]) score -= 10;   /* c */
+    if(!board[sq(homeRank,3)]) score -= 10;   /* d */
+    /* Tốt ở homeRank là tốt chưa đi — check đúng hơn là tốt bất kỳ trên cột */
+    /* Sửa: check tốt trên rank 2(W)/7(B) tức homeRank cộng hướng */
+    var pr = (side===W) ? 1 : 6;
+    if(board[sq(pr,5)]!==ownP) score -= 5;
+    if(board[sq(pr,6)]!==ownP) score -= 15;  /* g2/g7 mất = nguy hiểm */
+    if(board[sq(pr,7)]!==ownP) score -= 5;
+  }
+
+  /* Cột mở/nửa mở: scan 3 cột xung quanh vua.
+     Thêm: khi vua chưa nhập thành, scan rộng hơn về phía kingside (g,h).  */
   var ownPawn = side * WP;
   var enemyRook = -side * WR;
   var enemyQueen = -side * WQ;
-  for(ff = Math.max(0,f-1); ff <= Math.min(7,f+1); ff++){
+  var scanMin = Math.max(0, f-1);
+  var scanMax = Math.min(7, f+1);
+  /* Mở rộng scan về kingside khi chưa nhập thành */
+  if(uncastled){
+    scanMax = Math.min(7, 7);   /* scan đến cột h */
+    scanMin = Math.max(0, 1);   /* scan từ cột b */
+  }
+  for(ff = scanMin; ff <= scanMax; ff++){
+    /* Chỉ scan cột f±1 thông thường hoặc toàn bộ khi uncastled */
+    if(!uncastled && (ff < f-1 || ff > f+1)) continue;
     var hasOwn=false, hasEnemy=false, hasRookOrQueen=false, rr;
     for(rr=0;rr<8;rr++){
       var pc=board[sq(rr,ff)];
@@ -1734,14 +1765,14 @@ function oneKingSafety(board, side, ksq){
       if(pc===-ownPawn) hasEnemy=true;
       if(pc===enemyRook || pc===enemyQueen) hasRookOrQueen=true;
     }
-    if(!hasOwn && !hasEnemy) score -= 25;
-    else if(!hasOwn)          score -= 12;
-    if(hasRookOrQueen && !hasOwn) score -= 20;  /* xe/hậu địch trên cột mở/nửa mở */
+    /* Khi uncastled, penalty giảm nhẹ (/ 2) vì vua chưa thực sự ở đây */
+    var div = uncastled ? 2 : 1;
+    if(!hasOwn && !hasEnemy) score -= (25 / div) | 0;
+    else if(!hasOwn)          score -= (12 / div) | 0;
+    if(hasRookOrQueen && !hasOwn) score -= (20 / div) | 0;
   }
 
-  /* King mobility: đếm ô thoát hiểm không bị đối phương tấn công.
-     Phạt khi bị nhốt (escape <= 1: -60cp, escape <= 2: -30cp).
-     Dùng attacked() — gọi tối đa 8 lần, chấp nhận được trong evaluate(). */
+  /* King mobility */
   var escape=0;
   var DIRS=[[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
   for(i=0;i<8;i++){
@@ -1749,7 +1780,7 @@ function oneKingSafety(board, side, ksq){
     if(!ob(nr,nf)) continue;
     var sq2=sq(nr,nf);
     var occ=board[sq2];
-    if(occ && col(occ)===side) continue;  /* bị quân mình chặn */
+    if(occ && col(occ)===side) continue;
     if(!attacked(board,sq2,-side)) escape++;
   }
   if(escape<=1) score -= 60;
