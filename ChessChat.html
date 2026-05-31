@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 =========================================================
-   CHESSLIKE ENGINE ChessChatPC (2026/05/29c): king safety uncastled scan wide + pawn shield kingside/queenside, fix nr/nf undeclared var
+   CHESSLIKE ENGINE ChessChatPC (2026/05/29e): trapped queen penalty 500/300/80/25cp, trapped rook, king safety wide scan, French Advance Qb6 book lines
    Base: ChessChat9 (2026/05/27): pendingBest always-run + gUseFastEval + BESTMOVE_MAX_MS + gGameToken + mvEq + gPendingEvalComplete
 ---------------------------------------------------------
    Lightweight JavaScript chess engine optimized for:
@@ -1561,19 +1561,72 @@ function evalCenterControl(board, phase){
 function evalTrappedPieces(board, queenWsq, queenBsq, phase){
   if(phase < 0.3) return 0;
   var score=0;
-  /* Hậu trắng bị nhốt: đếm số ô hậu có thể đến */
+
+  /* Hậu bị nhốt: penalty mạnh vì thực tế gần như mất hậu.
+     mobility=0: -500cp (không thể đi đâu = mất hậu)
+     mobility=1: -300cp (1 ô duy nhất = dễ bị bẫy tiếp)
+     mobility≤3: -80cp  (hạn chế nghiêm trọng)
+     mobility≤5: -25cp  (hơi bị kẹt)
+     Ngưỡng cũ 60cp quá nhẹ — khi hậu bị bẫy thực sự
+     negamax không đủ signal để tránh nước dẫn đến trap.  */
   if(queenWsq>=0){
     var wMob = countQueenMoves(board, queenWsq, W);
-    if(wMob <= 1) score -= 60;
-    else if(wMob <= 3) score -= 25;
+    if(wMob === 0)      score -= 500;
+    else if(wMob === 1) score -= 300;
+    else if(wMob <= 3)  score -= 80;
+    else if(wMob <= 5)  score -= 25;
   }
-  /* Hậu đen bị nhốt */
   if(queenBsq>=0){
     var bMob = countQueenMoves(board, queenBsq, B);
-    if(bMob <= 1) score += 60;
-    else if(bMob <= 3) score += 25;
+    if(bMob === 0)      score += 500;
+    else if(bMob === 1) score += 300;
+    else if(bMob <= 3)  score += 80;
+    else if(bMob <= 5)  score += 25;
   }
+
+  /* Xe bị nhốt ở góc khi vua chưa nhập thành (classic trapped rook).
+     Ví dụ: Ra1 bị chặn bởi Nb1 hoặc Bc1 → xe không phát triển được.
+     Chỉ check khi phase cao (khai/trung cuộc) vì tàn cuộc xe ở góc OK. */
+  if(phase > 0.5){
+    /* Xe trắng ở a1/h1 bị chặn bởi quân mình */
+    if(board[0]===WR){
+      var rookMob0 = countRookMoves(board, 0, W);
+      if(rookMob0 <= 1) score -= 40;
+    }
+    if(board[7]===WR){
+      var rookMob7 = countRookMoves(board, 7, W);
+      if(rookMob7 <= 1) score -= 40;
+    }
+    /* Xe đen ở a8/h8 bị chặn */
+    if(board[56]===BR){
+      var rookMob56 = countRookMoves(board, 56, B);
+      if(rookMob56 <= 1) score += 40;
+    }
+    if(board[63]===BR){
+      var rookMob63 = countRookMoves(board, 63, B);
+      if(rookMob63 <= 1) score += 40;
+    }
+  }
+
   return (score * Math.min(phase, 1.0)) | 0;
+}
+
+function countRookMoves(board, rsq, side){
+  var count=0, dr, df, nr, nf, r=rk(rsq), f=fl(rsq), i, sq2;
+  var RDIRS=[[-1,0],[1,0],[0,-1],[0,1]];
+  for(i=0;i<4;i++){
+    dr=RDIRS[i][0]; df=RDIRS[i][1];
+    nr=r+dr; nf=f+df;
+    while(ob(nr,nf)){
+      sq2=sq(nr,nf);
+      var pc=board[sq2];
+      if(pc && col(pc)===side) break;
+      count++;
+      if(pc) break;
+      nr+=dr; nf+=df;
+    }
+  }
+  return count;
 }
 
 /* Đếm số ô hậu có thể đến (không cần legality check đầy đủ — chỉ cần xấp xỉ) */
@@ -2146,369 +2199,614 @@ function safeRandomMove(board, turn, ep, casB, mvs, rnd) {
 }
 
 var OPENING_BOOK = [
-  /* ── e4 e5 (Open Game) ── */
   ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7'],
-  ['e2e4','e7e5','g1f3','b8c6','f1b5','g8f6','e1g1','f6e4','d2d4','f8e7'],
-  ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','f3d4','g8f6','b1c3','f8b4'],
-  ['e2e4','e7e5','g1f3','b8c6','f1c4','f8c5','e1g1','g8f6','d2d3','e8g8'],
-  ['e2e4','e7e5','g1f3','b8c6','f1c4','g8f6','f3g5','d7d5','e4d5','c6a5'],
-  ['e2e4','e7e5','g1f3','g8f6','f3e5','d7d6','e5f3','f6e4','d2d4','d6d5'],
-  ['e2e4','e7e5','f2f4','e5f4','g1f3','g8f6','e4e5','f6h5','d2d4','d7d6'],
-  /* ── e4 c5 (Sicilian) ── */
-  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','a7a6'],
-  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','g7g6'],
-  ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','g8f6','b1c3','d7d6'],
-  ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','e7e6','b1c3','d8c7'],
-  ['e2e4','c7c5','b1c3','b8c6','g2g3','g7g6','f1g2','f8g7','d2d3','d7d6'],
-  ['e2e4','c7c5','g1f3','e7e6','d2d4','c5d4','f3d4','a7a6','b1c3','d8c7'],
-  ['e2e4','c7c5','g1f3','e7e6','d2d4','c5d4','f3d4','g8f6','b1c3','d7d5'],
-  /* ── e4 e6 (French) ── */
-  ['e2e4','e7e6','d2d4','d7d5','b1c3','g8f6','c1g5','f8e7','e4e5','f6d7'],
-  ['e2e4','e7e6','d2d4','d7d5','b1d2','g8f6','e4e5','f6d7','f1d3','c7c5'],
-  ['e2e4','e7e6','d2d4','d7d5','e4e5','c7c5','c2c3','b8c6','g1f3','d8b6'],
-  ['e2e4','e7e6','d2d4','d7d5','b1c3','f8b4','e4e5','c7c5','a2a3','b4c3'],
-  /* ── e4 c6 (Caro-Kann) ── */
-  ['e2e4','c7c6','d2d4','d7d5','b1c3','d5e4','c3e4','c8f5','e4g3','f5g6'],
-  ['e2e4','c7c6','d2d4','d7d5','e4d5','c6d5','c2c4','g8f6','b1c3','e7e6'],
-  ['e2e4','c7c6','d2d4','d7d5','b1d2','d5e4','d2e4','g8f6','e4f6','e7f6'],
-  ['e2e4','c7c6','g1f3','d7d5','b1c3','c8g4','h2h3','g4f3','d1f3','e7e6'],
-  /* ── e4 d5 (Scandinavian) ── */
-  ['e2e4','d7d5','e4d5','g8f6','d2d4','f6d5','g1f3','c8g4','f1e2','e7e6'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','b7b5','a4b3','d7d6'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7','b1c3','b7b5'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7','d2d3','e8g8'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7','f1e1','b7b5','a4b3','e8g8','c2c3','d7d5'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7','f1e1','b7b5','a4b3','d7d6','c2c3','e8g8','h2h3','b8b6'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7','f1e1','b7b5','a4b3','d7d6','c2c3','e8g8','h2h3','c6a5'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7','f1e1','b7b5','a4b3','d7d6','c2c3','e8g8','d2d4','c8g4'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5c6','d7c6','d2d4','e5d4','d1d4','d8d4','f3d4'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','g8f6','e1g1','f6e4','d2d4','f8e7','d4e5','e4f6'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','g8f6','e1g1','f6e4','d2d4','e4d6','d4e5','d6f5'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','g8f6','d2d4','f6e4','d4e5','e4f6','b5c6','b7c6','d1d8','e8d8'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','f8c5','c2c3','g8f6','d2d4'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','d2d3','f8c5','c2c3','e8g8'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','f8c5','c2c3','g8f6','d2d4','c5b6','d4d5','c6e7'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','b7b5','a4b3','f8e7','f1e1','d7d6','c2c3','e8g8'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','b7b5','a4b3','f8c5','c2c3','d7d6','d2d4','c5b6'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8c5','b1c3','b7b5','a4b3','c5b6','d2d4','e5d4'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','f8c5','c2c3','g8f6','d2d4','e5d4','c3d4','c5b4'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','f8c5','e1g1','g8f6','d2d3','d7d6','c2c3','e8g8'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','f8c5','b2b4','c5b4','c2c3','b4a5','d2d4','e5d4','c3d4'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','g8f6','d2d3','f8c5','e1g1','d7d6','c2c3','e8g8'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','f8c5','d2d3','g8f6','b1c3','d7d6','c1g5','h7h6'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','f8c5','c2c3','g8f6','d2d4','e5d4','e4e5','d7d5'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','g8f6','f3g5','d7d5','e4d5','c6a5','c4b5','c7c6','d5c6','b7c6'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','f8c5','e1g1','g8f6','d2d3','d7d6','b1c3','a7a6'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','f8c5','d2d4','f8c5','d4e5','c6e5','f3e5','d8g5'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','f8c5','b1c3','g8f6','d2d3','d7d6','c1g5','h7h6'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','g8f6','b1c3','f8c5','d2d3','d7d6','e1g1','e8g8'],
+  ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','f3d4','g8f6','b1c3','f8b4','d4c6','b7c6','f2f3'],
+  ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','f3d4','d8h4','b1c3','f8b4','f1e2','h4e4'],
+  ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','f3d4','g8f6','b1c3','f8c5','c1e3','d8h4'],
+  ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','f3d4','g8f6','b1c3','f8b4','f1c4','e8g8'],
+  ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','f3d4','g8f6','d4c6','b7c6','e4e5','d8e7','d1e2','f6d5'],
+  ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','f3d4','f8c5','c1e3','d8h4','g2g3','d8e4'],
+  ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','f3d4','g8f6','f1c4','f8c5','d4b3','c5b6'],
+  ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','f3d4','g8e7','b1c3','g7g6','f1c4','f8g7'],
+  ['e2e4','e7e5','g1f3','b8c6','b1c3','g8f6','f1b5','f8b4','e1g1','e8g8','d2d3','d7d6'],
+  ['e2e4','e7e5','g1f3','b8c6','b1c3','g8f6','d2d4','e5d4','f3d4','f8b4','d4c6','b7c6','f1d3'],
+  ['e2e4','e7e5','g1f3','b8c6','b1c3','g8f6','f1b5','b8d4','f3d4','e5d4','e4e5','d4c2','d1c2'],
+  ['e2e4','e7e5','b1c3','g8f6','f2f4','d7d5','f4e5','f6e4','d1f3','e4c3'],
+  ['e2e4','e7e5','b1c3','b8c6','g2g3','g7g6','f1g2','f8g7','d2d3','g8e7'],
+  ['e2e4','e7e5','b1c3','g8f6','f1c4','f6e4','d1h5','e4d6','c4b3','b8c6'],
+  ['e2e4','e7e5','f2f4','e5f4','g1f3','d7d5','e4d5','g8f6','f1b5','b8d7','e1g1','f8d6'],
+  ['e2e4','e7e5','f2f4','e5f4','g1f3','g7g5','h2h4','g5g4','f3g5','h7h6','g5h3'],
+  ['e2e4','e7e5','f2f4','e5f4','f1c4','g8f6','b1c3','f8b4','g1f3','e8g8','e1g1'],
+  ['e2e4','e7e5','f2f4','f7f5','e4f5','e5e4','d2d3','e4d3','f1d3','g8f6'],
+  ['e2e4','e7e5','g1f3','g8f6','f3e5','d7d6','e5f3','f6e4','d2d4','d6d5','f1d3','b8c6'],
+  ['e2e4','e7e5','g1f3','g8f6','b1c3','b8c6','f1b5','f8b4','e4e5','f6e4','e1g1','e4c3'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','a7a6','c1g5','e7e6','f2f4','d8b6'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','a7a6','g2g3','e7e5','d4e2'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','a7a6','f1e2','e7e5','d4b3','f8e7'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','a7a6','f2f3','e7e5','d4b3','f8e7'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','a7a6','f1c4','e7e6','c4b3'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','a7a6','a2a4','b8c6','f1e2'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','a7a6','h2h3','b7b5','g2g4'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','a7a6','c1e3','e7e5','d4b3','c8e6'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','a7a6','g2g3','e7e6','f1g2','f8e7','e1g1','b8c6'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','a7a6','f1c4','e7e6','c4b3','b7b5'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','a7a6','f2f4','d8c7','g1f3','b8c6','f1d3','g7g6'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','a7a6','c1e3','e7e5','d4b3','f8e7','f2f3','c8e6','g2g4'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','g7g6','c1e3','f8g7','f2f3','b8c6','d1d2','e8g8'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','g7g6','f1e2','f8g7','e1g1','b8c6','d4b3'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','g7g6','f1e2','f8g7','e1g1','e8g8','d4e6'],
+  ['e2e4','c7c5','g1f3','g7g6','d2d4','c5d4','f3d4','b8c6','f1e3','f8g7','c2c4','g8f6','b1c3','e8g8'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','g7g6','c1e3','f8g7','f2f3','b8c6','d1d2','e8g8','e1c1'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','g7g6','f2f3','f8g7','c1e3','b8c6','d1d2','d7d5'],
+  ['e2e4','c7c5','g1f3','e7e6','d2d4','c5d4','f3d4','g8f6','b1c3','d7d6','g2g4','b8c6','g4g5','f6d7'],
+  ['e2e4','c7c5','g1f3','e7e6','d2d4','c5d4','f3d4','g8f6','b1c3','d7d6','f1e2','a7a6','e1g1','d8c7'],
+  ['e2e4','c7c5','g1f3','e7e6','d2d4','c5d4','f3d4','g8f6','b1c3','d7d6','c1e3','f8e7','f2f4'],
+  ['e2e4','c7c5','g1f3','e7e6','d2d4','c5d4','f3d4','g8f6','b1c3','d7d6','f2f4','b8c6','f1e2','f8e7'],
+  ['e2e4','c7c5','g1f3','e7e6','d2d4','c5d4','f3d4','b8c6','b1c3','d8c7','f1e2','a7a6','e1g1','g8f6'],
+  ['e2e4','c7c5','g1f3','e7e6','d2d4','c5d4','f3d4','g8f6','b1c3','d7d6','f1e2','a7a6','e1g1','b7b5','a2a3'],
+  ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','g8f6','b1c3','d7d6','f1g5','e7e6','d1d2','a7a6'],
+  ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','g8f6','b1c3','d7d6','f1g5','e7e6','g5f6','g7f6'],
+  ['e2e4','c7c5','g1f3','e7e6','d2d4','c5d4','f3d4','a7a6','b1c3','d8c7','f1d3','b8c6','d4b3'],
+  ['e2e4','c7c5','g1f3','e7e6','d2d4','c5d4','f3d4','b8c6','b1c3','a7a6','f1e2','d8c7'],
+  ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','e7e6','b1c3','a7a6','g2g3','d8c7','f1g2','g8f6','e1g1'],
+  ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','g7g6','b1c3','f8g7','f1e3','g8f6','f1c4','e8g8'],
+  ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','e7e5','d4b5','d7d6','b5d6','c8d7'],
+  ['e2e4','c7c5','c2c3','g8f6','e4e5','f6d5','g1f3','e7e6','d2d4','c5d4','c3d4','b8c6'],
+  ['e2e4','c7c5','c2c3','d7d5','e4d5','d8d5','d2d4','b8c6','g1f3','c8g4','f1e2','e7e6'],
+  ['e2e4','c7c5','c2c3','g8f6','e4e5','f6d5','d2d4','c5d4','c3d4','e7e6','g1f3','b7b6'],
+  ['e2e4','c7c5','c2c3','b8c6','d2d4','d7d5','e4d5','d8d5','g1f3','c8g4','f1e2','e7e6'],
+  ['e2e4','c7c5','c2c3','e7e6','d2d4','d7d5','e4e5','b8c6','g1f3','d8b6','a2a3','g8h6'],
+  ['e2e4','c7c5','c2c3','g8f6','e4e5','f6d5','g1f3','b8c6','f1c4','d5b6','c4b3','d7d5'],
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','g8f6','c1g5','f8e7','e4e5','f6d7','g5e7','d8e7'],
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','g8f6','c1g5','d8b6','c1d2','f8b4'],
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','g8f6','c1g5','f8b4','e4e5','h7h6','g5d2','b4c3','b2c3','f6e4'],
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','g8f6','c1g5','h7h6','g5f6','d8f6','g1f3','f8b4'],
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','g8f6','c1g5','f8e7','e4e5','f6d7','h2h4','a7a6'],
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','g8f6','c1g5','f8e7','e4e5','f6d7','g5e7','d8e7','f2f4','a7a6','g1f3'],
+  ['e2e4','e7e6','d2d4','d7d5','b1d2','g8f6','e4e5','f6d7','f1d3','c7c5','c2c3','b8c6'],
+  ['e2e4','e7e6','d2d4','d7d5','b1d2','c7c5','g1f3','g8f6','e4d5','e6d5','f1b5','b8d7'],
+  ['e2e4','e7e6','d2d4','d7d5','b1d2','f8e7','g1f3','g8f6','e4e5','f6d7','f1d3','c7c5'],
+  ['e2e4','e7e6','d2d4','d7d5','b1d2','b8c6','g1f3','g8f6','e4e5','f6d7','b1b3','f7f6'],
+  ['e2e4','e7e6','d2d4','d7d5','e4e5','c7c5','c2c3','b8c6','g1f3','d8b6','a2a3','g8h6'],
+  ['e2e4','e7e6','d2d4','d7d5','e4e5','c7c5','c2c3','b8c6','g1f3','d8b6','f1d3','c5d4','c3d4','g8h6'],
+  ['e2e4','e7e6','d2d4','d7d5','e4e5','c7c5','c2c3','b8c6','g1f3','d8b6','f1e2','c5d4','c3d4','g8f6','b1c3'],
+  ['e2e4','e7e6','d2d4','d7d5','e4e5','c7c5','g1f3','b8c6','c2c3','d8b6','a2a3','c5d4','c3d4'],
+  ['e2e4','e7e6','d2d4','d7d5','e4e5','c7c5','c2c3','g8e7','g1f3','b8c6','a2a3'],
+  ['e2e4','e7e6','d2d4','d7d5','e4e5','c7c5','c2c3','b8c6','g1f3','d8b6','f1d3','c5d4','c3d4','c8d7'],
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','f8b4','e4e5','c7c5','a2a3','b4c3','b2c3','g8e7'],
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','f8b4','e4e5','c7c5','a2a3','b4c3','b2c3','d8c7','d1g4'],
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','f8b4','a2a3','b4c3','b2c3','d7e4','d1g4'],
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','f8b4','g1e2','g8f6','e4e5','f6d7','a2a3','b4c3','b2c3'],
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','f8b4','e2e3','g8f6','f1d3','b8c6','g1f3','e8g8'],
+  ['e2e4','e7e6','d2d4','d7d5','e4d5','e6d5','b1c3','g8f6','g1f3','f8d6','f1d3','e8g8'],
+  ['e2e4','e7e6','d2d4','d7d5','e4d5','e6d5','g1f3','g8f6','f1d3','f8d6','e1g1','e8g8'],
+  ['e2e4','c7c6','d2d4','d7d5','b1c3','d5e4','c3e4','c8f5','e4g3','f5g6','h2h4','h7h6'],
+  ['e2e4','c7c6','d2d4','d7d5','b1c3','d5e4','c3e4','b8d7','g1f3','g8f6','e4f6','d7f6'],
+  ['e2e4','c7c6','d2d4','d7d5','b1c3','d5e4','c3e4','g8f6','e4f6','e7f6','c2c3','f8d6'],
+  ['e2e4','c7c6','d2d4','d7d5','e4e5','c8f5','g1f3','e7e6','f1e2','b8d7','e1g1','g8e7'],
+  ['e2e4','c7c6','d2d4','d7d5','e4e5','c8f5','b1c3','e7e6','g2g4','c8g6','g4g5'],
+  ['e2e4','c7c6','d2d4','d7d5','e4d5','c6d5','c2c4','g8f6','b1c3','b8c6','g1f3','e7e6'],
+  ['e2e4','c7c6','d2d4','d7d5','e4d5','c6d5','c2c4','g8f6','b1c3','b8c6','c1g5','e7e6'],
+  ['e2e4','c7c6','d2d4','d7d5','b1d2','d5e4','d2e4','c8f5','e4g3','f5g6','g1f3','b8d7'],
+  ['e2e4','c7c6','g1f3','d7d5','b1c3','c8g4','h2h3','g4f3','d1f3','e7e6','d2d4','g8f6'],
+  ['e2e4','c7c6','g1f3','d7d5','e4d5','c6d5','d2d4','b8c6','f1e2','c8g4','h2h3','g4f3'],
+  ['e2e4','c7c6','d2d4','d7d5','b1c3','d5e4','c3e4','g8f6','e4f6','e7f6','g1f3','f8d6','c1d2','e8g8'],
+  ['e2e4','c7c6','d2d4','d7d5','e4e5','c8f5','g1f3','e7e6','f1e2','g8e7','b1a3','b8d7'],
   ['e2e4','d7d5','e4d5','d8d5','b1c3','d5a5','d2d4','g8f6','g1f3','c8f5'],
-  /* ── e4 g6 / e4 d6 (Pirc/Modern) ── */
-  ['e2e4','g7g6','d2d4','f8g7','b1c3','d7d6','g1f3','g8f6','f1e2','e8g8'],
-  ['e2e4','d7d6','d2d4','g8f6','b1c3','g7g6','g1f3','f8g7','f1e2','e8g8'],
-  /* ── d4 d5 (Queen's Gambit) ── */
-  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','c1g5','f8e7','e2e3','e8g8'],
-  ['d2d4','d7d5','c2c4','e7e6','g1f3','g8f6','b1c3','f8e7','c1g5','e8g8'],
-  ['d2d4','d7d5','c2c4','d5c4','g1f3','g8f6','e2e3','e7e6','f1c4','c7c5'],
-  ['d2d4','d7d5','c2c4','c7c6','g1f3','g8f6','b1c3','d5c4','a2a4','c8f5'],
-  ['d2d4','d7d5','c2c4','c7c6','b1c3','g8f6','e2e3','e7e6','g1f3','b8d7'],
-  ['d2d4','d7d5','g1f3','g8f6','c2c4','e7e6','b1c3','f8e7','c1g5','e8g8'],
-  /* ── d4 Nf6 (Indian Systems) ── */
-  ['d2d4','g8f6','c2c4','e7e6','g1f3','d7d5','b1c3','f8e7','c1g5','e8g8'],
-  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','e2e3','e8g8','f1d3','d7d5'],
-  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','g1f3','e8g8'],
-  ['d2d4','g8f6','c2c4','g7g6','g2g3','f8g7','f1g2','e8g8','b1c3','d7d6'],
-  ['d2d4','g8f6','c2c4','c7c5','d4d5','e7e6','b1c3','e6d5','c4d5','d7d6'],
-  ['d2d4','g8f6','c2c4','e7e6','g1f3','b7b6','g2g3','c8b7','f1g2','f8e7'],
-  ['d2d4','g8f6','c2c4','e7e6','g1f3','b7b6','b1c3','c8b7','a2a3','d7d5'],
-  ['d2d4','g8f6','g1f3','e7e6','c2c4','d7d5','b1c3','f8e7','c1g5','e8g8'],
-  ['d2d4','g8f6','g1f3','g7g6','g2g3','f8g7','f1g2','e8g8','e1g1','d7d6'],
-  /* ── d4 f5 (Dutch) ── */
-  ['d2d4','f7f5','g2g3','g8f6','f1g2','e7e6','g1f3','f8e7','e1g1','e8g8'],
-  ['d2d4','f7f5','c2c4','g8f6','g2g3','e7e6','f1g2','f8e7','g1f3','e8g8'],
-  /* ── c4 (English) ── */
-  ['c2c4','e7e5','b1c3','g8f6','g1f3','b8c6','g2g3','f8b4','f1g2','e8g8'],
-  ['c2c4','e7e5','b1c3','g8f6','g1f3','b8c6','d2d4','e5d4','f3d4','f8b4'],
-  ['c2c4','g8f6','b1c3','e7e5','g1f3','b8c6','g2g3','f8b4','f1g2','e8g8'],
-  ['c2c4','g8f6','g1f3','g7g6','g2g3','f8g7','f1g2','e8g8','e1g1','d7d6'],
-  ['c2c4','c7c5','g1f3','g8f6','b1c3','b8c6','g2g3','g7g6','f1g2','f8g7'],
-  ['c2c4','e7e6','b1c3','d7d5','d2d4','g8f6','g1f3','f8e7','c1g5','e8g8'],
-  /* ── Nf3 systems ── */
-  ['g1f3','d7d5','d2d4','g8f6','c2c4','e7e6','b1c3','f8e7','c1g5','e8g8'],
-  ['g1f3','d7d5','g2g3','g8f6','f1g2','e7e6','e1g1','f8e7','d2d4','e8g8'],
-  ['g1f3','g8f6','c2c4','e7e6','g2g3','d7d5','f1g2','f8e7','e1g1','e8g8'],
-  /* ══════════════════════════════════════════════════════════════════
-     g3 SYSTEM — 1.g3 2.Bg2 3.Nf3 4.0-0 (King's Fianchetto / Barcza)
-     Đây là hệ thống trắng dùng thường xuyên nhất.
-     Ưu tiên cover đầy đủ các đáp trả của đen: e5, d5, Nf6, c5, g6.
-     ══════════════════════════════════════════════════════════════════ */
-
-  /* vs 1...e5 (đen chiếm trung tâm ngay) */
-  /* 5.c3 lines — trắng củng cố trước khi d4 */
-  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','f8c5','c2c3','e8g8'],
-  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','f8c5','c2c3','d7d6','d2d4','f8e8'],
-  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','f8c5','c2c3','a7a6','d2d4','f8e8'],
-  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','f8b4','c2c3','f8c5','d2d4','e5d4'],
-  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','f8b4','c2c3','f8c5','d2d4','c5b6'],
-  /* 5.e4 lines — King's Indian Attack style */
-  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','f8e7','e2e4','e8g8'],
-  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','f8e7','e2e4','d7d6','d2d3','e8g8'],
-  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','d7d6','d2d3','f8e7','e2e4','e8g8'],
-  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','d7d6','d2d3','c8e6','b1d2','d8d7'],
-  /* vs ...e5 Nc6 với tượng g4 */
-  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','c8g4','h2h3','g4h5','d2d3','f8e7'],
-  ['g2g3','e7e5','f1g2','b8c6','g1f3','g8f6','e1g1','f8c5','c2c3','e8g8','d2d4','f8e8'],
-  /* vs ...e5 ...d6 setup */
-  ['g2g3','e7e5','f1g2','d7d6','g1f3','g8f6','e1g1','f8e7','d2d3','e8g8','b1d2','b8c6'],
-  ['g2g3','e7e5','f1g2','d7d6','g1f3','b8c6','e1g1','g8f6','d2d3','f8e7','b1d2','e8g8'],
-  ['g2g3','e7e5','f1g2','d7d6','g1f3','c8e6','e1g1','g8f6','d2d3','f8e7','b1d2','e8g8'],
-
-  /* vs 1...d5 (Queen pawn response) */
-  /* 5.c4 — Catalan/English transpose */
-  ['g2g3','d7d5','f1g2','g8f6','g1f3','e7e6','e1g1','f8e7','c2c4','e8g8','d2d4','c7c6'],
-  ['g2g3','d7d5','f1g2','g8f6','g1f3','e7e6','e1g1','f8e7','c2c4','e8g8','b1c3','b8d7'],
-  ['g2g3','d7d5','f1g2','g8f6','g1f3','e7e6','e1g1','c7c5','c2c4','d5c4','d2d4','b8c6'],
-  ['g2g3','d7d5','f1g2','g8f6','g1f3','c7c6','e1g1','c8f5','d2d3','e7e6','b1d2','f8e7'],
-  ['g2g3','d7d5','f1g2','g8f6','g1f3','c7c6','e1g1','c8g4','h2h3','g4f3','d1f3','e7e6'],
-  /* 5.d3 — solid setup */
-  ['g2g3','d7d5','f1g2','g8f6','g1f3','g7g6','e1g1','f8g7','d2d3','e8g8','b1d2','b8c6'],
-  ['g2g3','d7d5','f1g2','g8f6','g1f3','g7g6','e1g1','f8g7','d2d3','e8g8','c2c4','c7c6'],
-  ['g2g3','d7d5','f1g2','c7c6','g1f3','g8f6','e1g1','c8f5','d2d3','e7e6','b1d2','f8d6'],
-  ['g2g3','d7d5','f1g2','c7c5','g1f3','g8f6','e1g1','b8c6','d2d4','e7e6','c2c4','d5c4'],
-  ['g2g3','d7d5','f1g2','c7c5','g1f3','b8c6','e1g1','g8f6','d2d4','e7e6','c2c4','d5d4'],
-
-  /* vs 1...Nf6 (hypermodern) */
-  ['g2g3','g8f6','f1g2','d7d5','g1f3','e7e6','e1g1','f8e7','d2d3','e8g8','b1d2','b8d7'],
-  ['g2g3','g8f6','f1g2','d7d5','g1f3','e7e6','e1g1','c7c5','c2c4','b8c6','d2d4','d5c4'],
-  ['g2g3','g8f6','f1g2','g7g6','g1f3','f8g7','e1g1','e8g8','d2d3','d7d6','b1d2','b8c6'],
-  ['g2g3','g8f6','f1g2','g7g6','g1f3','f8g7','e1g1','e8g8','c2c4','d7d6','b1c3','b8c6'],
-  ['g2g3','g8f6','f1g2','c7c5','g1f3','b8c6','e1g1','g7g6','c2c4','f8g7','b1c3','e8g8'],
-  ['g2g3','g8f6','f1g2','e7e6','g1f3','d7d5','e1g1','f8e7','d2d3','e8g8','b1d2','c7c5'],
-  ['g2g3','g8f6','f1g2','e7e5','g1f3','b8c6','e1g1','f8c5','d2d3','d7d6','b1d2','e8g8'],
-
-  /* vs 1...c5 (Sicilian-like) */
-  ['g2g3','c7c5','f1g2','b8c6','g1f3','g7g6','e1g1','f8g7','d2d3','d7d6','b1d2','g8f6'],
-  ['g2g3','c7c5','f1g2','b8c6','g1f3','g8f6','e1g1','g7g6','c2c4','f8g7','b1c3','e8g8'],
-  ['g2g3','c7c5','f1g2','g8f6','g1f3','d7d5','e1g1','b8c6','d2d3','g7g6','b1d2','f8g7'],
-  ['g2g3','c7c5','f1g2','g8f6','g1f3','e7e6','e1g1','f8e7','c2c4','e8g8','b1c3','b8c6'],
-
-  /* vs 1...g6 (Modern/Pirc style) */
-  ['g2g3','g7g6','f1g2','f8g7','g1f3','d7d6','e1g1','g8f6','d2d3','e8g8','b1d2','b8c6'],
-  ['g2g3','g7g6','f1g2','f8g7','g1f3','e7e5','e1g1','g8e7','d2d3','e8g8','b1d2','d7d6'],
-  ['g2g3','g7g6','f1g2','f8g7','g1f3','c7c5','e1g1','b8c6','d2d3','d7d6','b1d2','g8f6'],
-
-  /* vs 1...d6 */
-  ['g2g3','d7d6','f1g2','e7e5','g1f3','g8f6','e1g1','f8e7','d2d3','e8g8','b1d2','b8c6'],
-  ['g2g3','d7d6','f1g2','g7g6','g1f3','f8g7','e1g1','g8f6','d2d3','e8g8','b1d2','b8d7'],
-
-  /* ── g3 / b3 / f4 (Flank openings khác) ── */
-  ['g2g3','d7d5','f1g2','g8f6','g1f3','g7g6','e1g1','f8g7','d2d3','e8g8'],
-  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','f8c5','d2d3','e8g8'],
-  ['g2g3','d7d5','g1f3','g8f6','f1g2','c7c6','e1g1','c8f5','d2d3','e7e6'],
-  ['g2g3','g8f6','f1g2','d7d5','g1f3','c7c6','e1g1','c8f5','d2d3','e7e6'],
-  ['b2b3','e7e5','c1b2','b8c6','g1f3','d7d5','e2e3','g8f6','f1b5','f8d6'],
-  ['b2b3','e7e5','c1b2','g8f6','g1f3','b8c6','e2e3','f8d6','f1e2','e8g8'],
-  ['f2f4','d7d5','g1f3','g8f6','e2e3','e7e6','f1e2','f8e7','e1g1','e8g8'],
-  ['f2f4','g8f6','g1f3','g7g6','g2g3','f8g7','f1g2','e8g8','e1g1','d7d5'],
-  ['f2f4','d7d5','g1f3','c7c5','e2e3','g8f6','f1b5','b8d7','e1g1','e7e6'],
-  /* ── Réti ── */
+  ['e2e4','d7d5','e4d5','d8d5','b1c3','d5d8','d2d4','g8f6','g1f3','b8c6'],
+  ['e2e4','d7d5','e4d5','d8d5','b1c3','d5d6','d2d4','g8f6','g1f3','c7c6'],
+  ['e2e4','d7d5','e4d5','g8f6','d2d4','f6d5','g1f3','c8g4','f1e2','e7e6'],
+  ['e2e4','d7d5','e4d5','d8d5','b1c3','d5a5','g1f3','c7c6','f1c4','c8f5','d2d3'],
+  ['e2e4','d7d6','d2d4','g8f6','b1c3','g7g6','g1f3','f8g7','f1e2','e8g8','e1g1'],
+  ['e2e4','d7d6','d2d4','g8f6','b1c3','g7g6','f2f4','f8g7','g1f3','e8g8','e2e5'],
+  ['e2e4','d7d6','d2d4','g8f6','b1c3','g7g6','c1g5','f8g7','d1d2','b8c6','e1g1'],
+  ['e2e4','d7d6','d2d4','g8f6','b1c3','g7g6','g2g3','f8g7','f1g2','e8g8','b1c3'],
+  ['e2e4','g7g6','d2d4','f8g7','b1c3','d7d6','g1f3','g8f6','f1e2','e8g8','e1g1'],
+  ['e2e4','g7g6','d2d4','f8g7','b1c3','d7d6','g1f3','b8c6','f1e3','g8f6','h2h3'],
+  ['e2e4','g7g6','d2d4','f8g7','b1c3','c7c5','g1f3','c5d4','f3d4','b8c6','f1e3'],
+  ['e2e4','g8f6','e4e5','f6d5','d2d4','d7d6','g1f3','d6e5','f3e5','g7g6','f1e2','f8g7'],
+  ['e2e4','g8f6','e4e5','f6d5','c2c4','d5b6','d2d4','d7d6','f2f4','d6e5','f4e5','b8c6'],
+  ['e2e4','g8f6','e4e5','f6d5','d2d4','d7d6','b1c3','d5c3','b2c3','d6e5','d4e5','d8d1'],
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','c1g5','f8e7','e2e3','e8g8','g1f3','b8d7'],
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','c1g5','f8e7','e2e3','e8g8','g1f3','h7h6'],
+  ['d2d4','d7d5','c2c4','e7e6','g1f3','g8f6','b1c3','f8e7','c1g5','e8g8','e2e3','b8d7'],
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','c1g5','b8d7','e2e3','c7c6','g1f3','d8a5'],
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','g1f3','f8e7','c1f4','e8g8','e2e3','c7c5'],
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','c1g5','f8e7','g1f3','b8d7','e2e3','e8g8','f1d3','d5c4','d3c4','b8d5'],
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','g1f3','c7c6','e2e3','b8d7','f1d3','f8d6'],
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','g1f3','c7c6','c1g5','h7h6','g5h4','d8a5'],
+  ['d2d4','d7d5','c2c4','c7c6','g1f3','g8f6','b1c3','e7e6','e2e3','b8d7','f1d3','f8d6'],
+  ['d2d4','d7d5','c2c4','c7c6','g1f3','g8f6','b1c3','e7e6','c1g5','h7h6','g5f4','d8b6'],
+  ['d2d4','d7d5','c2c4','c7c6','g1f3','g8f6','b1c3','a7a6','e2e3','b7b5'],
+  ['d2d4','d7d5','c2c4','c7c6','g1f3','g8f6','b1c3','d5c4','a2a4','c8f5','e2e3','e7e6'],
+  ['d2d4','d7d5','c2c4','c7c6','g1f3','g8f6','b1c3','d5c4','e2e4','b7b5','e4e5','f6d5'],
+  ['d2d4','d7d5','c2c4','c7c6','g1f3','g8f6','e2e3','c8f5','b1c3','e7e6','f1d3','f5d3'],
+  ['d2d4','d7d5','c2c4','d5c4','g1f3','g8f6','e2e3','e7e6','f1c4','c7c5','e1g1','a7a6'],
+  ['d2d4','d7d5','c2c4','d5c4','g1f3','g8f6','b1c3','a7a6','a2a4','c8g4','e2e3','e7e6'],
+  ['d2d4','d7d5','c2c4','d5c4','e2e4','e7e5','g1f3','e5d4','f1c4','b8c6','e1g1','f8e7'],
+  ['d2d4','d7d5','c2c4','d5c4','g1f3','a7a6','e2e3','c8g4','f1c4','e7e6','d1e2'],
+  ['d2d4','d7d5','c2c4','e7e6','c4d5','e6d5','b1c3','g8f6','g1f3','f8e7','c1f4','e8g8'],
+  ['d2d4','d7d5','c2c4','e7e6','c4d5','e6d5','g1f3','g8f6','f1d3','f8d6','e1g1','e8g8'],
+  ['d2d4','d7d5','g1f3','g8f6','c1f4','e7e6','e2e3','f8d6','f4d6','d8d6','c2c3','e8g8'],
+  ['d2d4','d7d5','g1f3','g8f6','c1f4','c7c5','e2e3','b8c6','c2c3','d8b6','d1b3','c5d4'],
+  ['d2d4','d7d5','g1f3','g8f6','c1f4','c8f5','e2e3','e7e6','b1d2','f8e7','f1d3','f5d3'],
+  ['d2d4','d7d5','g1f3','g8f6','c1f4','c7c6','e2e3','d8b6','d1c1','c8f5'],
+  ['d2d4','d7d5','g1f3','g8f6','c1f4','c7c5','e2e3','e7e6','c2c3','b8c6','b1d2'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','d1c2','e8g8','a2a3','b4c3','c2c3','b7b6'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','e2e3','e8g8','f1d3','d7d5','g1f3','c7c5'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','g1f3','b7b6','g2g3','c8b7','f1g2','e8g8'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','f2f3','d7d5','a2a3','b4c3','b2c3','c7c5'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','c1d2','d8e7','a2a3','b4d2','d1d2','e8g8'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','e2e3','b7b6','f1d3','c8b7','g1f3','e8g8'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','d1c2','d7d5','c4d5','e6d5','c1g5','h7h6'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','g1f3','e8g8','f1e2','e7e5'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','g1f3','e8g8','f1e2','b8a6'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','g1f3','e8g8','h2h3','b8d7'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','g1f3','e8g8','c1e3','e7e5','d4d5'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','f2f3','b8c6','d4d5','c6e5'],
+  ['d2d4','g8f6','c2c4','g7g6','g1f3','f8g7','g2g3','e8g8','f1g2','d7d6','e1g1','b8c6'],
+  ['d2d4','g8f6','c2c4','g7g6','g1f3','f8g7','g2g3','e8g8','f1g2','d7d6','e1g1','c7c6'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','d7d5','c4d5','f6d5','e2e4','d5c3','b2c3','f8g7'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','d7d5','g1f3','f8g7','d1b3','d5c4','b3c4','e8g8'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','d7d5','c1f4','f8g7','e2e3','e8g8','g1f3','b8a6'],
+  ['d2d4','g8f6','c2c4','g7g6','g1f3','f8g7','g2g3','e8g8','f1g2','d7d5','c4d5','f6d5'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','d7d5','c4d5','f6d5','e2e4','d5f4','c1f4'],
+  ['d2d4','g8f6','c2c4','e7e6','g1f3','b7b6','g2g3','c8b7','f1g2','f8e7','e1g1','e8g8'],
+  ['d2d4','g8f6','c2c4','e7e6','g1f3','b7b6','b1c3','c8b7','a2a3','d7d5','c4d5','f6d5'],
+  ['d2d4','g8f6','c2c4','e7e6','g1f3','b7b6','e2e3','c8b7','f1d3','d7d5','e1g1','f8d6'],
+  ['d2d4','g8f6','c2c4','e7e6','g1f3','b7b6','g2g3','c8a6','b2b3','f8b4','c1d2','b4e7'],
+  ['d2d4','g8f6','c2c4','e7e6','g1f3','b7b6','b1c3','c8b7','a2a3','d7d5','c4d5','g8d5'],
+  ['d2d4','g8f6','c2c4','e7e6','g1f3','b7b6','c1g5','c8b7','e2e3','h7h6','g5h4','f8e7'],
+  ['d2d4','g8f6','c2c4','e7e6','g2g3','d7d5','f1g2','f8e7','g1f3','e8g8','e1g1','b8d7'],
+  ['d2d4','g8f6','c2c4','e7e6','g2g3','d7d5','f1g2','f8e7','g1f3','e8g8','e1g1','d5c4'],
+  ['d2d4','g8f6','c2c4','e7e6','g2g3','d7d5','g1f3','f8e7','f1g2','e8g8','e1g1','c7c6'],
+  ['d2d4','g8f6','c2c4','e7e6','g2g3','d7d5','f1g2','c7c6','g1f3','b8d7','d1c2','f8d6'],
+  ['d2d4','g8f6','c2c4','e7e6','g2g3','d7d5','f1g2','f8b4','b1d2','e8g8','g1f3','b7b6'],
+  ['d2d4','g8f6','c2c4','e7e6','g1f3','f8b4','c1d2','d8e7','g2g3','b8c6','f1g2','b4d2'],
+  ['d2d4','g8f6','c2c4','e7e6','g1f3','f8b4','b1d2','b7b6','e2e3','c8b7','f1d3','e8g8'],
+  ['d2d4','g8f6','c2c4','e7e5','d4e5','f6g4','g1f3','b8c6','f1f4','f8b4','b1d2'],
+  ['d2d4','g8f6','c2c4','c7c5','d4d5','e7e6','b1c3','e6d5','c4d5','d7d6','e2e4','g7g6'],
+  ['d2d4','g8f6','c2c4','c7c5','d4d5','e7e6','g1f3','e6d5','c4d5','d7d6','b1c3','g7g6'],
+  ['d2d4','g8f6','c2c4','c7c5','d4d5','b7b5','c4b5','a7a6','b5a6','c8a6','b1c3','d7d6'],
+  ['d2d4','c7c5','d4d5','g8f6','c2c4','e7e6','b1c3','e6d5','c4d5','d7d6','g1f3','g7g6'],
+  ['d2d4','f7f5','g2g3','g8f6','f1g2','e7e6','g1f3','f8e7','e1g1','e8g8','c2c4','d7d6'],
+  ['d2d4','f7f5','g2g3','g8f6','f1g2','g7g6','g1f3','f8g7','e1g1','e8g8','b2b4','d7d6'],
+  ['d2d4','f7f5','c2c4','g8f6','b1c3','e7e6','g2g3','f8b4','f1g2','e8g8','g1f3','b4c3'],
+  ['d2d4','f7f5','c2c4','g8f6','g2g3','e7e6','f1g2','f8e7','g1f3','e8g8','e1g1','d7d6'],
+  ['d2d4','f7f5','e2e4','f5e4','b1c3','g8f6','g2g4','e7e6','g4g5','f6d5','c3d5','e6d5'],
+  ['d2d4','f7f5','g2g3','g8f6','f1g2','e7e6','g1f3','f8e7','e1g1','e8g8','c2c4','d7d5'],
+  ['d2d4','f7f5','c2c4','g8f6','g1f3','e7e6','g2g3','f8e7','f1g2','e8g8','e1g1','d7d5'],
+  ['d2d4','f7f5','c2c4','g8f6','b1c3','e7e6','g1f3','f8b4','d1b3','d8e7','g2g3','b8c6'],
+  ['c2c4','e7e5','b1c3','g8f6','g1f3','b8c6','g2g3','f8b4','f1g2','e8g8','e1g1','d7d6'],
+  ['c2c4','e7e5','b1c3','g8f6','g1f3','b8c6','d2d4','e5d4','f3d4','f8b4','d4b5','e8g8'],
+  ['c2c4','e7e5','b1c3','g8f6','g1f3','b8c6','e2e3','f8b4','d1c2','e8g8','a2a3','b4c3'],
+  ['c2c4','e7e5','b1c3','g8f6','g2g3','d7d5','c4d5','f6d5','f1g2','d5b4','g1f3','b8c6'],
+  ['c2c4','g8f6','b1c3','e7e5','g1f3','b8c6','g2g3','f8b4','f1g2','e8g8','e1g1','d7d6'],
+  ['c2c4','g8f6','g1f3','g7g6','g2g3','f8g7','f1g2','e8g8','e1g1','d7d6','d2d3','b8c6'],
+  ['c2c4','c7c5','g1f3','g8f6','b1c3','b8c6','g2g3','g7g6','f1g2','f8g7','e1g1','e8g8'],
+  ['c2c4','e7e6','b1c3','d7d5','d2d4','g8f6','g1f3','f8e7','c1g5','e8g8','e2e3'],
+  ['c2c4','e7e6','g1f3','d7d5','g2g3','g8f6','f1g2','f8e7','e1g1','e8g8','d2d4','c7c6'],
+  ['c2c4','c7c5','b1c3','g8f6','g1f3','e7e6','d2d4','c5d4','f3d4','b8c6','g2g3','d8b6'],
+  ['c2c4','g8f6','b1c3','d7d5','d2d4','e7e6','g1f3','f8e7','c1g5','e8g8','e2e3','h7h6'],
+  ['c2c4','e7e5','b1c3','b8c6','g1f3','f8b4','g2g3','g8f6','f1g2','e8g8','e1g1','d7d6'],
   ['g1f3','d7d5','c2c4','d5c4','e2e3','g8f6','f1c4','e7e5','e1g1','b8c6'],
   ['g1f3','g8f6','g2g3','g7g6','f1g2','f8g7','e1g1','e8g8','c2c4','d7d6'],
   ['g1f3','d7d5','g2g3','g8f6','f1g2','c7c5','e1g1','b8c6','d2d4','e7e6'],
   ['g1f3','g8f6','c2c4','e7e5','g2g3','b8c6','f1g2','f8b4','e1g1','e8g8'],
-
-  /* ── e4 e5 thêm biến thể ── */
-  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','b7b5','a4b3','f8e7'],
-  ['e2e4','e7e5','g1f3','b8c6','f1b5','f8c5','c2c3','g8f6','e1g1','e8g8'],
-  ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','f3d4','f8c5','c1e3','d8f6'],
-  ['e2e4','e7e5','g1f3','g8f6','b1c3','b8c6','f1b5','g8f6','e1g1','f8e7'],
-  ['e2e4','e7e5','g1f3','g8f6','f3e5','b8c6','e5c6','d7c6','e4e5','g8e4'],
-
-  /* ── e4 c5 Sicilian thêm biến thể ── */
-  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','e7e6','f1e2','a7a6'],
-  ['e2e4','c7c5','g1f3','e7e6','b1c3','a7a6','g2g3','b7b5','f1g2','c8b7'],
-  ['e2e4','c7c5','b1c3','b8c6','g1f3','e7e6','d2d4','c5d4','f3d4','g8f6'],
-  ['e2e4','c7c5','g1f3','b8c6','f1b5','g7g6','e1g1','f8g7','c2c3','e7e5'],
-
-  /* ── e4 e6 French thêm biến thể ── */
-  ['e2e4','e7e6','d2d4','d7d5','b1c3','g8f6','e4e5','f6d7','f2f4','c7c5','g1f3','b8c6'],
-  ['e2e4','e7e6','d2d4','d7d5','b1d2','c7c5','e4d5','e6d5','g1f3','b8c6','f1b5','f8d6'],
-  ['e2e4','e7e6','g1f3','d7d5','e4e5','c7c5','b2b4','b8c6','f1b5','c8d7'],
-
-  /* ── e4 c6 Caro-Kann thêm biến thể ── */
-  ['e2e4','c7c6','d2d4','d7d5','b1c3','d5e4','c3e4','b8d7','g1f3','g8f6','e4f6','d7f6'],
-  ['e2e4','c7c6','d2d4','d7d5','e4e5','c8f5','g1f3','e7e6','f1e2','b8d7'],
-
-  /* ── d4 d5 QGD thêm biến thể ── */
-  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','c1g5','b8d7','e2e3','c7c6','g1f3','d8a5'],
-  ['d2d4','d7d5','c2c4','c7c6','g1f3','g8f6','e2e3','c8f5','b1c3','e7e6','d1b3','d8b6'],
-  ['d2d4','d7d5','g1f3','g8f6','c2c4','e7e6','g2g3','f8e7','f1g2','e8g8','e1g1','b8d7'],
-  ['d2d4','d7d5','c2c4','d5c4','g1f3','g8f6','e2e3','e7e6','f1c4','c7c5','e1g1','a7a6'],
-
-  /* ── d4 Nf6 Indian thêm biến thể ── */
-  ['d2d4','g8f6','c2c4','e7e6','g1f3','d7d5','g2g3','f8e7','f1g2','e8g8','e1g1','b8d7'],
-  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','g1f3','e8g8','f1e2','e7e5'],
-  ['d2d4','g8f6','c2c4','c7c5','d4d5','b7b5','c4b5','a7a6','b5a6','c8a6','b1c3','d7d6'],
-  ['d2d4','g8f6','g1f3','g7g6','c2c4','f8g7','g2g3','e8g8','f1g2','d7d6','e1g1','b8c6'],
-  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','d1c2','e8g8','a2a3','b4c3','c2c3','b7b6'],
-
-  /* ── c4 English thêm biến thể ── */
-  ['c2c4','e7e5','g1f3','b8c6','d2d4','e5d4','f3d4','g8f6','b1c3','f8b4','d4b5','e8g8'],
-  ['c2c4','c7c5','b1c3','g8f6','g1f3','b8c6','d2d4','c5d4','f3d4','e7e6','g2g3','f8b4'],
-  ['c2c4','e7e6','g1f3','d7d5','g2g3','g8f6','f1g2','f8e7','e1g1','e8g8','d2d4','b8d7'],
-  ['c2c4','g8f6','b1c3','d7d5','d2d4','e7e6','g1f3','c7c5','c4d5','f6d5','e2e3','b8c6'],
-
-  /* ── Nf3 systems thêm biến thể ── */
-  ['g1f3','d7d5','g2g3','c7c5','f1g2','b8c6','e1g1','g8f6','d2d4','e7e6','c2c4','d5c4'],
-  ['g1f3','g8f6','g2g3','d7d5','f1g2','c7c6','e1g1','c8f5','d2d3','e7e6','b1d2','f8e7'],
+  ['g1f3','g8f6','g2g3','d7d5','f1g2','c7c6','e1g1','c8f5','d2d3','e7e6'],
   ['g1f3','c7c5','c2c4','g8f6','b1c3','b8c6','g2g3','g7g6','f1g2','f8g7','e1g1','e8g8'],
-
-  /* ── Tricky / Aggressive ── */
-  ['e2e4','e7e5','d2d4','e5d4','c2c3','d4c3','f1c4','c3b2','c1b2','d8g5'],
-  ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','c2c3','d4c3','f1c4','c3b2'],
-  ['e2e4','e7e5','f2f4','e5f4','g1f3','d7d5','e4d5','g8f6','f1b5','c8d7'],
-  ['d2d4','g8f6','b1c3','d7d5','c1g5','b8d7','e2e3','e7e6','g1f3','f8e7'],
-  ['e2e4','d7d5','e4d5','g8f6','c2c4','c7c6','d5c6','b8c6','d2d4','e7e5'],
-  ['d2d4','f7f5','e2e4','f5e4','b1c3','g8f6','g2g4','e7e6','g4g5','f6d5'],
-
-  /* ══════════════════════════════════════════════════════════════════
-     g3 SYSTEM MỞ RỘNG — thêm các biến thể 5.c3, 5.e4, 5.d3 sâu hơn
-     ══════════════════════════════════════════════════════════════════ */
-
-  /* vs 1...e5 — 5.c3 d4 exd4 cxd4 Bb6 (thế cờ hay gặp, cover blunder Bd6) */
-  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','f8c5','c2c3','e8g8','d2d4','c5b6'],
-  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','f8c5','c2c3','e8g8','d2d4','e5d4','c3d4','c5b6'],
-  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','f8c5','c2c3','e8g8','d2d4','e5d4','c3d4','c6d4'],
-  ['g2g3','e7e5','g1f3','b8c6','f1g2','f8c5','e1g1','d7d6','c2c3','a7a6','d2d4','c5b6'],
-  ['g2g3','e7e5','g1f3','b8c6','f1g2','f8c5','e1g1','d7d6','c2c3','g8f6','d2d4','c5b6'],
-  ['g2g3','e7e5','g1f3','b8c6','f1g2','f8c5','e1g1','g8f6','c2c3','e8g8','d2d4','c5b6'],
-  ['g2g3','e7e5','g1f3','b8c6','f1g2','f8c5','e1g1','g8f6','c2c3','d7d6','d2d4','c5b6'],
-  /* exd4 Nxd4 line — tượng ăn tốt */
-  ['g2g3','e7e5','g1f3','b8c6','f1g2','f8c5','e1g1','g8f6','c2c3','e8g8','d2d4','e5d4','c3d4','c5b4'],
-  ['g2g3','e7e5','g1f3','b8c6','f1g2','f8c5','e1g1','g8f6','c2c3','e8g8','d2d4','e5d4','c3d4','f6e4'],
-  ['g2g3','e7e5','g1f3','b8c6','f1g2','f8c5','e1g1','g8f6','c2c3','e8g8','d2d4','e5d4','c3d4','c6d4'],
-
-  /* vs 1...e5 Nf6 Nc6 Be7 — setup solid */
-  ['g2g3','e7e5','g1f3','g8f6','f1g2','b8c6','e1g1','f8e7','d2d3','e8g8','b1d2','d7d6'],
-  ['g2g3','e7e5','g1f3','g8f6','f1g2','b8c6','e1g1','f8e7','d2d3','e8g8','c2c3','a7a5'],
-  ['g2g3','e7e5','g1f3','g8f6','f1g2','b8c6','e1g1','f8e7','e2e4','d7d6','d2d3','e8g8'],
-  ['g2g3','e7e5','g1f3','g8f6','f1g2','b8c6','e1g1','f8e7','e2e4','e8g8','d2d3','d7d6'],
-  ['g2g3','e7e5','g1f3','g8f6','f1g2','f8e7','e1g1','e8g8','d2d3','d7d6','b1d2','b8c6'],
-  ['g2g3','e7e5','g1f3','g8f6','f1g2','f8e7','e1g1','e8g8','c2c3','d7d5','d2d4','e5d4'],
-  ['g2g3','e7e5','g1f3','g8f6','f1g2','f8c5','e1g1','e8g8','d2d3','d7d6','b1d2','b8c6'],
-
-  /* vs 1...e5 với ...d5 phản công giữa */
-  ['g2g3','e7e5','g1f3','d7d5','f1g2','b8c6','e1g1','g8f6','d2d3','f8c5','b1d2','e8g8'],
-  ['g2g3','e7e5','g1f3','d7d5','f1g2','e5e4','f3d4','g8f6','d2d3','f8c5','d4b3','c5b6'],
-  ['g2g3','e7e5','g1f3','d7d5','f1g2','e5e4','f3e5','b8c6','e5c6','b7c6','d2d3','e4d3'],
-
-  /* vs 1...Nf6 g6 Bg7 — King's Indian Defense mirror */
-  ['g2g3','g8f6','f1g2','g7g6','g1f3','f8g7','e1g1','e8g8','d2d3','d7d6','b1d2','e7e5'],
-  ['g2g3','g8f6','f1g2','g7g6','g1f3','f8g7','e1g1','e8g8','d2d3','d7d5','b1d2','b8d7'],
-  ['g2g3','g8f6','f1g2','g7g6','g1f3','f8g7','e1g1','e8g8','c2c4','d7d6','b1c3','e7e5'],
-  ['g2g3','g8f6','f1g2','g7g6','g1f3','f8g7','e1g1','e8g8','c2c4','c7c5','b1c3','b8c6'],
-  ['g2g3','g8f6','f1g2','g7g6','g1f3','f8g7','e1g1','d7d5','d2d3','e8g8','b1d2','b8c6'],
-  ['g2g3','g8f6','f1g2','g7g6','g1f3','f8g7','e1g1','d7d5','c2c4','d5c4','d2d3','b8d7'],
-
-  /* vs 1...d5 Nf6 — closed setups */
-  ['g2g3','d7d5','g1f3','g8f6','f1g2','c8f5','e1g1','e7e6','d2d3','f8d6','b1d2','e8g8'],
-  ['g2g3','d7d5','g1f3','g8f6','f1g2','c8g4','e1g1','b8d7','d2d3','e7e6','b1d2','f8e7'],
-  ['g2g3','d7d5','g1f3','g8f6','f1g2','b8c6','e1g1','c8f5','d2d3','e7e6','b1d2','f8d6'],
-  ['g2g3','d7d5','g1f3','g8f6','f1g2','e7e6','e1g1','c7c5','c2c4','b8c6','d2d4','f8e7'],
-  ['g2g3','d7d5','g1f3','c7c5','f1g2','b8c6','e1g1','g8f6','d2d4','e7e6','c2c4','f8e7'],
-  ['g2g3','d7d5','g1f3','c7c5','f1g2','g8f6','e1g1','b8c6','c2c3','e7e6','d2d4','f8d6'],
-
-  /* vs 1...c5 — deeper lines */
-  ['g2g3','c7c5','g1f3','g8f6','f1g2','b8c6','e1g1','e7e5','d2d3','d7d6','b1d2','f8e7'],
-  ['g2g3','c7c5','g1f3','g8f6','f1g2','b8c6','e1g1','g7g6','d2d3','f8g7','b1d2','e8g8'],
-  ['g2g3','c7c5','g1f3','b8c6','f1g2','g7g6','e1g1','f8g7','c2c3','d7d6','d2d4','e7e5'],
-  ['g2g3','c7c5','g1f3','e7e6','f1g2','b8c6','e1g1','g8f6','d2d3','d7d5','b1d2','f8e7'],
-  ['g2g3','c7c5','g1f3','e7e6','f1g2','d7d5','e1g1','g8f6','c2c4','b8c6','d2d4','f8e7'],
-  ['g2g3','c7c5','f1g2','g8f6','g1f3','d7d5','e1g1','e7e6','c2c4','b8c6','d2d4','d5c4'],
-
-  /* vs 1...e6 — French/Queen's Indian transpose */
-  ['g2g3','e7e6','g1f3','d7d5','f1g2','g8f6','e1g1','f8e7','d2d3','e8g8','b1d2','b8d7'],
-  ['g2g3','e7e6','g1f3','d7d5','f1g2','c7c5','e1g1','b8c6','d2d4','g8f6','c2c4','d5d4'],
-  ['g2g3','e7e6','f1g2','d7d5','g1f3','g8f6','e1g1','c7c5','d2d4','b8c6','c2c4','d5d4'],
-  ['g2g3','e7e6','f1g2','g8f6','g1f3','d7d5','e1g1','f8e7','d2d3','e8g8','b1d2','c7c5'],
-
-  /* vs 1...b6 (Owen / Queen's Indian style) */
-  ['g2g3','b7b6','f1g2','c8b7','g1f3','g8f6','e1g1','e7e6','d2d3','f8e7','b1d2','e8g8'],
-  ['g2g3','b7b6','g1f3','c8b7','f1g2','e7e6','e1g1','g8f6','d2d3','d7d5','b1d2','f8d6'],
-
-  /* vs 1...a6 (St. George / Anderssen) */
-  ['g2g3','a7a6','f1g2','e7e5','g1f3','g8f6','e1g1','b8c6','d2d3','d7d5','b1d2','f8c5'],
-  ['g2g3','a7a6','g1f3','d7d5','f1g2','g8f6','e1g1','b8c6','d2d3','e7e5','b1d2','f8c5'],
-
-  /* ══════════════════════════════════════════════════════════════════
-     e4 MỞ RỘNG — các biến thể sâu hơn
-     ══════════════════════════════════════════════════════════════════ */
-
-  /* Ruy Lopez — Berlin, Closed thêm */
-  ['e2e4','e7e5','g1f3','b8c6','f1b5','g8f6','e1g1','f6e4','d2d4','f8e7','d4e5','e4f6'],
-  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7','d2d3','e8g8'],
-  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','b7b5','a4b3','d7d6'],
-  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5c6','d7c6','d2d4','e5d4','d1d4','d8d4'],
-
-  /* Italian Game */
-  ['e2e4','e7e5','g1f3','b8c6','f1c4','g8f6','d2d3','f8c5','e1g1','d7d6','c2c3','e8g8'],
-  ['e2e4','e7e5','g1f3','b8c6','f1c4','f8c5','b2b4','c5b4','c2c3','b4a5','d2d4','e5d4'],
-  ['e2e4','e7e5','g1f3','b8c6','f1c4','f8c5','e1g1','g8f6','d2d3','d7d6','b1c3','a7a6'],
-  ['e2e4','e7e5','g1f3','b8c6','f1c4','f8c5','c2c3','g8f6','d2d4','e5d4','c3d4','c5b6'],
-
-  /* Scotch */
-  ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','f3d4','g8f6','b1c3','f8b4','d4c6','b7c6'],
-  ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','f3d4','d8h4','b1c3','f8b4','f1e2','h4e4'],
-
-  /* Four Knights */
-  ['e2e4','e7e5','g1f3','b8c6','b1c3','g8f6','f1b5','f8b4','e1g1','e8g8','d2d3','d7d6'],
-  ['e2e4','e7e5','g1f3','b8c6','b1c3','g8f6','f1b5','b8d4','f3d4','e5d4','e4e5','d4c3'],
-
-  /* King's Gambit thêm */
-  ['e2e4','e7e5','f2f4','e5f4','g1f3','d7d5','e4d5','g8f6','f1b5','b8d7','e1g1','f8d6'],
-  ['e2e4','e7e5','f2f4','e5f4','f1c4','g8f6','b1c3','f8b4','g1f3','d7d5','e4d5','e8g8'],
-
-  /* ══════════════════════════════════════════════════════════════════
-     d4 MỞ RỘNG
-     ══════════════════════════════════════════════════════════════════ */
-
-  /* Nimzo-Indian */
-  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','d1c2','e8g8','a2a3','b4c3','c2c3','b7b6'],
-  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','e2e3','e8g8','f1d3','d7d5','g1f3','c7c5'],
-  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','g1f3','b7b6','g2g3','c8b7','f1g2','e8g8'],
-
-  /* Queen's Indian */
-  ['d2d4','g8f6','c2c4','e7e6','g1f3','b7b6','g2g3','c8a6','b2b3','f8b4','c1d2','b4e7'],
-  ['d2d4','g8f6','c2c4','e7e6','g1f3','b7b6','e2e3','c8b7','f1d3','d7d5','e1g1','f8d6'],
-  ['d2d4','g8f6','c2c4','e7e6','g1f3','b7b6','b1c3','c8b7','a2a3','d7d5','c4d5','f6d5'],
-
-  /* Grünfeld */
-  ['d2d4','g8f6','c2c4','g7g6','b1c3','d7d5','c4d5','f6d5','e2e4','d5c3','b2c3','f8g7'],
-  ['d2d4','g8f6','c2c4','g7g6','g1f3','f8g7','g2g3','e8g8','f1g2','d7d6','e1g1','b8c6'],
-  ['d2d4','g8f6','c2c4','g7g6','b1c3','d7d5','g1f3','f8g7','d1b3','d5c4','b3c4','e8g8'],
-
-  /* Benoni */
-  ['d2d4','g8f6','c2c4','c7c5','d4d5','e7e6','b1c3','e6d5','c4d5','d7d6','e2e4','g7g6'],
-  ['d2d4','g8f6','c2c4','c7c5','d4d5','b7b5','c4b5','a7a6','b5a6','g7g6','b1c3','f8g7'],
-
-  /* Dutch */
-  ['d2d4','f7f5','g2g3','g8f6','f1g2','e7e6','g1f3','f8e7','e1g1','e8g8','c2c4','d7d6'],
-  ['d2d4','f7f5','g2g3','g8f6','f1g2','g7g6','g1f3','f8g7','e1g1','e8g8','b2b4','d7d6'],
-  ['d2d4','f7f5','c2c4','g8f6','b1c3','e7e6','g2g3','f8b4','f1g2','e8g8','g1f3','b4c3'],
-
-  /* London System */
-  ['d2d4','d7d5','g1f3','g8f6','c1f4','e7e6','e2e3','c7c5','c2c3','b8c6','b1d2','f8d6'],
-  ['d2d4','d7d5','g1f3','g8f6','c1f4','c7c5','e2e3','b8c6','c2c3','d8b6','d1b3','c5d4'],
-  ['d2d4','g8f6','g1f3','e7e6','c1f4','d7d5','e2e3','c7c5','c2c3','b8c6','b1d2','f8d6'],
-
-  /* Colle / Zukertort */
+  ['g1f3','g8f6','c2c4','b7b6','g2g3','c8b7','f1g2','e7e6','e1g1','f8e7','b1c3','e8g8'],
+  ['g1f3','d7d5','d2d4','g8f6','c2c4','e7e6','b1c3','f8e7','c1g5','e8g8','e2e3','b8d7'],
+  ['g1f3','g8f6','d2d4','d7d5','c2c4','e7e6','b1c3','f8e7','c1g5','e8g8','e2e3','c7c6'],
+  ['d2d4','g8f6','g1f3','e7e6','c1f4','d7d5','e2e3','f8d6','f4d6','d8d6','b1d2','e8g8'],
   ['d2d4','d7d5','g1f3','g8f6','e2e3','e7e6','f1d3','c7c5','b2b3','b8c6','e1g1','f8d6'],
-  ['d2d4','d7d5','g1f3','g8f6','e2e3','c7c5','d4c5','e7e6','b2b4','a7a5','c2c3','a5b4'],
-
-  /* ══════════════════════════════════════════════════════════════════
-     c4 ENGLISH MỞRỘNG
-     ══════════════════════════════════════════════════════════════════ */
-  ['c2c4','e7e5','b1c3','g8f6','g1f3','b8c6','e2e3','f8b4','d1c2','e8g8','a2a3','b4c3'],
-  ['c2c4','e7e5','b1c3','g8f6','g2g3','d7d5','c4d5','f6d5','f1g2','d5b4','g1f3','b8c6'],
-  ['c2c4','c7c5','g1f3','g8f6','d2d4','c5d4','f3d4','e7e6','b1c3','b8c6','g2g3','d8b6'],
-  ['c2c4','e7e6','g1f3','g8f6','g2g3','d7d5','f1g2','f8e7','e1g1','e8g8','d2d4','c7c6'],
-  ['c2c4','g7g6','b1c3','f8g7','g1f3','c7c5','g2g3','b8c6','f1g2','e7e6','e1g1','g8e7'],
-
-  /* ══════════════════════════════════════════════════════════════════
-     TRẮNG CHỦ ĐỘNG: e4 và d4 — ưu tiên chiếm trung tâm từ nước 1.
-     Thêm vào cuối để tăng xác suất engine chọn khai cuộc mạnh hơn
-     khi cầm quân trắng. openingBookMove random trong candidates,
-     nên các lines này sẽ được chọn cùng xác suất với g2g3.
-     ══════════════════════════════════════════════════════════════════ */
-
-  /* e4 chủ động — Italian, Ruy Lopez, Scotch bổ sung */
-  ['e2e4','e7e5','g1f3','b8c6','f1c4','g8f6','d2d3','f8e7','e1g1','e8g8','b1c3','d7d6'],
-  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7','b1c3','b7b5'],
-  ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','f3d4','f8c5','f1e3','d8f6','c2c3','g8e7'],
-  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','g7g6','f1e2','f8g7'],
-  ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','g7g6','b1c3','f8g7','f1e3','g8f6'],
-  ['e2e4','e7e6','d2d4','d7d5','b1c3','g8f6','c1g5','f8e7','e4e5','f6d7','g5e7','d8e7'],
-  ['e2e4','c7c6','d2d4','d7d5','b1c3','d5e4','c3e4','g8f6','e4f6','e7f6','g1f3','f8d6'],
-  ['e2e4','d7d5','e4d5','g8f6','d2d4','f6d5','g1f3','g7g6','f1c4','d5b6','c4b3','f8g7'],
-
-  /* d4 chủ động — Queen's Gambit, London */
-  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','c1g5','b8d7','e2e3','c7c6','g1f3','d8a5'],
-  ['d2d4','g8f6','c2c4','e7e6','b1c3','d7d5','c1g5','f8e7','e2e3','e8g8','g1f3','b8d7'],
-  ['d2d4','d7d5','g1f3','g8f6','c1f4','e7e6','e2e3','f8d6','f4d6','d8d6','f1d3','e8g8'],
-  ['d2d4','g8f6','g1f3','e7e6','c1f4','d7d5','e2e3','f8d6','f4d6','d8d6','c2c3','e8g8'],
-  ['d2d4','d7d5','c2c4','c7c6','g1f3','g8f6','b1c3','e7e6','e2e3','b8d7','d1c2','f8d6']
+  ['d2d4','g8f6','g1f3','d7d5','c1g5','e7e6','e2e3','f8e7','b1d2','e8g8','f1d3','c7c5'],
+  ['d2d4','g8f6','g1f3','e7e6','c1g5','d7d5','b1d2','f8e7','e2e3','e8g8','f1d3','b8d7'],
+  ['g1f3','d7d5','g2g3','g8f6','f1g2','c7c5','e1g1','b8c6','d2d3','e7e5','b1d2'],
+  ['e2e4','e7e6','d2d3','d7d5','g1f3','g8f6','g2g3','f8e7','f1g2','e8g8','e1g1'],
+  ['e2e4','e7e6','d2d3','c7c5','g1f3','b8c6','g2g3','g7g6','f1g2','f8g7','e1g1'],
+  ['e2e4','c7c5','g1f3','e7e6','d2d3','b8c6','g2g3','g7g6','f1g2','f8g7','e1g1'],
+  ['f2f4','d7d5','g1f3','g8f6','e2e3','e7e6','f1e2','f8e7','e1g1','e8g8'],
+  ['f2f4','g8f6','g1f3','g7g6','g2g3','f8g7','f1g2','e8g8','e1g1','d7d5'],
+  ['f2f4','d7d5','g1f3','c7c5','e2e3','g8f6','f1e2','b8c6','e1g1','e7e6'],
+  ['b2b3','e7e5','c1b2','b8c6','g1f3','d7d5','e2e3','g8f6','f1b5','f8d6'],
+  ['b2b3','g8f6','c1b2','g7g6','g1f3','f8g7','e2e3','e8g8','f1e2','d7d6'],
+  ['g2g3','e7e5','f1g2','g8f6','g1f3','b8c6','e1g1','f8c5','c2c3','e8g8'],
+  ['g2g3','d7d5','f1g2','g8f6','g1f3','e7e6','e1g1','f8e7','c2c4','e8g8'],
+  ['g2g3','g8f6','f1g2','g7g6','g1f3','f8g7','e1g1','e8g8','d2d3','d7d6'],
+  ['g2g3','e7e5','g1f3','b8c6','f1g2','g8f6','e1g1','f8e7','d2d3','e8g8'],
+  ['g2g3','d7d5','g1f3','c7c5','f1g2','b8c6','e1g1','e7e6','d2d4','c5d4'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7','f1e1','b7b5','a4b3','d7d6','c2c3','e8g8','h2h3','c6b8'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7','f1e1','b7b5','a4b3','d7d6','c2c3','e8g8','g2g4'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7','f1e1','b7b5','a4b3','e8g8','d2d4','d7d6'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','b7b5','a4b3','f8e7','b1c3','d7d6','d2d4'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7','d2d3','b7b5','a4b3','d7d6','b1c3'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8c5','c2c3','d7d6','d2d4','c5b6'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8c5','b1c3','b7b5','a4b3','c5b4'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','d7d6','d2d4','b7b5','a4b3','b8d7'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','d2d3','f8e7','b1c3','d7d6','e1g1','e8g8'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7','b1c3','d7d6','d2d4','b7b5','a4b3'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','f8c5','c2c3','g8f6','d2d4','e5d4','c3d4','c5b4','b1c3','g8h5'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','f8c5','b1c3','g8f6','d2d3','d7d6','c1g5','h7h6','g5h4','g7g5'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','f8c5','d2d3','g8f6','b1c3','h7h6','c1e3','c5e3','f2e3'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','f8c5','e1g1','g8f6','d2d4','e5d4','e4e5','d7d5','e5f6','d4c3'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','g8f6','d2d4','f6e4','d4d5','c6b4','c4f7','e8f7','d1d4','f7g6'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','f8c5','b2b4','c5b4','c2c3','b4c5','d2d4','e5d4','c3d4','c5b4'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','a7a6','c1e3','e7e5','d4b3','c8e6','f2f3','b8d7'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','a7a6','c1g5','b8d7','f1c4','d8b6','d4b5'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','a7a6','f2f4','d8c7','f1d3','b8c6','g1f3','g7g6'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','a7a6','g2g4','b8c6','g4g5','f6d7','g5g6'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','a7a6','h2h3','g7g6','g2g4','f8g7','g4g5'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','a7a6','f1e2','e7e6','e1g1','d8c7','a2a4'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','a7a6','c1e3','e7e5','d4f5','c8f5','e4f5'],
+  ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','g8f6','b1c3','e7e5','d4b5','d7d6','b5d6','c8d6'],
+  ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','g7g6','b1c3','f8g7','f1e2','d7d6','e1g1','g8f6'],
+  ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','d8c7','b1c3','e7e6','f1e2','a7a6','e1g1','g8f6'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','g7g6','f2f3','f8g7','c1e3','b8c6','d1d2'],
+  ['e2e4','c7c5','g1f3','e7e6','d2d4','c5d4','f3d4','g8f6','b1c3','b8c6','d4b3','d8c7','f1e2','a7a6','e1g1'],
+  ['e2e4','c7c5','g1f3','e7e6','d2d4','c5d4','f3d4','a7a6','b1c3','g8f6','f1e2','d8c7','e1g1','b8c6'],
+  ['e2e4','c7c5','b1c3','b8c6','g1f3','e7e5','f1c4','f8e7','d2d3','d7d6','c1e3','g8f6'],
+  ['e2e4','c7c5','b1c3','b8c6','g1f3','g7g6','d2d4','c5d4','f3d4','f8g7','d4b5','d7d6'],
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','g8f6','c1g5','f8e7','e4e5','f6d7','g5e7','d8e7','d1d2','b8c6','g1f3'],
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','g8f6','e4e5','f6d7','f2f4','c7c5','g1f3','b8c6','f1e2'],
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','g8f6','c1g5','f8e7','e4e5','f6d7','h2h4','h7h6','g5e3','c7c5'],
+  ['e2e4','e7e6','d2d4','d7d5','e4e5','c7c5','c2c3','b8c6','g1f3','d8b6','f1d3','g8h6','d3h7','h6f5'],
+  ['e2e4','e7e6','d2d4','d7d5','e4e5','c7c5','c2c3','b8c6','g1f3','d8b6','b2b3','c5d4','c3d4','g8e7'],
+  ['e2e4','e7e6','d2d4','d7d5','b1d2','g8f6','e4e5','f6d7','c2c3','c7c5','f2f4','b8c6','g1f3','d8b6'],
+  ['e2e4','e7e6','d2d4','d7d5','b1d2','c7c5','d4c5','b8c6','g1f3','f8c5','f1b5','g8e7'],
+  ['e2e4','c7c6','d2d4','d7d5','b1c3','d5e4','c3e4','g8f6','e4f6','e7f6','c2c3','f8d6','g1f3','e8g8','f1d3'],
+  ['e2e4','c7c6','d2d4','d7d5','e4e5','c8f5','g1f3','e7e6','f1e2','b8d7','e1g1','h7h6','b1a3'],
+  ['e2e4','c7c6','d2d4','d7d5','b1c3','d5e4','c3e4','c8f5','e4g3','f5g6','g1f3','b8d7','h2h4','h7h6','f1d3'],
+  ['e2e4','c7c6','d2d4','d7d5','b1d2','d5e4','d2e4','g8f6','e4f6','e7f6','g1f3','f8d6','c1d2','e8g8'],
+  ['e2e4','c7c6','d2d4','d7d5','e4d5','c6d5','c2c4','g8f6','b1c3','e7e6','g1f3','f8b4','c4d5','e6d5'],
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','c1g5','f8e7','e2e3','e8g8','g1f3','b8d7','d1c2','c7c5'],
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','c1g5','f8e7','e2e3','e8g8','g1f3','b8d7','e1g1','a7a6'],
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','c1g5','f8e7','g1f3','e8g8','e2e3','c7c6','d1c2','b8a6'],
+  ['d2d4','d7d5','c2c4','e7e6','g1f3','g8f6','b1c3','c7c5','c4d5','e6d5','g2g3','b8c6','f1g2'],
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','c1g5','b8d7','g1f3','c7c6','e2e3','d8a5','c4c5'],
+  ['d2d4','d7d5','c2c4','c7c6','g1f3','g8f6','b1c3','e7e6','c1f4','b8d7','e2e3','g8h5'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','g1f3','e8g8','f1e2','e7e5','d4d5','a7a5'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','g1f3','e8g8','c1e3','e7e5','d4d5','b8d7'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','g1f3','e8g8','f1e2','b8c6','d4d5','c6e7'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','f2f4','e8g8','g1f3','c7c5','d4d5'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','g1f3','e8g8','h2h3','c7c5','d4d5','e7e6'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','g2g3','e8g8','f1g2','d7d6','g1f3','b8c6','d4d5','c6b4'],
+  ['d2d4','g8f6','c2c4','g7g6','g1f3','f8g7','b1c3','e8g8','e2e4','d7d6','f1e2','e7e5','e1g1','b8c6'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','d7d5','c4d5','f6d5','e2e4','d5c3','b2c3','f8g7','f1c4','c7c5','g1e2'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','d7d5','c4d5','f6d5','e2e4','d5c3','b2c3','f8g7','f1c4','e8g8','g1e2'],
+  ['d2d4','g8f6','c2c4','g7g6','g1f3','f8g7','b1c3','d7d5','d1b3','d5c4','b3c4','e8g8','e2e4','c8g4'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','d7d5','c1f4','f8g7','e2e3','c7c6','g1f3','e8g8','f1e2','b8d7'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','d1c2','d7d5','c4d5','e6d5','c1g5','h7h6','g5d2','b8c6'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','e2e3','c7c5','g1e2','d7d5','a2a3','b4c3','b2c3'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','e2e3','b7b6','f1d3','c8b7','g1f3','e8g8','e1g1','d7d5'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','f2f3','c7c5','d4d5','e6d5','c4d5','d7d6','e2e4'],
+  ['d2d4','g8f6','c2c4','e7e6','g1f3','b7b6','g2g3','c8b7','f1g2','f8e7','e1g1','e8g8','b1c3','f6e4'],
+  ['d2d4','g8f6','c2c4','e7e6','g1f3','b7b6','e2e3','c8b7','f1d3','d7d5','e1g1','f8d6','b2b3'],
+  ['d2d4','g8f6','c2c4','e7e6','g2g3','d7d5','f1g2','c7c6','g1f3','b8d7','d1c2','f8d6','e1g1','e8g8'],
+  ['d2d4','g8f6','c2c4','e7e6','g2g3','d7d5','f1g2','f8b4','b1d2','b8c6','g1f3','e8g8'],
+  ['d2d4','g8f6','c2c4','c7c5','d4d5','e7e6','b1c3','e6d5','c4d5','d7d6','e2e4','g7g6','f2f4','f8g7','g1f3','e8g8','f1e2'],
+  ['d2d4','g8f6','c2c4','c7c5','d4d5','e7e6','b1c3','e6d5','c4d5','d7d6','g1f3','g7g6','g2g3','f8g7','f1g2','e8g8'],
+  ['c2c4','e7e5','b1c3','g8f6','g1f3','b8c6','g2g3','d7d5','c4d5','f6d5','f1g2','d5c3','b2c3','f8b4'],
+  ['c2c4','g8f6','g1f3','e7e5','g2g3','b8c6','f1g2','f8b4','e1g1','e8g8','d2d3','d7d6'],
+  ['c2c4','e7e5','b1c3','g8f6','g1f3','b8c6','d2d4','e5d4','f3d4','f8b4','d4c2','e8g8'],
+  ['c2c4','c7c5','b1c3','g8f6','g1f3','d7d5','c4d5','f6d5','e2e3','e7e6','f1c4','b8c6'],
+  ['c2c4','g8f6','b1c3','d7d5','d2d4','e7e6','g1f3','c7c6','c1g5','h7h6','g5f4','d8b6'],
+  ['c2c4','g8f6','b1c3','e7e6','e2e4','d7d5','e4e5','d5d4','e5f6','d4c3','f6g7','c3d2','f1d2'],
+  ['c2c4','e7e6','g1f3','g8f6','g2g3','d7d5','f1g2','c7c5','e1g1','b8c6','d2d4','c5d4'],
+  ['g1f3','d7d5','c2c4','e7e6','g2g3','g8f6','f1g2','f8e7','e1g1','e8g8','d2d4','b8d7'],
+  ['g1f3','g8f6','g2g3','e7e6','f1g2','d7d5','e1g1','f8e7','c2c4','e8g8','d2d4','c7c6'],
+  ['g1f3','d7d5','d2d4','g8f6','c2c4','e7e6','g2g3','c7c5','f1g2','b8c6','e1g1','f8e7'],
+  ['g1f3','c7c5','g2g3','b8c6','f1g2','e7e5','e1g1','g8f6','d2d3','d7d5','b1d2'],
+  ['e2e4','d7d5','e4d5','d8d5','b1c3','d5a5','g1f3','c7c6','f1c4','c8f5','d2d3','g8f6'],
+  ['e2e4','d7d5','e4d5','g8f6','d2d4','f6d5','c2c4','d5b4','g1f3','g7g6','b1c3','f8g7','f1c4'],
+  ['e2e4','d7d5','e4d5','d8d5','b1c3','d5d8','g1f3','g8f6','f1c4','c8f5','d2d3','e7e6'],
+  ['d2d4','f7f5','c2c4','g8f6','g2g3','e7e6','f1g2','f8e7','g1f3','e8g8','e1g1','d7d5','b1d2'],
+  ['d2d4','f7f5','c2c4','g8f6','b1c3','e7e6','g1f3','f8b4','d1b3','d8e7','a2a3','b4c3','b2c3'],
+  ['d2d4','f7f5','g2g3','g8f6','f1g2','e7e6','g1f3','f8e7','e1g1','e8g8','b1d2','d7d6'],
+  ['e2e4','e7e5','g1f3','d7d6','d2d4','b8d7','f1c4','c7c6','e1g1','g8f6','b1c3','f8e7'],
+  ['e2e4','e7e5','g1f3','f7f5','b1c3','g8f6','f1c4','f8c5','d2d3','b8c6','c1g5'],
+  ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','c2c3','d4c3','b1c3','f8b4','f1c4','g8f6'],
+  ['e2e4','e7e5','d2d4','e5d4','d1d4','b8c6','d4e3','g8f6','b1c3','f8b4','c1d2'],
+  ['d2d4','d7d6','g1f3','g8f6','c1f4','g7g6','e2e3','f8g7','h2h3','e8g8','f1e2','b8d7'],
+  ['c2c4','g8f6','g1f3','c7c5','g2g3','b7b6','f1g2','c8b7','e1g1','e7e6','b1c3','f8e7'],
+  ['d2d4','b8c6','c2c4','e7e5','d4e5','c6e5','g1f3','e5f3','e2f3','g8f6','b1c3','f8b4'],
+  ['e2e4','b8c6','d2d4','d7d5','e4e5','c8f5','g1f3','e7e6','f1e2','g8e7','e1g1'],
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','g1f3','b8d7','c1f4','c7c6','e2e3','d8a5'],
+  ['d2d4','d7d5','c2c4','c7c6','b1c3','g8f6','e2e3','e7e6','g1f3','b8d7','d1c2','f8d6'],
+  ['d2d4','d7d5','c2c4','c7c6','g1f3','g8f6','b1c3','d5c4','a2a4','c8f5','g1h3','e7e6'],
+  ['d2d4','d7d5','c2c4','e7e6','g1f3','g8f6','c1g5','f8e7','b1c3','b8d7','e2e3','c7c6'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7','f1e1','b7b5','a4b3','e8g8','c2c3','d7d5','e4d5','f6d5','b1c3','d5c3'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7','f1e1','b7b5','a4b3','d7d6','c2c3','e8g8','d2d4','c8g4','d4e5','d6e5'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7','d2d4','e5d4','f3d4','c6d4','d1d4','e8g8'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','f8c5','e1g1','g8f6','c2c3','d7d6','d2d4','c5b6'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5c6','d7c6','g1f3','f3e5','d1g4','d8d4'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','b7b5','a4b3','c8b7','d2d3','d7d5','b1d2'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','b7b5','a4b3','d7d5','e4d5','f6d5','b1c3','d5c3'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','f8c5','c2c3','g8f6','d2d4','e5d4','c3d4','c5b4','b1c3','f6e4','e1g1','b4c3','d2d3'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','f8c5','e1g1','g8f6','d2d4','e5d4','e4e5','d7d5','e5f6','d4c3','f6g7','c3d2'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','g8f6','f3g5','d7d5','e4d5','b8a5','g5e4','f6e4','f1e2','e4f6'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','f8c5','d2d3','g8f6','c2c3','d7d6','b2b4','c5b6','a2a4','a7a6'],
+  ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','f3d4','g8f6','d4c6','b7c6','e4e5','d8e7','d1e2','f6d5','c2c4','d5b4'],
+  ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','f3d4','d8h4','b1c3','f8c5','f1e2','d8f4','c3b5','d7d6'],
+  ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','f3d4','g8f6','b1c3','f8b4','f1c4','e8g8','c1e3','d7d5'],
+  ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','f3d4','f8c5','c1e3','d8h4','c2c3','d8f6'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','g7g6','c1e3','f8g7','f2f3','b8c6','d1d2','e8g8','e1c1','d7d5'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','g7g6','c1e3','f8g7','f2f3','b8c6','d1d2','e8g8','e1c1','h7h5'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','g7g6','f1e2','f8g7','d4e6','f7e6'],
+  ['e2e4','c7c5','g1f3','g7g6','d2d4','c5d4','f3d4','g8f6','b1c3','d7d6','f1e2','f8g7','e1g1','b8c6','d4b3','e8g8'],
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','g8f6','c1g5','f8e7','e4e5','f6d7','g5e7','d8e7','d1d2','a7a6','g1f3','c7c5'],
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','g8f6','c1g5','f8e7','e4e5','f6d7','g5h5','g7g6','h5e2','c7c5'],
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','f8b4','e4e5','c7c5','a2a3','b4c3','b2c3','b8c6','d1g4','g7g6'],
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','f8b4','e4e5','g8e7','a2a3','b4c3','b2c3','c7c5','a3a4'],
+  ['e2e4','e7e6','d2d4','d7d5','e4e5','c7c5','c2c3','d8b6','g1f3','b8d7','a2a3','c5d4','c3d4'],
+  ['e2e4','e7e6','d2d4','d7d5','e4e5','c7c5','c2c3','b8c6','g1f3','d8b6','a2a3','f8d6','f1d3'],
+  ['e2e4','e7e6','d2d4','d7d5','b1d2','g8f6','e4e5','f6d7','f1d3','c7c5','c2c3','b8c6','g1h3'],
+  ['e2e4','e7e6','d2d4','d7d5','b1d2','c7c5','d4c5','g8f6','g1f3','f8c5','f1d3','b8c6','e1g1'],
+  ['e2e4','c7c6','d2d4','d7d5','b1c3','d5e4','c3e4','b8d7','f1c4','g8f6','e4g3','e7e6','g1f3','f8d6'],
+  ['e2e4','c7c6','c2c4','d7d5','e4d5','c6d5','c4d5','g8f6','b1c3','f6d5','c3d5','d8d5','d2d4'],
+  ['e2e4','c7c6','d2d4','d7d5','b1c3','d5e4','c3e4','c8f5','e4g3','f5g6','h2h4','h7h6','h4h5','g6h7','g1f3','b8d7'],
+  ['e2e4','c7c6','d2d4','d7d5','e4e5','c8f5','g1f3','e7e6','f1e2','b8d7','e1g1','g8e7','b1a3','f5g6'],
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','c1g5','f8e7','g1f3','b8d7','e2e3','c7c6','d1c2','e8g8','f1d3'],
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','c1g5','f8e7','g1f3','e8g8','e2e3','b8d7','d1c2','c7c6','f1d3'],
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','g1f3','f8e7','c1f4','e8g8','e2e3','b8d7','d1c2','d5c4','f1c4'],
+  ['d2d4','d7d5','c2c4','e7e6','g1f3','g8f6','b1c3','c7c6','c1g5','d8a5','c4c5','b8d7','g5f6','d7f6'],
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','c1g5','b8d7','c4d5','e6d5','e2e3','c7c6','f1d3','f8d6'],
+  ['d2d4','d7d5','c2c4','c7c6','g1f3','g8f6','b1c3','e7e6','e2e3','b8d7','d1c2','f8d6','f1e2'],
+  ['d2d4','d7d5','c2c4','c7c6','g1f3','g8f6','e2e3','c8f5','b1c3','e7e6','f1d3','f5d3','d1d3'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','g1f3','e8g8','f1e2','e7e5','d4d5','f6h5','g2g3','f7f5'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','g1f3','e8g8','f1e2','e7e5','e1g1','b8d7','f3e1','f6c5'],
+  ['d2d4','g8f6','c2c4','g7g6','g1f3','f8g7','b1c3','d7d6','e2e4','e8g8','f1e2','e7e5','d4d5','b8a6'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','g1f3','e8g8','c1e3','e7e5','d4d5','f6h5','d1d2'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','g2g3','e8g8','f1g2','d7d6','g1f3','c7c5','d4d5','b8a6'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','f2f3','e8g8','c1e3','b8c6','d1d2','a7a6'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','d1c2','e8g8','c1g5','h7h6','g5h4','c7c5','d4d5','d7d6'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','e2e3','e8g8','a2a3','b4c3','b2c3','d7d5','c4d5','e6d5'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','g1f3','b7b6','d1b3','d8e7','c1g5','c8b7'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','f2f3','d7d5','a2a3','b4e7','c4d5','e6d5','e2e4'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','e2e3','c7c5','f1d3','b8c6','g1f3','d8e7','e1g1'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','d7d5','c4d5','f6d5','e2e4','d5c3','b2c3','f8g7','f1c4','c7c5','g1e2','b8c6'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','d7d5','c4d5','f6d5','e2e4','d5c3','b2c3','c7c5','d4d5','f8g7','g1f3','e8g8'],
+  ['d2d4','g8f6','c2c4','g7g6','g1f3','f8g7','b1c3','d7d5','d1b3','d5c4','b3c4','e8g8','c1g5','c7c6'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','d7d5','c4d5','f6d5','e2e4','d5f4','c1f4','c7c5','d4d5','b8a6'],
+  ['d2d4','g8f6','c2c4','e7e6','g1f3','b7b6','g2g3','c8b7','f1g2','f8e7','e1g1','e8g8','d2d4','d7d5'],
+  ['d2d4','g8f6','c2c4','e7e6','g1f3','b7b6','g2g3','c8a6','b2b3','f8b4','c1d2','b4e7','f1g2','d7d5'],
+  ['d2d4','g8f6','c2c4','e7e6','g1f3','b7b6','b1c3','c8b7','a2a3','d7d5','c4d5','f6d5','d1c2'],
+  ['d2d4','g8f6','c2c4','e7e6','g1f3','b7b6','e2e3','c8b7','b2b3','f8e7','c1b2','e8g8','f1d3'],
+  ['d2d4','g8f6','c2c4','e7e6','g2g3','d7d5','f1g2','f8b4','b1d2','b8c6','g1f3','e8g8','e1g1'],
+  ['d2d4','g8f6','c2c4','e7e6','g2g3','d7d5','f1g2','d5c4','g1f3','a7a6','d1c2','b7b5','a2a4'],
+  ['d2d4','g8f6','c2c4','c7c5','d4d5','e7e6','b1c3','e6d5','c4d5','d7d6','e2e4','g7g6','g1f3','f8g7','f1e2','e8g8','e1g1','a7a6','a2a4'],
+  ['d2d4','g8f6','c2c4','c7c5','d4d5','e7e6','b1c3','e6d5','c4d5','d7d6','g1f3','g7g6','g2g3','f8g7','f1g2','e8g8','e1g1','b8a6'],
+  ['d2d4','g8f6','d4d5','c7c5','g1f3','g7g6','c2c4','f8g7','b1c3','d7d6','e2e4','e8g8','f1e2'],
+  ['c2c4','g8f6','b1c3','e7e5','g1f3','b8c6','g2g3','f8b4','f1g2','e8g8','e1g1','d7d6','d2d3','c8e6'],
+  ['c2c4','e7e5','b1c3','g8f6','g1f3','b8c6','g2g3','g7g6','f1g2','f8g7','e1g1','d7d6','d2d3','e8g8'],
+  ['c2c4','c7c5','b1c3','g8f6','g1f3','d7d5','c4d5','f6d5','e2e3','b8c6','d1b3','d5b4'],
+  ['c2c4','g8f6','g1f3','g7g6','b1c3','f8g7','e2e4','d7d6','d2d4','e8g8','f1e2','e7e5','d4d5'],
+  ['c2c4','e7e5','g1f3','d7d6','d2d4','e5d4','f3d4','g8f6','b1c3','g7g6','g2g3','f8g7','f1g2','e8g8','e1g1'],
+  ['c2c4','e7e6','g1f3','g8f6','b1c3','d7d5','d2d4','c7c5','c4d5','f6d5','e2e3','b8c6','f1d3'],
+  ['g1f3','d7d5','g2g3','c7c5','f1g2','b8c6','e1g1','e7e5','d2d3','g8f6','b1d2'],
+  ['g1f3','g8f6','c2c4','e7e6','g2g3','d7d5','f1g2','c7c5','e1g1','b8c6','d2d4'],
+  ['g1f3','g8f6','g2g3','g7g6','f1g2','f8g7','e1g1','e8g8','d2d4','d7d6','b2b3','b8c6'],
+  ['g1f3','d7d5','d2d4','g8f6','g2g3','c7c6','f1g2','c8g4','b1d2','b8d7','e1g1'],
+  ['g1f3','c7c5','c2c4','g8f6','b1c3','d7d5','c4d5','f6d5','e2e3','e7e6','d2d4'],
+  ['d2d4','d7d5','g1f3','g8f6','c1f4','e7e6','e2e3','c7c5','c2c3','b8c6','g1h3','d8b6'],
+  ['d2d4','d7d5','g1f3','g8f6','c1f4','c7c5','c2c3','b8c6','e2e3','d8b6','d1b3','c5d4'],
+  ['d2d4','d7d5','g1f3','g8f6','c1f4','e7e6','e2e3','f8d6','f4g3','e8g8','f1d3','d8e7'],
+  ['d2d4','d7d5','g1f3','g8f6','e2e3','c8f5','c2c4','e7e6','b1c3','f8e7','d1b3','c7c6'],
+  ['d2d4','d7d5','g1f3','g8f6','c1f4','b8d7','e2e3','e7e6','b1d2','f8d6','f4g3','e8g8'],
+  ['e2e4','d7d6','d2d4','g8f6','b1c3','g7g6','g1f3','f8g7','f1e2','b8d7','e1g1','e8g8'],
+  ['e2e4','d7d6','d2d4','g8f6','b1c3','g7g6','c1e3','f8g7','d1d2','b8c6','e1c1','e8g8'],
+  ['e2e4','g7g6','d2d4','f8g7','b1c3','d7d6','f2f4','g8f6','g1f3','e8g8','f1e2','b8c6'],
+  ['e2e4','g7g6','d2d4','f8g7','g1f3','d7d6','f1e2','g8f6','b1c3','e8g8','e1g1','b8d7'],
+  ['e2e4','e7e5','f2f4','e5f4','g1f3','g7g5','f1c4','g5g4','f3e5','d8h4','e1f1','g4h3'],
+  ['e2e4','e7e5','f2f4','e5f4','g1f3','d7d5','e4d5','g8f6','d5d6','c8d7','f1c4','f8d6'],
+  ['e2e4','e7e5','f2f4','e5f4','g1f3','g7g5','h2h4','g5g4','f3g5','h7h6','g5h3','f8g7'],
+  ['e2e4','d7d5','e4d5','d8d5','b1c3','d5d6','d2d4','g8f6','g1f3','c8g4','h2h3','g4f3','d1f3','c7c6'],
+  ['e2e4','d7d5','e4d5','d8d5','b1c3','d5a5','d2d4','c7c6','g1f3','c8f5','f1c4','g8f6','c1d2'],
+  ['e2e4','d7d5','e4d5','g8f6','f1b5','b8d7','g1f3','a7a6','b5d7','c8d7','e1g1','f6d5'],
+  ['d2d4','f7f5','c2c4','g8f6','g1f3','e7e6','g2g3','f8e7','f1g2','e8g8','e1g1','d7d6','b1c3','d8e8'],
+  ['d2d4','f7f5','c2c4','g8f6','b1c3','g7g6','g2g3','f8g7','f1g2','e8g8','g1f3','d7d6'],
+  ['d2d4','f7f5','c2c4','e7e6','g1f3','g8f6','g2g3','d7d5','f1g2','c7c6','e1g1','f8d6'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7','f1e1','b7b5','a4b3','d7d6','c2c3','e8g8','d2d4','c8g4','f1e3'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7','f1e1','b7b5','a4b3','d7d6','c2c3','e8g8','d2d4','c8d7','b1d2'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7','f1e1','b7b5','a4b3','d7d6','c2c3','e8g8','h2h3','c6a5','b3c2','c7c5'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7','b1c3','b7b5','a4b3','d7d6','d2d4','e5d4','c3d4','b8d7'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7','d2d3','e8g8','b1c3','d7d6','a2a3','b8b8'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','a7a6','c1e3','e7e5','d4b3','f8e7','f2f3','c8e6','g2g4','d6d5'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','a7a6','c1g5','b8d7','f1c4','d8b6','d4b5','c8d5'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','a7a6','f1e2','e7e5','d4b3','f8e7','e1g1','e8g8','c1e3','c8e6'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','a7a6','f2f4','d8c7','f1d3','g7g6','g1f3','f8g7','e1g1'],
+  ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','g8f6','b1c3','d7d6','f1g5','e7e6','d1d2','a7a6','e1c1','h7h6','g5e3'],
+  ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','g8f6','b1c3','d7d6','f1g5','e7e6','g5f6','g7f6','d4b3','a7a6'],
+  ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','e7e5','d4f5','d7d6','b1c3','a7a6','a2a4','b7b6'],
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','g8f6','c1g5','f8b4','e4e5','h7h6','g5e3','b4c3','b2c3','f6e4','d1g4','g7g6'],
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','g8f6','c1g5','f8e7','e4e5','f6d7','h2h4','c7c5','g5e7','d8e7','d4c5','d7c5'],
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','g8f6','c1g5','f8e7','e4e5','f6d7','g5e7','d8e7','g1f3','a7a6','d1d2'],
+  ['e2e4','c7c6','d2d4','d7d5','b1c3','d5e4','c3e4','c8f5','e4g3','f5g6','h2h4','h7h6','g1f3','b8d7','h4h5','g6h7','f1d3','d8c7'],
+  ['e2e4','c7c6','d2d4','d7d5','b1c3','d5e4','c3e4','g8f6','e4g3','h7h5','h2h3','f8d6','g3f1','d8c7','f1e3'],
+  ['e2e4','c7c6','d2d4','d7d5','b1d2','d5e4','d2e4','g8f6','e4f6','e7f6','c2c3','f8d6','g1f3','e8g8','f1d3'],
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','g1f3','f8e7','c1g5','e8g8','e2e3','b8d7','d1c2','c7c5','c4d5'],
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','c1g5','f8e7','e2e3','b8d7','g1f3','d7f6','g5f6','e7f6'],
+  ['d2d4','d7d5','c2c4','c7c6','g1f3','g8f6','b1c3','e7e6','c1f4','g8h5','f4e5','h5f6','e2e3'],
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','g1f3','f8b4','c1g5','h7h6','g5f6','d8f6','e2e3','e8g8'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','d1c2','d7d5','c4d5','d8d5','g1f3','d8f3','e2f3','b4c3','c2c3'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','e2e3','e8g8','g1e2','d7d5','a2a3','b4c3','b2c3','b8c6'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','g1f3','c7c5','g2g3','c5d4','f3d4','b8c6','f1g2'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','g1f3','e8g8','f1e2','e7e5','e1g1','b8c6','d4d5','c6e7','f3e1'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','g1f3','e8g8','f1e2','e7e5','d4d5','f6h5','f3h4','d8g5'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','f2f3','e8g8','c1e3','e7e5','d4d5','f6h5','d1d2'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','g1f3','e8g8','h2h3','b8d7','c1e3'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','d7d5','c4d5','f6d5','e2e4','d5c3','b2c3','f8g7','g1f3','c7c5','h2h3','b8c6'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','d7d5','c4d5','f6d5','e2e4','d5c3','b2c3','c7c5','d4d5','e7e6'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','d7d5','g1f3','f8g7','d1b3','d5c4','b3c4','e8g8','c1f4','c7c6'],
+  ['d2d4','g8f6','c2c4','c7c5','d4d5','e7e6','b1c3','e6d5','c4d5','d7d6','e2e4','g7g6','f2f4','f8g7','g1f3','e8g8','f1d3'],
+  ['d2d4','g8f6','c2c4','e7e5','d4e5','f6g4','g1f3','b8c6','c1f4','f8b4','b1c3','d8e7'],
+  ['d2d4','g8f6','c2c4','c7c5','d4d5','b7b5','c4b5','a7a6','e2e3','a6b5','f1b5','g7g6'],
+  ['c2c4','e7e5','b1c3','g8f6','g1f3','b8c6','d2d4','e5d4','f3d4','f8b4','d4c2','e8g8','e2e3','d7d5'],
+  ['c2c4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','g8f6','b1c3','e7e6','g2g3','d8b6','b3d2'],
+  ['c2c4','g8f6','b1c3','e7e6','e2e4','d7d5','e4e5','d5d4','e5f6','d4c3','f6g7','c3b2','c1b2','d8d2'],
+  ['c2c4','g8f6','g1f3','e7e6','g2g3','d7d5','f1g2','f8e7','e1g1','e8g8','d2d4','b8d7','d1c2'],
+  ['c2c4','e7e5','b1c3','g8f6','g1f3','b8c6','e2e3','f8b4','d1c2','e8g8','a2a3','b4c3','c2c3'],
+  ['g1f3','d7d5','c2c4','d5c4','g2g3','g8f6','f1g2','e7e6','e1g1','a7a6','a2a4','c7c5'],
+  ['g1f3','g8f6','c2c4','c7c5','g2g3','b8c6','f1g2','g7g6','e1g1','f8g7','b1c3','e8g8'],
+  ['g1f3','d7d5','d2d4','g8f6','c1f4','e7e6','e2e3','f8e7','h2h3','e8g8','f1d3','c7c5'],
+  ['d2d4','d7d5','g1f3','g8f6','c1f4','e7e6','h2h3','f8e7','e2e3','e8g8','f1d3','b8d7','b1d2'],
+  ['d2d4','d7d5','g1f3','g8f6','c1f4','c7c5','e2e3','b8c6','g1h3','d8b6','d1c1','c5d4'],
+  ['d2d4','d7d5','g1f3','g8f6','c1f4','c8f5','e2e3','e7e6','c2c3','f8d6','f4d6','d8d6','g1h3'],
+  ['d2d4','f7f5','c2c4','g8f6','b1c3','e7e6','g1f3','f8e7','g2g3','e8g8','f1g2','d7d6','e1g1','d8e8'],
+  ['d2d4','f7f5','g2g3','g8f6','f1g2','g7g6','g1f3','f8g7','e1g1','e8g8','c2c4','d7d6','b1c3'],
+  ['e2e4','d7d6','d2d4','g8f6','b1c3','g7g6','g1f3','f8g7','c1e3','e8g8','d1d2','b8c6','e1c1'],
+  ['e2e4','d7d6','d2d4','g8f6','b1c3','g7g6','f2f4','f8g7','g1f3','e8g8','f1d3','b8a6','e1g1'],
+  ['e2e4','g7g6','d2d4','f8g7','b1c3','d7d6','g1f3','g8f6','f1e2','e8g8','e1g1','b8d7'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7','f1e1','b7b5','a4b3','e8g8','c2c3','d7d6','d2d4','c8g4','d4e5','d6e5','d1d8','a8d8'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7','f1e1','b7b5','a4b3','e8g8','c2c3','d7d5','e4d5','f6d5','b1c3','d5f4'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8e7','d2d3','d7d6','a4b3','b8a5','b3d5','f6d5','e4d5','b8a5'],
+  ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','g8f6','b1c3','e7e5','d4b5','d7d6','c1g5','a7a6','b5a3','b7b5'],
+  ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','g8f6','b1c3','e7e5','d4b5','d7d6','f1g5','a7a6','b5a3','b7b5','c1g5'],
+  ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','g8f6','b1c3','e7e5','d4b5','d7d6','b1d4','c8e6','c2c4','b8d4'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','b8c6','f1c4','e7e6','c1e3','a7a6','d1e2'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','b8c6','f1c4','e7e6','d4b5','a7a6','b5d6','f8d6'],
+  ['e2e4','e7e6','d2d4','d7d5','e4e5','c7c5','c2c3','b8c6','g1f3','d8b6','f1e2','g8h6','b1a3'],
+  ['e2e4','e7e6','d2d4','d7d5','e4d5','e6d5','g1f3','g8f6','f1d3','f8d6','e1g1','e8g8','b1d2'],
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','g8f6','c1g5','f8b4','e4e5','h7h6','c3d5','h6g5','d5b4','e6e5'],
+  ['e2e4','c7c6','b1c3','d7d5','g1f3','c8g4','h2h3','g4f3','d1f3','e7e6','d2d3','g8f6','g2g3'],
+  ['e2e4','c7c6','b1c3','d7d5','g1f3','d5e4','c3e4','g8f6','e4f6','e7f6','f1c4','c8f5'],
+  ['e2e4','d7d6','d2d4','g8f6','b1c3','g7g6','f2f4','f8g7','g1f3','e8g8','f1d3','b8a6','e1g1','c7c5'],
+  ['e2e4','d7d6','d2d4','g8f6','b1c3','g7g6','f2f4','f8g7','g1f3','c7c6','f1d3','d8c7'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','e2e3','c7c5','f1d3','b8c6','g1f3','c8d7','e1g1','e8g8','a2a3','b4c3'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','e2e3','b7b6','g1e2','c8a6','a2a3','b4c3','b2c3'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','f2f3','e8g8','c1e3','b8c6','d1d2'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','f2f3','e8g8','c1g5','b8c6','d1d2'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','c1g5','e8g8','d1d2','b8c6','g1f3'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','c1g5','h7h6','g5e3','e7e5','d4d5'],
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','g1f3','f8e7','c1g5','h7h6','g5h4','e8g8','e2e3','f6e4','g5e7','d8e7'],
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','g1f3','f8e7','c1g5','h7h6','g5f4','e8g8','e2e3','c7c5'],
+  ['d2d4','d7d5','c2c4','c7c6','g1f3','g8f6','b1c3','a7a6','g2g3','e7e6','f1g2','b7b5','e1g1','c8b7'],
+  ['d2d4','d7d5','c2c4','c7c6','g1f3','g8f6','b1c3','a7a6','a2a4','e7e6','g2g3','b8d7'],
+  ['d2d4','g8f6','c2c4','e7e6','g2g3','d7d5','f1g2','d5c4','g1f3','c7c5','d4d5','e6d5','e1g1','f8e7'],
+  ['d2d4','g8f6','c2c4','e7e6','g2g3','d7d5','f1g2','d5c4','g1f3','c8d7','d1a4','c7c6','a4c4'],
+  ['d2d4','d7d5','c2c4','d5c4','g1f3','a7a6','e2e3','c8g4','f1c4','e7e6','h2h3','g4h5','b1c3'],
+  ['c2c4','e7e5','b1c3','g8f6','g1f3','b8c6','g2g3','f8b4','f1g2','e8g8','e1g1','d7d5','c4d5','f6d5'],
+  ['c2c4','e7e5','b1c3','g8f6','g1f3','b8c6','e2e3','d7d5','c4d5','f6d5','d1b3','d5b4'],
+  ['c2c4','g8f6','g2g3','e7e6','f1g2','d7d5','g1f3','f8e7','e1g1','e8g8','d2d4','b8d7'],
+  ['c2c4','e7e6','g1f3','g8f6','g2g3','f8b4','f1g2','e8g8','e1g1','d7d5','b1a3','b4a3','b2a3'],
+  ['d2d4','g8f6','g1f3','g7g6','c1f4','f8g7','e2e3','e8g8','h2h3','d7d6','f1e2','b8d7'],
+  ['d2d4','d7d5','g1f3','g8f6','c1f4','c7c6','e2e3','c8f5','b1d2','e7e6','g1h3','b8d7'],
+  ['d2d4','g8f6','g1f3','e7e6','c1g5','h7h6','g5h4','d7d5','b1d2','f8e7','e2e3','e8g8'],
+  ['d2d4','g8f6','g1f3','d7d6','c1g5','b8d7','e2e3','e7e6','c2c3','f8e7','b1d2','e8g8'],
+  ['d2d4','g8f6','c1g5','e7e5','g5f6','d8f6','d4e5','f6e5','b1c3','f8b4','d1d2'],
+  ['d2d4','g8f6','c1g5','d7d5','g5f6','e7f6','b1c3','c7c6','g1f3','f8d6','e2e3'],
+  ['d2d4','g8f6','c1g5','g7g6','d4d5','f8g7','g5f6','g7f6','b1c3','d7d6','g1f3'],
+  ['d2d4','g8f6','b1c3','d7d5','c1g5','b8d7','g1f3','e7e6','e2e3','f8e7','f1d3'],
+  ['d2d4','d7d5','g1f3','g8f6','e2e3','e7e6','f1d3','c7c5','b2b3','b8c6','c1b2','f8d6'],
+  ['d2d4','g8f6','g1f3','e7e6','e2e3','d7d5','f1d3','c7c5','b2b3','b8c6','c1b2','f8d6'],
+  ['d2d4','d7d5','e2e4','d5e4','b1c3','g8f6','f2f3','e4f3','g1f3','g7g6'],
+  ['d2d4','d7d5','e2e4','d5e4','b1c3','g8f6','f2f3','e4f3','d1f3','d8d6'],
+  ['g1f3','g7g6','g2g3','f8g7','f1g2','g8f6','e1g1','d7d6','d2d4','e8g8','b1c3','b8d7'],
+  ['b1c3','d7d5','e2e4','d7d4','c3e4','b8c6','g1f3','e7e5','f1c4','g8f6'],
+  ['g1f3','g8f6','c2c4','g7g6','g2g3','f8g7','f1g2','d7d5','c4d5','f6d5','e1g1','e8g8'],
+  ['g1f3','d7d5','c2c4','c7c6','b2b3','g8f6','g2g3','c8f5','f1g2','e7e6','e1g1','b8d7'],
+  ['d2d4','g8f6','c2c4','c7c5','d4d5','e7e6','b1c3','e6d5','c4d5','d7d6','e2e4','g7g6','g1f3','f8g7','f1e2','e8g8','e1g1','b8e8'],
+  ['d2d4','g8f6','g1f3','d7d5','c2c4','e7e6','g2g3','b8d7','f1g2','c7c6','e1g1','f8e7'],
+  ['d2d4','g8f6','g1f3','d7d5','c2c4','d5c4','e2e3','e7e5','f1c4','e5d4','e3d4'],
+  ['d2d4','g8f6','g1f3','c7c5','d4d5','b7b5','c2c4','b5b4','g2g3','d7d6','f1g2'],
+  ['d2d4','f7f5','g1f3','g8f6','g2g3','g7g6','f1g2','f8g7','e1g1','e8g8','c2c4','d7d6','b1c3'],
+  ['d2d4','f7f5','c2c4','g8f6','g2g3','g7g6','f1g2','f8g7','g1f3','d7d6','e1g1','c7c6'],
+  ['e2e4','e7e5','d2d4','e5d4','c2c3','d4c3','f1c4','c3b2','c4b2','d7d5','b2d5','g8f6'],
+  ['e2e4','e7e5','g1f3','d7d5','f3e5','d5d6','e5d3','d8e7','d3f4','e7e4','f1e2','e7e4'],
+  ['d2d4','f7f5','c2c4','g8f6','g2g3','e7e6','f1g2','d7d5','g1f3','f8d6','e1g1','c7c6'],
+  ['d2d4','e7e6','c2c4','f7f5','g2g3','g8f6','f1g2','f8e7','g1f3','d7d5','e1g1','e8g8'],
+  ['e2e4','c7c5','g1f3','e7e6','b1c3','a7a6','g2g3','b7b5','f1g2','c8b7','e1g1','b8c6'],
+  ['e2e4','c7c5','g1f3','b8c6','g2g3','g7g6','f1g2','f8g7','e1g1','e7e6','d2d3'],
+  ['b2b4','e7e5','c1b2','f8b4','e2e3','g8f6','c2c4','e8g8','g1f3','b8c6'],
+  ['b2b4','e7e5','c1b2','f7f6','e2e4','f8b4','f1c4','d7d6','g1f3'],
+  ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','g8f6','b1c3','e7e5','d4b5','d7d6','c1g5','a7a6','b5a3','b7b5','c1g5','c8e6','g5f6','g7f6','b1d2'],
+  ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','g8f6','b1c3','e7e5','d4b5','d7d6','f1g5','a7a6','b5a3','b7b5','b1d2','f8e7'],
+  ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','g8f6','b1c3','e7e5','d4f3','d7d5','e4d5','c6d4','f3d4','e5d4'],
+  ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','g8f6','b1c3','d7d6','c1g5','e7e6','d1d2','a7a6','e1c1','h7h6','g5h4','g7g5'],
+  ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','g8f6','b1c3','d7d6','c1g5','e7e6','d1d2','b8e7','e1c1','e8g8'],
+  ['e2e4','c7c5','g1f3','e7e6','d2d4','c5d4','f3d4','g8f6','b1c3','d7d6','g2g4','a7a6','g4g5','f6d7','g5g6'],
+  ['e2e4','c7c5','g1f3','e7e6','d2d4','c5d4','f3d4','g8f6','b1c3','d7d6','g2g4','b8c6','g4g5','f6d7','f1e2'],
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','c1g5','b8d7','g1f3','c7c6','e2e3','d8a5'],
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','c1g5','b8d7','e2e3','c7c6','g1f3','d8a5','c4c5'],
+  ['d2d4','d7d5','c2c4','e7e6','g1f3','g8f6','b1c3','f8b4','c1g5','h7h6','g5f4','e8g8'],
+  ['d2d4','d7d5','c2c4','e7e6','g1f3','g8f6','b1c3','f8b4','d1a4','b4c3','b2c3','b8d7'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','g1f3','e8g8','f1e2','e7e5','e1g1','b8c6','d4d5','c6e7','g1h1'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','g1f3','e8g8','f1e2','e7e5','e1g1','b8d7','a2a4'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','d7d5','c4d5','f6d5','e2e4','d5c3','b2c3','f8g7','f1c4','c7c5','g1e2','b8c6','c1e3'],
+  ['c2c4','g8f6','g1f3','c7c5','b1c3','b8c6','d2d4','c5d4','f3d4','e7e6','g2g3','d8b6','d4b3','b6b2'],
+  ['c2c4','e7e5','b1c3','g8f6','g1f3','b8c6','d2d4','e5d4','f3d4','f8b4','f1g5','h7h6','g5h4','d7d6'],
+  ['e2e4','e7e5','g1f3','g8f6','b1c3','f8b4','f3e5','d7d6','e5d3','b4c3','d2c3','f6e4','c1e3','b8c6'],
+  ['e2e4','e7e5','g1f3','g8f6','f3e5','d7d6','e5c4','f6e4','b1c3','e4c3','d2c3','f8e7'],
+  ['e2e4','e7e5','b1c3','g8f6','g2g3','d7d5','e4d5','f6d5','f1g2','d5b6','g1e2'],
+  ['e2e4','e7e5','b1c3','b8c6','f2f4','e5f4','g1f3','g7g5','h2h4','g5g4','f3g5','h7h6'],
+  ['e2e4','e7e5','d2d4','e5d4','c2c3','d4c3','f1c4','c3b2','c4b2','d7d5','b2d5','g8f6','d5b3'],
+  ['e2e4','e7e5','d2d4','e5d4','d1d4','b8c6','d4e3','g8f6','b1c3','f8b4','c1d2','e8g8'],
+  ['e2e4','g8f6','e4e5','f6d5','d2d4','d7d6','c2c4','d5b6','f2f4','d6e5','f4e5','b8c6'],
+  ['e2e4','g8f6','e4e5','f6d5','d2d4','d7d6','g1f3','c8g4','f1e2','e7e6','e1g1','g4f3'],
+  ['e2e4','g7g6','d2d4','f8g7','b1c3','d7d6','f2f4','g8f6','g1f3','e8g8','f1d3','b8a6','e1g1','c7c5'],
+  ['e2e4','g7g6','d2d4','f8g7','g1f3','d7d6','f1e2','g8f6','b1c3','e8g8','e1g1','b8c6'],
+  ['e2e4','d7d6','d2d4','g8f6','b1c3','g7g6','g1f3','f8g7','h2h3','e8g8','c1e3','b8d7','d1d2'],
+  ['e2e4','b7b6','d2d4','c8b7','f1d3','e7e6','g1f3','c7c5','c2c3','g8f6','d1e2'],
+  ['e2e4','b7b6','d2d4','c8b7','b1d2','g8f6','g1f3','d7d5','e4e5','f6d7','c2c3'],
+  ['e2e4','b8c6','d2d4','d7d5','e4e5','c8f5','g1f3','e7e6','f1e2','g8e7','e1g1','g7g6'],
+  ['b2b4','g8f6','c1b2','g7g6','g1f3','f8g7','e2e3','e8g8','c2c4','d7d6','f1e2'],
+  ['b2b4','e7e5','c1b2','f7f6','e2e4','c8b7','c2c4','c7c5','b4c5','f8c5'],
+  ['b2b3','e7e5','c1b2','b8c6','e2e3','g8f6','f1b5','f8d6','g1f3','e8g8','e1g1'],
+  ['b2b3','d7d5','c1b2','g8f6','g1f3','c7c5','e2e3','b8c6','f1b5','c8d7'],
+  ['f2f4','e7e5','f4e5','d7d6','e5d6','f8d6','g1f3','g7g5','d2d4','g5g4','f3g5'],
+  ['d2d4','f7f5','b1c3','g8f6','c1g5','e7e6','g5f6','d8f6','e2e3','f8b4','g1e2'],
+  ['e2e4','e7e5','g1f3','d7d6','d2d4','g8f6','b1c3','b8d7','f1c4','c7c6','e1g1','f8e7'],
+  ['d2d4','d7d5','g1f3','g8f6','c2c4','e7e6','g2g3','c7c5','f1g2','b8c6','e1g1','f8e7','d4c5','f8e8'],
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','g8f6','e4e5','f6d7','c3e4','c7c5','c2c3','b8c6','g1f3','d8b6'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','d7d5','g1f3','f8b4','d1b3','c7c5','c4d5','f6d5','c3d5','e6d5'],
+  ['e2e4','c7c5','g1f3','e7e6','d2d4','c5d4','f3d4','g8f6','b1c3','d7d6','f1e2','a7a6','e1g1','d8c7','f2f4','b8c6'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','g8f6','b1c3','b8c6','f1e2','e7e6','e1g1','a7a6','d4e6'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','g1f3','e8g8','f1e2','e7e5','d4d5','b8d7','e4e5'],
+  ['e2e4','e7e5','g1f3','b8c6','f1c4','g8f6','d2d4','f6e4','d4d5','c6b4','c4f7','e8f7','d1d4','d7d6'],
+  ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','c1g5','f8e7','e2e3','b8d7','g1f3','e8g8','d1c2','c7c5'],
+  ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','e7e6','b1c3','d8c7','c1e3','a7a6','f2f4'],
+  ['d2d4','d7d5','c2c4','c7c6','g1f3','g8f6','b1c3','e7e6','c1f4','d8b6','d1c1','b8d7'],
+  ['e2e4','e7e6','d2d4','d7d5','b1d2','g8f6','e4e5','f6d7','c2c3','c7c5','f2f4','b8c6','g1f3'],
+  ['e2e4','g8f6','e4e5','f6d5','d2d4','d7d6','c2c4','d5b6','f2f4','d6e5','f4e5','b8c6','g1f3','c8f5'],
+  ['d2d4','d7d5','g1f3','g8f6','c1f4','e7e6','e2e3','b8d7','b1d2','f8d6','f4d6','d8d6','c2c3','e8g8'],
+  ['e2e4','e7e5','g1f3','b8c6','f1b5','a7a6','b5a4','g8f6','e1g1','f8c5','g2g3','d7d6','d2d3','e8g8'],
+  ['d2d4','g8f6','c2c4','e7e6','b1c3','f8b4','d1b3','c7c5','d4c5','b8c6','c1f4','b8c6'],
+  ['e2e4','c7c5','g1f3','d7d6','d2d4','c5d4','f3d4','b8c6','b1c3','e7e6','c1e3','g8f6','f2f3','a7a6'],
+  ['d2d4','g8f6','c2c4','g7g6','b1c3','f8g7','e2e4','d7d6','f1e2','e8g8','c1g5','h7h6','g5e3','b8c6'],
+  ['e2e4','c7c5','b1c3','b8c6','g2g3','g7g6','f1g2','f8g7','d2d3','d7d6','c1e3','g8f6','g1e2'],
+  ['d2d4','d7d5','c2c4','c7c6','g1f3','g8f6','b1c3','d5c4','e2e4','b7b5','e4e5','f6d5','a2a4'],
+  ['e2e4','e7e6','d2d4','d7d5','b1c3','g8f6','e4e5','f6e4','c3e4','d5e4','d1d4','b8c6','d4e4'],
+  ['d2d4','f7f5','g1f3','g8f6','g2g3','e7e6','f1g2','f8e7','e1g1','e8g8','c2c4','d7d5','b1c3'],
+  ['e2e4','c7c5','g1f3','e7e6','b1c3','a7a6','g2g3','b7b5','f1g2','c8b7','d2d3','d7d5','e4d5'],
+  ['d2d4','g8f6','g1f3','e7e6','c2c4','b7b6','g2g3','c8b7','f1g2','f8e7','e1g1','e8g8','b1c3','g8e8']
 ];
 
 function mvUci(mv){
