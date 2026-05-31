@@ -402,6 +402,14 @@ body {
   cursor: pointer; font-family: Georgia, serif;
 }
 .detail-close:active { background: #333; }
+.detail-copy {
+  display: block; width: 100%;
+  padding: 10px; margin-top: 12px;
+  background: #fff; color: #000;
+  border: 2px solid #000; font-size: 1rem; font-weight: bold;
+  cursor: pointer; font-family: Georgia, serif;
+}
+.detail-copy:active { background: #ddd; }
 .timing-log-row {
   padding: 2px 0;
   border-bottom: 1px solid #ddd;
@@ -550,6 +558,7 @@ body {
     <div class="detail-moves" id="detail-moves"></div>
     <div class="detail-section-title">&#9201; Log tốc độ máy tính</div>
     <div class="detail-log" id="detail-log"></div>
+    <button class="detail-copy" onclick="copyDetailLog()">Copy log</button>
     <button class="detail-close" onclick="hideDetailOverlay()">Đóng</button>
   </div>
 </div>
@@ -2938,6 +2947,7 @@ function bestMove(board, turn, ep, casB, maxDepth, rnd, hash) {
   for(var ri=0;ri<gPosHist.length;ri++) if(gPosHist[ri]===hash) curRepCount++;
 
   var prevScore=0;
+  var completedDepth=0;
 
   for(var depth=1; depth<=maxDepth; depth++){
     aiTimedOut=false;
@@ -3026,6 +3036,7 @@ function bestMove(board, turn, ep, casB, maxDepth, rnd, hash) {
     if(!aiTimedOut && candidate){
       best=candidate;
       prevScore=bScore;
+      completedDepth=depth;
       for(var mi=0; mi<mvs.length; mi++){
         if(mvEq(mvs[mi], candidate)){
           var tmp=mvs[0];
@@ -3040,6 +3051,8 @@ function bestMove(board, turn, ep, casB, maxDepth, rnd, hash) {
     tMark('d'+ depth +'='+ depthMs +'ms/'+ depthNodes +'n' + (aiTimedOut?'!TO':''));
     if(aiTimedOut || (Date.now()-aiStartTime)>AI_TIME_LIMIT) break;
   }
+  var bmElapsed = Math.max(1, Date.now() - aiStartTime);
+  tMark('bm|d='+completedDepth+'/'+maxDepth+'|score='+prevScore+'|best='+mvUci(best)+'|nodes='+aiNodeCount+'|nps='+((aiNodeCount*1000/bmElapsed)|0));
   tMark('LMR='+cntLMR+'/re='+cntLMRresearch+' Q='+cntQnode+' NMP='+cntNMPcut);
   return best;
 }
@@ -4460,6 +4473,7 @@ function aiMoveCore(){
      Fallback về depth-1 nếu bestMove trả về null (không tìm được nước nào).  */
   var BESTMOVE_MAX_MS = 5000;
   AI_TIME_LIMIT = Math.min(tl, BESTMOVE_MAX_MS);
+  tMark('cfg|rank='+(gRank+1)+'|d='+useDepth+'|tl='+AI_TIME_LIMIT+'|rnd='+useRnd);
   tStart('bestMove');
   var dbgBestT0 = Date.now();
   aiDbgAdd('best');
@@ -4473,6 +4487,7 @@ function aiMoveCore(){
     mv = bestMove(gB, gTurn, gEP, gCasB, 1, 0, snapHash);
     if(!mv){ aiDbgAdd('noMove'); tFlush('noMove'); setStatus(); return; }
   }
+  tMark('move|'+mvUci(mv)+'|TO='+mainTimedOut);
 
   /* Tính toán vị trí tương lai (sau khi máy đi mv) để dùng cho các bước sau */
   var futureBoard = applyMv(gB, mv);
@@ -4767,6 +4782,46 @@ function showDetailOverlay(){
 function hideDetailOverlay(){
   var ov = document.getElementById('detail-overlay');
   if(ov){ ov.className = 'detail-overlay'; }
+}
+
+function buildDetailLogText(){
+  var lines = [];
+  lines.push('Moves: ' + (gHist.length ? gHist.join('  ') : '-'));
+  if(_aiDbg) lines.push('#AI ' + _aiDbg);
+  for(var i=0; i<_tAllLog.length; i++) lines.push(_tAllLog[i]);
+  return lines.join('\n');
+}
+
+function copyDetailLog(){
+  var text = buildDetailLogText();
+  var btns = document.getElementsByClassName ? document.getElementsByClassName('detail-copy') : [];
+  var btn = btns && btns.length ? btns[0] : null;
+  function done(ok){
+    if(!btn) return;
+    var old = btn.textContent;
+    btn.textContent = ok ? 'Copied' : 'Copy failed';
+    setTimeout(function(){ btn.textContent = old; }, 1200);
+  }
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(function(){ done(true); }, function(){ fallbackCopy(text, done); });
+  } else {
+    fallbackCopy(text, done);
+  }
+}
+
+function fallbackCopy(text, done){
+  var ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', 'readonly');
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  var ok = false;
+  try { ok = document.execCommand('copy'); } catch(e) { ok = false; }
+  document.body.removeChild(ta);
+  done(ok);
 }
 
 /* ═══════════════════════════════════════════════════
