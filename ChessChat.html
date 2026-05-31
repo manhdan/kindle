@@ -1266,6 +1266,128 @@ function attackedByPawnKnight(board, sq2, byCol){
   return false;
 }
 
+function findKingSq(board, side){
+  var king = side * WK;
+  for(var i=0;i<64;i++) if(board[i]===king) return i;
+  return -1;
+}
+
+function leastValuableAttacker(board, target, side){
+  var r=rk(target), f=fl(target), i, nr, nf, from, p, t;
+  var bestFrom=-1, bestPiece=0, bestVal=99999;
+
+  var pr=r-side;
+  for(var df=-1;df<=1;df+=2){
+    if(ob(pr,f+df)){
+      from=sq(pr,f+df); p=board[from];
+      if(p===side*WP) return [from,p];
+    }
+  }
+
+  for(i=0;i<DIRS_N.length;i++){
+    nr=r+DIRS_N[i][0]; nf=f+DIRS_N[i][1];
+    if(ob(nr,nf)){
+      from=sq(nr,nf); p=board[from];
+      if(p===side*WN) return [from,p];
+    }
+  }
+
+  for(i=0;i<DIRS_B.length;i++){
+    nr=r+DIRS_B[i][0]; nf=f+DIRS_B[i][1];
+    while(ob(nr,nf)){
+      from=sq(nr,nf); p=board[from];
+      if(p){
+        t=typ(p);
+        if(col(p)===side && (t===3 || t===5)){
+          var v=PVAL[t];
+          if(v<bestVal){ bestVal=v; bestFrom=from; bestPiece=p; }
+        }
+        break;
+      }
+      nr+=DIRS_B[i][0]; nf+=DIRS_B[i][1];
+    }
+  }
+
+  for(i=0;i<DIRS_R.length;i++){
+    nr=r+DIRS_R[i][0]; nf=f+DIRS_R[i][1];
+    while(ob(nr,nf)){
+      from=sq(nr,nf); p=board[from];
+      if(p){
+        t=typ(p);
+        if(col(p)===side && (t===4 || t===5)){
+          var rv=PVAL[t];
+          if(rv<bestVal){ bestVal=rv; bestFrom=from; bestPiece=p; }
+        }
+        break;
+      }
+      nr+=DIRS_R[i][0]; nf+=DIRS_R[i][1];
+    }
+  }
+
+  if(bestFrom>=0) return [bestFrom,bestPiece];
+
+  for(i=0;i<DIRS_K.length;i++){
+    nr=r+DIRS_K[i][0]; nf=f+DIRS_K[i][1];
+    if(ob(nr,nf)){
+      from=sq(nr,nf); p=board[from];
+      if(p===side*WK && !attacked(board,target,-side)) return [from,p];
+    }
+  }
+  return null;
+}
+
+function seeCapture(board, mv){
+  if(!mv || (!mv[2] && mv[5]<0)) return 0;
+  var b=board.slice();
+  var target=mv[1], from=mv[0];
+  var moving=b[from];
+  var pieceOnTarget=mv[3] || moving;
+  var gain=[];
+  gain[0]=PVAL[typ(mv[2] || WP)];
+  if(mv[3]) gain[0] += PVAL[typ(mv[3])] - PVAL[1];
+
+  if(mv[5]>=0) b[mv[5]]=E;
+  b[target]=pieceOnTarget;
+  b[from]=E;
+
+  var side=-col(moving), d=0, att;
+  while((att=leastValuableAttacker(b,target,side))){
+    d++;
+    gain[d]=PVAL[typ(pieceOnTarget)] - gain[d-1];
+    pieceOnTarget=att[1];
+    b[target]=pieceOnTarget;
+    b[att[0]]=E;
+    side=-side;
+    if(d>=31) break;
+  }
+  while(d>0){
+    gain[d-1] = -Math.max(-gain[d-1], gain[d]);
+    d--;
+  }
+  return gain[0];
+}
+
+function kingAttackPressure(board, side, ksq){
+  if(ksq<0) return 0;
+  var enemy=-side, score=0, r=rk(ksq), f=fl(ksq), i, nr, nf, z, p, t, d;
+  for(var dr=-1;dr<=1;dr++){
+    for(var df=-1;df<=1;df++){
+      nr=r+dr; nf=f+df;
+      if(ob(nr,nf) && attacked(board,sq(nr,nf),enemy)) score += (dr===0&&df===0) ? 20 : 8;
+    }
+  }
+  for(i=0;i<64;i++){
+    p=board[i];
+    if(!p || col(p)!==enemy) continue;
+    t=typ(p);
+    if(t!==4 && t!==5) continue;
+    d=Math.max(Math.abs(rk(i)-r), Math.abs(fl(i)-f));
+    if(t===5 && d<=3) score += 45;
+    else if(t===4 && d<=3) score += 28;
+  }
+  return score>260 ? 260 : score;
+}
+
 function applyMv(board, mv) {
   var nb=board.slice();
   var piece=nb[mv[0]];
@@ -1847,6 +1969,7 @@ function oneKingSafety(board, side, ksq){
   }
   if(escape<=1) score -= 60;
   else if(escape<=2) score -= 30;
+  score -= kingAttackPressure(board, side, ksq);
 
   return score;
 }
@@ -1862,12 +1985,13 @@ function oneKingSafety(board, side, ksq){
 function mvScore(mv, board, hashMove, ply){
   /* Hash move — ưu tiên tuyệt đối */
   if(hashMove && mvEq(mv, hashMove)) return 2000000;
-  /* Capture: SEE 1-ply phân loại tốt/xấu */
+  /* Capture: SEE chuỗi đổi quân để ưu tiên capture thật sự lời */
   if(mv[2] || mv[5]>=0){
     var victim   = mv[2] ? PVAL[typ(mv[2])] : PVAL[1];
     var attacker = PVAL[typ(board[mv[0]])];
-    if(victim >= attacker) return 1000000 + victim * 10 - attacker;  /* SEE ≥ 0 */
-    else                   return  500000 + victim * 10 - attacker;  /* SEE < 0 */
+    var see = seeCapture(board, mv);
+    if(see >= 0) return 1000000 + see * 16 + victim * 10 - attacker;
+    return 400000 + see * 8 + victim * 10 - attacker;
   }
   /* Killer */
   var kp = ply < MAX_PLY ? ply : MAX_PLY-1;
@@ -1979,11 +2103,7 @@ function qsearch(board, turn, ep, casB, alpha, beta, qply) {
       var gain = m[2] ? PVAL[typ(m[2])] : PVAL[1];
       if(m[3]) gain += PVAL[typ(m[3])] - PVAL[1];
       if(stand + gain + deltaMargin < alpha) continue;
-      if(qply > 0 && m[2] && !m[3]){
-        var attackerVal = PVAL[typ(board[m[0]])];
-        var victimVal = PVAL[typ(m[2])];
-        if(attackerVal > victimVal + 200 && attackedByPawnKnight(board,m[1],-turn)) continue;
-      }
+      if(qply > 0 && !m[3] && seeCapture(board,m) < -20) continue;
     }
 
     /* Legality check */
@@ -2037,6 +2157,12 @@ function negamax(board, turn, ep, casB, depth, alpha, beta, ply, hash, nullOk) {
   if(depth===0) return qsearch(board,turn,ep,casB,alpha,beta,0);
 
   var isInCheck = inCheck(board,turn);
+  var kingSq=-1, enemyKingSq=-1, ki;
+  for(ki=0;ki<64;ki++){
+    if(board[ki]===turn*6)  kingSq=ki;
+    if(board[ki]===-turn*6) enemyKingSq=ki;
+  }
+  var ownKingDanger = (depth>=5) ? kingAttackPressure(board, turn, kingSq) : 0;
 
   /* [v6] Sinh pseudo-moves và sort TRƯỚC NMP — legalMoves() đã bị loại bỏ */
   var pseudo = genPseudo(board, turn, ep, casB);
@@ -2044,7 +2170,7 @@ function negamax(board, turn, ep, casB, depth, alpha, beta, ply, hash, nullOk) {
   sortMvs(pseudo, board, hashMove, ply<MAX_PLY?ply:MAX_PLY-1);
 
   /* Null-Move Pruning */
-  if(nullOk && depth>=3 && !isInCheck){
+  if(nullOk && depth>=3 && !isInCheck && materialNoKing(board,turn)>1300 && ownKingDanger<120){
     var R = depth>=5 ? 3 : 2;
     var nullHash = hash ^ ZK_SIDE;
     if(ep>=0) nullHash ^= ZK_EP[ep];
@@ -2072,16 +2198,6 @@ function negamax(board, turn, ep, casB, depth, alpha, beta, ply, hash, nullOk) {
   var FP_MARGIN = [0, 200, 350];
   var staticEval = (depth <= 2 && !isInCheck) ? evaluate(board, turn) : 0;
   var useFutility = (depth === 1 || depth === 2) && !isInCheck && (staticEval + FP_MARGIN[depth] <= alpha);
-
-  /* [v7] Pre-compute vị trí vua 1 lần trước loop — O(64) thay vì O(64 × N_pseudo).
-     kingSq:      vua của 'turn'  — dùng cho legality check sau mỗi nước
-     enemyKingSq: vua của '-turn' — dùng cho LMR condition
-     Không dùng global để tránh side effect giữa các nhánh đệ quy. */
-  var kingSq=-1, enemyKingSq=-1, ki;
-  for(ki=0;ki<64;ki++){
-    if(board[ki]===turn*6)  kingSq=ki;
-    if(board[ki]===-turn*6) enemyKingSq=ki;
-  }
 
   for(var i=0;i<pseudo.length;i++){
     if(aiTimedOut) break;
@@ -2136,13 +2252,13 @@ function negamax(board, turn, ep, casB, depth, alpha, beta, ply, hash, nullOk) {
     var ext = (depth >= 2 && givesCheck) ? 1 : 0;
     /* Late Move Reduction (LMR) — không áp dụng khi có extension */
     searchStack.push(nhash);
-    if(!ext && legalCount-1>=3 && depth>=3 && !m[2] && !m[3] && !isInCheck && !givesCheck){
+    if(!ext && legalCount-1>=3 && depth>=3 && !m[2] && !m[3] && !isInCheck && !givesCheck && ownKingDanger<90){
       cntLMR++;
       /* LMR reduction: scale theo depth và số nước đã xét.
-         depth≥8 + move≥12: reduce 3 — tận dụng depth cao của iPhone
+         depth≥8 + move≥16: reduce 3 — tránh bỏ sót nước tấn công muộn
          depth≥5 + move≥6:  reduce 2
          còn lại:            reduce 1 */
-      var lmrR = (depth>=8 && legalCount-1>=12) ? 3
+      var lmrR = (depth>=8 && legalCount-1>=16) ? 3
                : (depth>=5 && legalCount-1>=6)  ? 2
                : 1;
       s = -negamax(nb,-turn,nep,nc,depth-1+ext-lmrR,-beta,-alpha,ply+1,nhash,true);
@@ -4471,8 +4587,9 @@ function aiMoveCore(){
 
      useDepth / useRnd đã được điều chỉnh ở bước chuẩn bị trên.
      Fallback về depth-1 nếu bestMove trả về null (không tìm được nước nào).  */
-  var BESTMOVE_MAX_MS = 5000;
-  AI_TIME_LIMIT = Math.min(tl, BESTMOVE_MAX_MS);
+  var BESTMOVE_MAX_MS = (gRank===9) ? 6500 : (gRank===8 ? 6000 : 5000);
+  var bestMoveTL = tl + (gRank===9 ? 1500 : (gRank===8 ? 1000 : 0));
+  AI_TIME_LIMIT = Math.min(bestMoveTL, BESTMOVE_MAX_MS);
   tMark('cfg|rank='+(gRank+1)+'|d='+useDepth+'|tl='+AI_TIME_LIMIT+'|rnd='+useRnd);
   tStart('bestMove');
   var dbgBestT0 = Date.now();
