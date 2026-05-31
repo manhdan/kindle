@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bi-a Trainer</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0e1218;--panel:#141b24;--border:#1f2d3d;
+  --accent:#00dfc4;--gold:#f5c518;--red:#ff3c3c;--purple:#a78bfa;
+  --text:#c8d0da;--dim:#4a5568;--r:8px;
+}
+body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;height:100vh;overflow:hidden;display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:12px;padding:10px 20px;border-bottom:1px solid var(--border);background:var(--panel);flex-shrink:0}
+header h1{font-size:20px;font-weight:700;letter-spacing:3px;color:var(--accent)}
+header .sub{font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--dim);margin-left:4px}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 6px var(--accent)}
+.felt-picker{margin-left:auto;display:flex;align-items:center;gap:8px}
+.felt-picker label{font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--dim);text-transform:uppercase}
+.felt-btn{width:22px;height:22px;border-radius:50%;border:2px solid transparent;cursor:pointer;transition:border-color .2s,transform .2s}
+.felt-btn:hover{transform:scale(1.2)}
+.felt-btn.active{border-color:#fff !important}
+#btn-green{background:#2d7a3a}
+#btn-blue{background:#1a5c8a}
+#btn-gray{background:#7a7a82}
+.layout{flex:1;display:grid;grid-template-columns:1fr 260px;grid-template-rows:1fr 1fr;gap:12px;padding:12px;min-height:0}
+#side-wrap{grid-column:1;grid-row:1;position:relative}
+#zoom-wrap{grid-column:1;grid-row:2;position:relative}
+.right-col{grid-column:2;grid-row:1/3;display:flex;flex-direction:column;gap:12px;min-height:0}
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;position:relative}
+.panel-label{position:absolute;top:8px;left:12px;font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:1.2px;color:var(--dim);text-transform:uppercase;z-index:5;pointer-events:none}
+canvas{display:block}
+#minimap-wrap{flex:0 0 auto;position:relative}
+#minimap{display:block;cursor:crosshair;user-select:none;width:100%}
+#stats-panel{flex:1;padding:14px;display:flex;flex-direction:column;gap:10px;overflow:hidden}
+.stat-row{display:flex;flex-direction:column;gap:3px}
+.stat-label{font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.8px}
+.stat-value{font-size:24px;font-weight:700;line-height:1}
+.bar-bg{height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-top:3px}
+.bar{height:100%;border-radius:2px;transition:width .25s ease}
+.divider{border:none;border-top:1px solid var(--border)}
+.legend{display:flex;flex-direction:column;gap:6px}
+.leg{display:flex;align-items:center;gap:7px;font-size:12px}
+.leg-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.leg-line{width:18px;height:2.5px;flex-shrink:0;border-radius:2px}
+.hint{font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--dim);line-height:1.65;margin-top:auto}
+body.dragging{cursor:grabbing !important}
+</style>
+</head>
+<body>
+<header>
+  <div class="dot"></div>
+  <h1>BI-A TRAINER</h1>
+  <span class="sub">// tia chết · điểm chạm · góc ra bi</span>
+  <div class="felt-picker" style="gap:14px">
+    <label>Vải:</label>
+    <div class="felt-btn active" id="btn-green" title="Xanh lá" onclick="setFelt('green')"></div>
+    <div class="felt-btn" id="btn-blue" title="Xanh dương" onclick="setFelt('blue')"></div>
+    <div class="felt-btn" id="btn-gray" title="Xám" onclick="setFelt('gray')"></div>
+    <label style="margin-left:8px">Bi đạn:</label>
+    <select id="ball-select" onchange="setBallNum(+this.value)" style="background:#1a2535;color:#c8d0da;border:1px solid #1f2d3d;border-radius:5px;padding:3px 6px;font-family:'Share Tech Mono',monospace;font-size:11px;cursor:pointer"></select>
+  </div>
+</header>
+<div class="layout">
+  <div class="panel" id="side-wrap">
+    <div class="panel-label">GÓC NGẮM — nhìn từ bi cái thẳng về bi đạn</div>
+    <canvas id="side-canvas"></canvas>
+  </div>
+  <div class="panel" id="zoom-wrap">
+    <div class="panel-label">CAM TRÊN — tia chết · ghost ball · tia ăn · góc</div>
+    <canvas id="zoom-canvas"></canvas>
+  </div>
+  <div class="right-col">
+    <div class="panel" id="minimap-wrap">
+      <div class="panel-label">BÀN BI A — kéo bi · click lỗ</div>
+      <canvas id="minimap"></canvas>
+    </div>
+    <div class="panel" id="stats-panel">
+      <div class="stat-row">
+        <div class="stat-label">Góc cut (cut angle)</div>
+        <div class="stat-value" style="color:var(--gold)" id="val-cut">—°</div>
+        <div class="bar-bg"><div class="bar" id="bar-cut" style="background:var(--gold);width:0%"></div></div>
+      </div>
+      <div class="stat-row">
+        <div class="stat-label">Góc ra bi cái (deflect)</div>
+        <div class="stat-value" style="color:var(--red)" id="val-def">—°</div>
+        <div class="bar-bg"><div class="bar" id="bar-def" style="background:var(--red);width:0%"></div></div>
+      </div>
+      <div class="stat-row">
+        <div class="stat-label">Độ che khuất</div>
+        <div class="stat-value" style="color:var(--purple)" id="val-ov">—%</div>
+        <div class="bar-bg"><div class="bar" id="bar-ov" style="background:var(--purple);width:0%"></div></div>
+      </div>
+      <hr class="divider">
+      <div class="legend">
+        <div class="leg"><span class="leg-dot" style="background:#e8e8e8"></span>Bi cái (cue ball)</div>
+        <div class="leg"><span class="leg-dot" style="background:#f5c518"></span>Bi đạn (object ball)</div>
+        <div class="leg"><span class="leg-dot" style="background:rgba(220,220,220,0.25);border:1px dashed #aaa;display:inline-block"></span>Ghost ball</div>
+        <div class="leg"><span class="leg-line" style="background:var(--red)"></span>Tia chết (aim line)</div>
+        <div class="leg"><span class="leg-line" style="background:var(--gold)"></span>Tia ăn bi → lỗ</div>
+        <div class="leg"><span class="leg-line" style="background:var(--accent)"></span>Hướng ra bi cái</div>
+      </div>
+      <div class="hint">
+        ▸ Kéo bi trắng hoặc bi vàng<br>
+        ▸ Click vào lỗ để chọn mục tiêu<br>
+        ▸ Tia chết đi qua tâm ghost ball<br>
+        ▸ Cut 30° → che khuất ~50% bi đạn
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+// ═══ FELT ═══
+const FELT_COLORS={
+  green:{felt:'#2a6e38',felt2:'#1e5228',rail:'#5c3210',railD:'#3d2008',railT:'#8B5E3C'},
+  blue: {felt:'#1a4f7a',felt2:'#123a5c',rail:'#4a3218',railD:'#2e1e0a',railT:'#7a5c32'},
+  gray: {felt:'#606068',felt2:'#484850',rail:'#5c5040',railD:'#3a3028',railT:'#8a7860'},
+};
+let feltKey='green';
+function setFelt(k){feltKey=k;document.querySelectorAll('.felt-btn').forEach(b=>b.classList.remove('active'));document.getElementById('btn-'+k).classList.add('active');redraw();}
+function felt(){return FELT_COLORS[feltKey];}
+
+// ═══ BALL COLORS (pool 9-ball set) ═══
+const BALL_DATA=[
+  {num:1, name:'1 - Vàng',      solid:true,  hex:'#FFD700'},
+  {num:2, name:'2 - Xanh dương',solid:true,  hex:'#0057FF'},
+  {num:3, name:'3 - Đỏ',        solid:true,  hex:'#E02020'},
+  {num:4, name:'4 - Tím',       solid:true,  hex:'#7A3CE7'},
+  {num:5, name:'5 - Cam',       solid:true,  hex:'#FF8C00'},
+  {num:6, name:'6 - Lá',        solid:true,  hex:'#009B3A'},
+  {num:7, name:'7 - Nâu đỏ',    solid:true,  hex:'#7A1F1F'},
+  {num:8, name:'8 - Đen',       solid:true,  hex:'#111111'},
+  {num:9, name:'9 - Vàng sọc',  solid:false, hex:'#FFD700'},
+];
+let ballNum=1;
+function setBallNum(n){ballNum=n;redraw();}
+// Populate select
+(function(){
+  const sel=document.getElementById('ball-select');
+  BALL_DATA.forEach(b=>{
+    const o=document.createElement('option');
+    o.value=b.num; o.textContent=b.name;
+    sel.appendChild(o);
+  });
+})();
+
+// ═══ CONSTANTS ═══
+// Table: 7-ft standard. Portrait orientation: short axis = width (TH=127cm), long axis = height (TW=254cm)
+const TW=254, TH=127;
+const BALL_R=2.86/2; // 28.6mm diameter
+
+// Pockets normalised [0..1] in portrait coords
+// x=0 = left long rail, x=1 = right long rail
+// y=0 = top short rail, y=1 = bottom short rail
+// Mid pockets are on the LONG rails (x=0 or x=1, y=0.5)
+const POCKETS=[
+  {x:0,   y:0  }, // top-left corner
+  {x:1,   y:0  }, // top-right corner
+  {x:0,   y:0.5}, // mid-left  (long/dọc rail)
+  {x:1,   y:0.5}, // mid-right (long/dọc rail)
+  {x:0,   y:1  }, // bot-left corner
+  {x:1,   y:1  }, // bot-right corner
+];
+
+const state={cue:{x:0.5,y:0.75}, target:{x:0.5,y:0.35}, pocket:1};
+
+// ═══ GEOMETRY ═══
+// All positions in cm. Portrait: cx_cm = nx*TH, cy_cm = ny*TW
+function computeGeo(){
+  const cx=state.cue.x*TH,    cy=state.cue.y*TW;
+  const tx=state.target.x*TH, ty=state.target.y*TW;
+  const pk=POCKETS[state.pocket];
+  const pockX=pk.x*TH, pockY=pk.y*TW;
+
+  const D=BALL_R*2;
+
+  // ── TARGET → POCKET direction ──
+  const tpDx=pockX-tx, tpDy=pockY-ty;
+  const tpLen=Math.hypot(tpDx,tpDy);
+  if(tpLen<0.5) return null;
+  const tpUx=tpDx/tpLen, tpUy=tpDy/tpLen; // unit vec target→pocket
+
+  // ── GHOST BALL ──
+  // Ghost ball = where the cue ball CENTRE must be to send target ball toward pocket.
+  // It sits on the line through target ball, in the direction OPPOSITE to target→pocket,
+  // at distance 2R from target centre.
+  // ghost = target - tpU * 2R
+  const gbx=tx - tpUx*D;
+  const gby=ty - tpUy*D;
+
+  // Contact point: midpoint of ghost centre and target centre (= the touching surface point)
+  const cpx=(gbx+tx)/2, cpy=(gby+ty)/2;
+
+  // ── AIM DIRECTION (tia chết) ──
+  // The aim line = direction from cue ball toward ghost ball.
+  // This is what the player must aim at.
+  const aimDx=gbx-cx, aimDy=gby-cy;
+  const aimLen=Math.hypot(aimDx,aimDy);
+  if(aimLen<0.5) return null;
+  const aUx=aimDx/aimLen, aUy=aimDy/aimLen;
+
+  // ── CUT ANGLE ──
+  // Angle between aim direction and target→pocket direction
+  const dot=Math.max(-1,Math.min(1, aUx*tpUx+aUy*tpUy));
+  const cutAngle=Math.acos(dot)*180/Math.PI;
+  const defAngle=90-cutAngle;
+
+  // Overlap: at cut=0° (straight) = 100%, at cut=90° = 0%
+  // cos(cutAngle) = dot, but overlap is actually how much the cue ball disc
+  // covers the target ball disc when viewed from the aim direction.
+  // Lateral separation of centres = sin(cutAngle)*2R
+  // Overlap fraction = max(0, 1 - sin(cutAngle))... but more accurately:
+  // centres separated by sep=sin(cutAngle)*2R, each radius R:
+  // overlap fraction = max(0, (2R - sep)) / (2R) = max(0, 1 - sin(cutAngle))
+  // But the classic billiards "fraction" is: fraction = cos(cutAngle)
+  // We'll show both but use the geometric one:
+  const sinCut=Math.sin(cutAngle*Math.PI/180);
+  const overlap=Math.max(0,Math.min(100,(1-sinCut)*100));
+
+  // Lateral offset of target from aim line (cm) — for side view
+  // = sin(cutAngle) * 2R (distance of target centre from ghost centre, perpendicular to aim)
+  // direction: perpendicular to aim
+  // Which side? cross product of aim and ghost→target tells us
+  // ghost→target = tpU (since ghost = target - tpU*D, so target - ghost = tpU*D)
+  const cross=aUx*tpUy - aUy*tpUx; // positive = target is to the left of aim
+  // Lateral distance = |cross| * D (since |tpU|=1 and distance ghost→target = D)
+  // Actually: lateral = (target - ghost) · rightVec
+  // where rightVec = perp to aim = (aUy, -aUx)
+  const rightX=aUy, rightY=-aUx;
+  const latTarget=(tpUx*D)*rightX + (tpUy*D)*rightY; // signed lateral of target from ghost (=aim line)
+
+  // Cue deflection direction: perpendicular to AIM toward pocket side
+  const perpX=cross>=0?-aUy:aUy;
+  const perpY=cross>=0? aUx:-aUx;
+
+  return{
+    cx,cy, tx,ty, pockX,pockY,
+    gbx,gby, cpx,cpy,
+    gb_n:{x:gbx/TH, y:gby/TW},
+    cp_n:{x:cpx/TH, y:cpy/TW},
+    aUx,aUy,
+    tpUx,tpUy,
+    perpX,perpY,
+    cutAngle, defAngle, overlap,
+    latTarget, // signed lateral cm of target from aim line
+  };
+}
+
+// ═══ HELPER: vẽ bi đạn với màu theo lựa chọn ═══
+function drawBallOnCanvas(c, cx, cy, R, ballData){
+  const hex=ballData.hex;
+  // Parse hex to RGB for gradient darkening
+  const r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16);
+  const darkHex=`rgb(${Math.round(r*.35)},${Math.round(g*.35)},${Math.round(b*.35)})`;
+
+  if(!ballData.solid){
+    // Sọc (stripe): vẽ nền trắng rồi dải màu ở giữa
+    const bg=c.createRadialGradient(cx-R*.3,cy-R*.3,R*.05,cx,cy,R);
+    bg.addColorStop(0,'#fff');bg.addColorStop(.7,'#ddd');bg.addColorStop(1,'#999');
+    c.beginPath();c.arc(cx,cy,R,0,Math.PI*2);c.fillStyle=bg;c.fill();
+    // Stripe band (horizontal strip clipped to circle)
+    c.save();
+    c.beginPath();c.arc(cx,cy,R,0,Math.PI*2);c.clip();
+    const sg=c.createLinearGradient(cx-R,cy,cx+R,cy);
+    sg.addColorStop(0,'rgba(255,255,255,0)');
+    sg.addColorStop(0.15,'rgba(255,255,255,0)');
+    sg.addColorStop(0.2,hex);
+    sg.addColorStop(0.8,hex);
+    sg.addColorStop(0.85,'rgba(255,255,255,0)');
+    sg.addColorStop(1,'rgba(255,255,255,0)');
+    c.fillStyle=sg;c.fillRect(cx-R,cy-R,R*2,R*2);
+    c.restore();
+  } else {
+    // Solid
+    const tg=c.createRadialGradient(cx-R*.35,cy-R*.35,R*.05,cx,cy,R);
+    const mid=hex; const light=`rgb(${Math.min(255,r+80)},${Math.min(255,g+80)},${Math.min(255,b+80)})`;
+    tg.addColorStop(0,light);tg.addColorStop(.6,mid);tg.addColorStop(1,darkHex);
+    c.beginPath();c.arc(cx,cy,R,0,Math.PI*2);c.fillStyle=tg;c.fill();
+  }
+  c.strokeStyle='rgba(255,255,255,0.45)';c.lineWidth=1;c.stroke();
+  // Number circle
+  c.beginPath();c.arc(cx,cy,R*.38,0,Math.PI*2);
+  c.fillStyle=ballData.solid?'rgba(255,255,255,0.9)':'rgba(255,255,255,0.9)';c.fill();
+  c.font=`700 ${Math.max(8,R*.55)}px Rajdhani`;c.fillStyle='#111';
+  c.textAlign='center';c.textBaseline='middle';
+  c.fillText(ballData.num, cx, cy+R*.04);
+}
+
+// ═══ MINIMAP ═══
+const mmC=document.getElementById('minimap');
+const mmX=mmC.getContext('2d');
+
+function mmPad(){
+  const W=mmC.width, padX=16,padTop=28,padBot=10;
+  const availW=W-padX*2, availH=mmC.height-padTop-padBot;
+  let tw=availW, th=tw*(TW/TH);
+  if(th>availH){th=availH;tw=th*(TH/TW);}
+  return{ox:padX+(availW-tw)/2, oy:padTop+(availH-th)/2, tw, th};
+}
+function resizeMinimap(){
+  const wrap=document.getElementById('minimap-wrap');
+  const W=wrap.clientWidth-2, padX=16,padTop=28,padBot=10;
+  const tw=W-padX*2;
+  mmC.width=W; mmC.height=tw*(TW/TH)+padTop+padBot;
+  drawMinimap();
+}
+function toMM(nx,ny){const p=mmPad();return{x:p.ox+nx*p.tw, y:p.oy+ny*p.th};}
+function fromMM(px,py){const p=mmPad();return{x:(px-p.ox)/p.tw, y:(py-p.oy)/p.th};}
+function clamp01(v){return Math.max(0.02,Math.min(0.98,v));}
+
+function drawMinimap(){
+  const c=mmX, W=mmC.width, H=mmC.height;
+  const p=mmPad(); const f=felt();
+  c.clearRect(0,0,W,H);
+
+  // Rail wood
+  const rw=10;
+  c.fillStyle=f.rail;
+  c.beginPath();c.roundRect(p.ox-rw,p.oy-rw,p.tw+rw*2,p.th+rw*2,6);c.fill();
+  c.fillStyle=f.railD;
+  c.beginPath();c.roundRect(p.ox-3,p.oy-3,p.tw+6,p.th+6,2);c.fill();
+  // Felt
+  c.fillStyle=f.felt;c.fillRect(p.ox,p.oy,p.tw,p.th);
+  const shd=c.createRadialGradient(p.ox+p.tw*.5,p.oy+p.th*.35,0,p.ox+p.tw*.5,p.oy+p.th*.5,p.tw*.9);
+  shd.addColorStop(0,'rgba(255,255,255,0.06)');shd.addColorStop(1,'rgba(0,0,0,0.2)');
+  c.fillStyle=shd;c.fillRect(p.ox,p.oy,p.tw,p.th);
+  // Table markings
+  c.strokeStyle='rgba(255,255,255,0.09)';c.lineWidth=0.8;c.setLineDash([4,4]);
+  c.beginPath();c.moveTo(p.ox,p.oy+p.th*.5);c.lineTo(p.ox+p.tw,p.oy+p.th*.5);c.stroke();
+  c.beginPath();c.moveTo(p.ox,p.oy+p.th*.8);c.lineTo(p.ox+p.tw,p.oy+p.th*.8);c.stroke();
+  c.setLineDash([]);
+  // Diamond spots on long rails (left/right)
+  const dia='rgba(255,255,255,0.4)';
+  [.25,.5,.75].forEach(ny=>{
+    [{nx:0,side:-5},{nx:1,side:5}].forEach(({nx,side})=>{
+      const pp={x:p.ox+nx*p.tw+side, y:p.oy+ny*p.th};
+      c.beginPath();c.arc(pp.x,pp.y,2.5,0,Math.PI*2);c.fillStyle=dia;c.fill();
+    });
+  });
+  // Diamond spots on short rails (top/bottom)
+  [.25,.5,.75].forEach(nx=>{
+    [{ny:0,side:-5},{ny:1,side:5}].forEach(({ny,side})=>{
+      const pp={x:p.ox+nx*p.tw, y:p.oy+ny*p.th+side};
+      c.beginPath();c.arc(pp.x,pp.y,2.5,0,Math.PI*2);c.fillStyle=dia;c.fill();
+    });
+  });
+
+  const geo=computeGeo();
+  // bR: ball radius in minimap pixels — scale thực tế theo tỉ lệ bàn
+  // Bàn thực: TH=127cm, BALL_R=1.43cm → bR/p.tw = BALL_R/TH
+  // Nhân 2.5 để bi dễ nhìn nhưng vẫn tỉ lệ hợp lý
+  const bR=p.tw*BALL_R/TH*2.5;
+
+  if(geo){
+    const cuePx =toMM(state.cue.x,    state.cue.y);
+    const gbPx  =toMM(geo.gb_n.x,     geo.gb_n.y);
+    const cpPx  =toMM(geo.cp_n.x,     geo.cp_n.y);
+    const pkPx  =toMM(POCKETS[state.pocket].x, POCKETS[state.pocket].y);
+    const tarPx =toMM(state.target.x,  state.target.y);
+
+    // ── TIA CHẾT: đi từ tâm bi cái theo hướng aim, qua ghost ball, kéo dài ──
+    // Direction in canvas pixels: aim vector in cm → canvas
+    // canvas: x = cm_x/TH * p.tw, y = cm_y/TW * p.th
+    // So canvas aim direction: (aUx*p.tw/TH, aUy*p.th/TW), then normalise
+    const cdx=geo.aUx*p.tw/TH, cdy=geo.aUy*p.th/TW;
+    const cdLen=Math.hypot(cdx,cdy)||1;
+    const cnx=cdx/cdLen, cny=cdy/cdLen; // normalised canvas direction
+    const ext=Math.max(p.tw,p.th)*3;
+
+    c.save();c.beginPath();c.rect(p.ox,p.oy,p.tw,p.th);c.clip();
+    // Tia chết: nét đứt mảnh từ bi cái theo hướng aim, qua ghost ball, kéo dài
+    c.beginPath();
+    c.moveTo(cuePx.x, cuePx.y);
+    c.lineTo(cuePx.x+cnx*ext, cuePx.y+cny*ext);
+    c.strokeStyle='#ff3c3c';c.lineWidth=0.8;c.setLineDash([4,3]);c.stroke();
+    c.setLineDash([]);
+    c.restore();
+
+    // ── TIA ĂN: từ tâm bi đạn → lỗ ──
+    c.beginPath();c.moveTo(tarPx.x,tarPx.y);c.lineTo(pkPx.x,pkPx.y);
+    c.strokeStyle='#f5c518';c.lineWidth=2;c.stroke();
+
+    // Ghost ball (mờ, nét đứt)
+    c.beginPath();c.arc(gbPx.x,gbPx.y,bR,0,Math.PI*2);
+    c.fillStyle='rgba(232,232,232,0.12)';c.fill();
+    c.strokeStyle='rgba(232,232,232,0.55)';c.lineWidth=1;c.setLineDash([2,2]);c.stroke();
+    c.setLineDash([]);
+  }
+
+  // Pocket holes
+  const pockR=p.tw*BALL_R/TH*2.5;
+  POCKETS.forEach((pk,i)=>{
+    const pp=toMM(pk.x,pk.y);
+    const sel=i===state.pocket;
+    c.beginPath();c.arc(pp.x,pp.y,sel?pockR*1.1:pockR*.9,0,Math.PI*2);
+    c.fillStyle='rgba(0,0,0,0.85)';c.fill();
+    if(sel){
+      c.strokeStyle='#f5c518';c.lineWidth=2;c.stroke();
+      c.beginPath();c.arc(pp.x,pp.y,pockR*1.6,0,Math.PI*2);
+      c.strokeStyle='rgba(245,197,24,0.22)';c.lineWidth=3;c.stroke();
+    }
+  });
+
+  // Balls
+  const tarPx=toMM(state.target.x,state.target.y);
+  // Target ball — dùng màu theo ballNum
+  drawBallOnCanvas(c, tarPx.x, tarPx.y, bR, BALL_DATA[ballNum-1]);
+
+  const cuePx=toMM(state.cue.x,state.cue.y);
+  // Cue (white)
+  const cg=c.createRadialGradient(cuePx.x-bR*.35,cuePx.y-bR*.35,bR*.05,cuePx.x,cuePx.y,bR);
+  cg.addColorStop(0,'#fff');cg.addColorStop(1,'#999');
+  c.beginPath();c.arc(cuePx.x,cuePx.y,bR,0,Math.PI*2);c.fillStyle=cg;c.fill();
+  c.strokeStyle='rgba(255,255,255,0.5)';c.lineWidth=1;c.stroke();
+}
+
+// ═══ ZOOM CANVAS — top-down, zoomed out x0.5, true orientation ═══
+const zC=document.getElementById('zoom-canvas');
+const zX=zC.getContext('2d');
+function resizeZoom(){const wrap=document.getElementById('zoom-wrap');zC.width=wrap.clientWidth-2;zC.height=wrap.clientHeight-2;drawZoom();}
+
+function drawZoom(){
+  const c=zX, W=zC.width, H=zC.height;
+  c.clearRect(0,0,W,H);
+  const geo=computeGeo(); const f=felt();
+
+  c.fillStyle=f.felt;c.fillRect(0,0,W,H);
+  const shd=c.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.max(W,H)*.65);
+  shd.addColorStop(0,'rgba(255,255,255,0.04)');shd.addColorStop(1,'rgba(0,0,0,0.3)');
+  c.fillStyle=shd;c.fillRect(0,0,W,H);
+  if(!geo) return;
+
+  // ══ CAM TRÊN: zoom x0.5 — bi đạn ở trung tâm, nhìn rộng hơn ══
+  const pxPerCm=Math.min(W,H)*0.09;
+  const R=BALL_R*pxPerCm;
+
+  // Bi đạn ở trung tâm canvas
+  const tbX=W/2, tbY=H/2;
+
+  // Chuyển cm → canvas pixel (tâm = bi đạn)
+  function cmToCanvas(cmX, cmY){
+    return{
+      x: tbX+(cmX-geo.tx)*pxPerCm,
+      y: tbY+(cmY-geo.ty)*pxPerCm,
+    };
+  }
+
+  const gbPx=cmToCanvas(geo.gbx, geo.gby);
+  const cpPx=cmToCanvas(geo.cpx, geo.cpy);
+  const cuePx=cmToCanvas(geo.cx, geo.cy);
+  const pkPx=cmToCanvas(geo.pockX, geo.pockY);
+
+  const anx=geo.aUx, any=geo.aUy;
+  const tpnx=geo.tpUx, tpny=geo.tpUy;
+
+  const ext=Math.max(W,H)*2;
+
+  // ── TIA CHẾT: nét đứt đỏ đi qua tâm ghost ball (và tâm bi cái) ──
+  // Vẽ qua gbPx (luôn hiển thị gần trung tâm) theo hướng aim
+  c.save();c.beginPath();c.rect(0,0,W,H);c.clip();
+  c.beginPath();
+  c.moveTo(gbPx.x - anx*ext, gbPx.y - any*ext);
+  c.lineTo(gbPx.x + anx*ext, gbPx.y + any*ext);
+  c.strokeStyle='#ff3c3c';c.lineWidth=1.8;c.setLineDash([8,5]);c.stroke();
+  c.setLineDash([]);
+  c.restore();
+
+  // ── TIA ĂN: từ tâm bi đạn → lỗ ──
+  c.save();c.beginPath();c.rect(0,0,W,H);c.clip();
+  c.beginPath();c.moveTo(tbX,tbY);c.lineTo(pkPx.x, pkPx.y);
+  c.strokeStyle='#f5c518';c.lineWidth=2.5;c.stroke();
+  // Arrow
+  const pal=R*3;
+  const pax=tbX+tpnx*pal, pay=tbY+tpny*pal;
+  c.beginPath();
+  c.moveTo(pax, pay);
+  c.lineTo(pax-tpnx*12+tpny*5, pay-tpny*12-tpnx*5);
+  c.lineTo(pax-tpnx*12-tpny*5, pay-tpny*12+tpnx*5);
+  c.closePath();c.fillStyle='#f5c518';c.fill();
+  c.restore();
+
+  // ── Ghost ball ──
+  c.beginPath();c.arc(gbPx.x,gbPx.y,R,0,Math.PI*2);
+  c.fillStyle='rgba(220,220,220,0.15)';c.fill();
+  c.strokeStyle='rgba(220,220,220,0.75)';c.lineWidth=1.5;c.setLineDash([3,3]);c.stroke();
+  c.setLineDash([]);
+
+  // ── Target ball ──
+  drawBallOnCanvas(c, tbX, tbY, R, BALL_DATA[ballNum-1]);
+
+  // ── Contact point ──
+  c.beginPath();c.arc(cpPx.x,cpPx.y,5,0,Math.PI*2);
+  c.fillStyle='#ff3c3c';c.fill();c.strokeStyle='#fff';c.lineWidth=1.5;c.stroke();
+
+  // ── Góc cut label ──
+  c.font='700 16px Rajdhani';c.fillStyle='#f5c518';
+  c.textAlign='center';c.textBaseline='middle';
+  c.fillText(geo.cutAngle.toFixed(1)+'°', cpPx.x, cpPx.y - R*2.5);
+
+  // ── Labels ──
+  c.font='600 11px Rajdhani';c.textAlign='center';c.textBaseline='top';
+  c.fillStyle='rgba(210,210,210,0.8)';c.fillText('Ghost ball',gbPx.x,gbPx.y+R+5);
+  c.fillStyle='#f5c518';c.fillText('Bi đạn',tbX,tbY+R+5);
+  c.fillStyle='#ff6060';c.font='600 9px Share Tech Mono';c.textBaseline='bottom';
+  c.fillText('CONTACT',cpPx.x,cpPx.y-8);
+}
+
+// ═══ SIDE VIEW — nhìn từ bi cái thẳng về phía bi đạn ═══
+//
+// Cơ chế: nhìn dọc theo tia chết (aim line).
+// - Trục nhìn = hướng aim (aUx, aUy)
+// - Trục ngang (lateral) = vuông góc với aim = (aUy, -aUx)
+// - Bi cái ở điểm xuất phát (origin)
+// - Ghost ball ở phía trước trên trục aim
+// - Bi đạn ở phía trước, lệch sang bên một khoảng = sin(cutAngle)*2R
+//
+// Vì đây là "nhìn từ bi cái", ta project lên mặt phẳng 2D:
+// - Trục Y của view = depth (forward distance từ bi cái)
+// - Trục X của view = lateral offset
+// Render theo phép chiếu trực giao (orthographic) nhưng zoom gần = balls rõ to
+//
+const sC=document.getElementById('side-canvas');
+const sX=sC.getContext('2d');
+function resizeSide(){const wrap=document.getElementById('side-wrap');sC.width=wrap.clientWidth-2;sC.height=wrap.clientHeight-2;drawSide();}
+
+function drawSide(){
+  const c=sX, W=sC.width, H=sC.height;
+  c.clearRect(0,0,W,H);
+  const geo=computeGeo(); const f=felt();
+
+  // Dark background (view from cue)
+  const bgG=c.createLinearGradient(0,0,0,H);
+  bgG.addColorStop(0,'#070b0f');bgG.addColorStop(1,'#0e1520');
+  c.fillStyle=bgG;c.fillRect(0,0,W,H);
+
+  if(!geo) return;
+
+  // ── Orthographic projection along aim direction ──
+  // We look FROM the cue ball ALONG the aim direction.
+  // rightVec in world space = perpendicular to aim, pointing screen-right.
+  // latTarget = component of (target_centre - ghost_centre) along rightVec
+  // ghost_centre = aim line → always at screen centre (aimLineX)
+  // target_centre = aimLineX + latTarget*pxPerCm
+  //
+  // Sign check: ghost = target - tpU*D, so target - ghost = tpU*D
+  // rightVec = (aUy, -aUx) in cm space
+  // latTarget = tpUx*D*aUy + tpUy*D*(-aUx) = D*(tpUx*aUy - tpUy*aUx) = D*(-cross)
+  // where cross = aUx*tpUy - aUy*tpUx
+  // When cross > 0: target is to the LEFT of aim → latTarget < 0 → target shows LEFT ✓
+  //   (hitting right side of target ball = ghost is to the right = target is left of aim)
+  // This is correct: hitting right side → ghost right of target → target left of ghost → target left on screen
+  // latTarg: lateral offset của bi đạn so với tia chết (aim line).
+  // Đảo dấu để: khi đánh má phải (ghost bên phải bi đạn), bi đạn hiện bên TRÁI ghost trên màn hình
+  // → bi cái (aimLine) đúng bên PHẢI bi đạn.
+  const latTarg = -geo.latTarget;
+  // Overlap: at contact, cue and target centres are 2R apart.
+  // Lateral separation = |latTarg|.
+  // Circles overlap when |latTarg| < 2R.
+  // The apparent overlap (from this view) = max(0, 2R - |latTarg|)
+
+  // Scale: make R big enough to see clearly
+  // The max lateral offset that still produces contact = 2R (just touching)
+  // Fit: canvas width should comfortably show 2R separation
+  const viewR=Math.min(W,H)*0.22; // ball radius in pixels (large, close view)
+  const pxPerCm=viewR/BALL_R;
+
+  // Canvas centre-line X = aim line = W/2
+  const aimLineX=W/2;
+  // Balls vertically centred slightly above mid
+  const ballCY=H*0.42;
+
+  // Cue ball centre (on aim line, at front)
+  const cueCX=aimLineX;
+  // Ghost ball centre (also on aim line, at ghost position)
+  const ghostCX=aimLineX;
+  // Target ball centre: lateral offset from aim line
+  const targCX=aimLineX + latTarg*pxPerCm;
+
+  // ── Floor strip ──
+  const floorY=ballCY+viewR+viewR*0.35;
+  c.fillStyle=f.felt;c.fillRect(0,floorY,W,H-floorY);
+  const floorShd=c.createLinearGradient(0,floorY,0,H);
+  floorShd.addColorStop(0,'rgba(255,255,255,0.06)');floorShd.addColorStop(1,'rgba(0,0,0,0.25)');
+  c.fillStyle=floorShd;c.fillRect(0,floorY,W,H-floorY);
+  c.fillStyle=f.railT;c.fillRect(0,floorY,W,4);
+
+  // ── Shadow on floor ──
+  [ghostCX, targCX].forEach(bx=>{
+    const sg=c.createRadialGradient(bx,floorY+3,0,bx,floorY+3,viewR*1.1);
+    sg.addColorStop(0,'rgba(0,0,0,0.45)');sg.addColorStop(1,'rgba(0,0,0,0)');
+    c.beginPath();c.ellipse(bx,floorY+4,viewR*1.1,viewR*.18,0,0,Math.PI*2);c.fillStyle=sg;c.fill();
+  });
+
+  // ── Aim line (vertical centre line in this view) ──
+  c.strokeStyle='rgba(255,60,60,0.25)';c.lineWidth=1;c.setLineDash([5,4]);
+  c.beginPath();c.moveTo(aimLineX,20);c.lineTo(aimLineX,floorY);c.stroke();
+  c.setLineDash([]);
+
+  // Aim label at top
+  c.font='600 10px Share Tech Mono';c.fillStyle='rgba(255,80,80,0.6)';
+  c.textAlign='center';c.fillText('← TIA CHẾT →',aimLineX,16);
+
+  // ── Target ball ──
+  drawBallOnCanvas(c, targCX, ballCY, viewR, BALL_DATA[ballNum-1]);
+  // Tâm bi đạn
+  c.beginPath();c.arc(targCX,ballCY,5,0,Math.PI*2);
+  c.fillStyle='#fff';c.fill();c.strokeStyle='#333';c.lineWidth=1.5;c.stroke();
+
+  // ── Ghost ball (đè lên bi đạn — 30% fill, viền nét đứt) ──
+  c.beginPath();c.arc(ghostCX, ballCY, viewR, 0, Math.PI*2);
+  c.fillStyle='rgba(220,220,220,0.20)';c.fill();
+  c.strokeStyle='rgba(220,220,220,0.85)';c.lineWidth=2;c.setLineDash([4,3]);c.stroke();
+  c.setLineDash([]);
+  // Tâm ghost ball
+  c.beginPath();c.arc(ghostCX,ballCY,5,0,Math.PI*2);
+  c.fillStyle='rgba(255,255,255,0.9)';c.fill();c.strokeStyle='rgba(150,150,150,0.8)';c.lineWidth=1.5;c.stroke();
+  // Ghost crosshair mờ
+  c.strokeStyle='rgba(220,220,220,0.4)';c.lineWidth=1;c.setLineDash([2,2]);
+  c.beginPath();c.moveTo(ghostCX-viewR*.7,ballCY);c.lineTo(ghostCX+viewR*.7,ballCY);c.stroke();
+  c.beginPath();c.moveTo(ghostCX,ballCY-viewR*.7);c.lineTo(ghostCX,ballCY+viewR*.7);c.stroke();
+  c.setLineDash([]);
+
+  // Contact point = midpoint between ghost centre and target centre on screen
+  // (this is where the two balls touch, projected onto the front view plane)
+  const cpViewX = (ghostCX + targCX) / 2;
+  const cpViewY = ballCY;
+  c.beginPath();c.arc(cpViewX, cpViewY, 5, 0, Math.PI*2);
+  c.fillStyle='#ff3c3c';c.fill();c.strokeStyle='#fff';c.lineWidth=1.5;c.stroke();
+
+  // ── Cue ball: đã bỏ (đè lên ghost ball) ──
+
+  // ── Lateral offset line ──
+  if(Math.abs(latTarg)>0.2){
+    const lineY=ballCY-viewR*1.35;
+    c.strokeStyle='rgba(255,255,255,0.25)';c.lineWidth=1;
+    // Line from aim to target centre
+    c.beginPath();c.moveTo(aimLineX,lineY);c.lineTo(targCX,lineY);c.stroke();
+    // Ticks
+    c.beginPath();c.moveTo(aimLineX,lineY-5);c.lineTo(aimLineX,lineY+5);c.stroke();
+    c.beginPath();c.moveTo(targCX,lineY-5);c.lineTo(targCX,lineY+5);c.stroke();
+    // Label
+    c.font='600 10px Share Tech Mono';c.fillStyle='rgba(255,255,255,0.45)';
+    c.textAlign='center';
+    c.fillText((Math.abs(latTarg)).toFixed(1)+' cm', (aimLineX+targCX)/2, lineY-9);
+  }
+
+  // ── Labels ──
+  c.font='700 12px Rajdhani';c.textAlign='center';
+  c.fillStyle='#f5c518';c.fillText('Bi đạn',targCX,ballCY+viewR+14);
+  c.fillStyle='rgba(200,200,200,0.7)';c.fillText('Ghost ball',ghostCX,ballCY-viewR-10);
+  c.fillStyle='#ff6060';c.font='600 9px Share Tech Mono';c.fillText('CONTACT',cpViewX,ballCY-10);
+
+  // ── HUD stats ──
+  const hudY=floorY+16;
+  c.font='700 13px Rajdhani';c.textAlign='left';
+  c.fillStyle='#f5c518';c.fillText('Góc cut: '+geo.cutAngle.toFixed(1)+'°', 14, hudY);
+  c.fillStyle='#c084fc';c.fillText('Che khuất: '+geo.overlap.toFixed(0)+'%', 14, hudY+17);
+  c.fillStyle='#00dfc4';c.fillText('Góc ra bi cái: '+geo.defAngle.toFixed(1)+'°', 14, hudY+34);
+
+  // ── Overlap fraction indicator (visual fraction bar) ──
+  const fracX=W-130, fracW=110, fracY=hudY, fracH=12;
+  c.fillStyle='rgba(255,255,255,0.08)';c.fillRect(fracX,fracY,fracW,fracH);
+  c.fillStyle='rgba(255,80,80,0.5)';c.fillRect(fracX,fracY,fracW*(geo.overlap/100),fracH);
+  c.strokeStyle='rgba(255,255,255,0.2)';c.lineWidth=1;c.strokeRect(fracX,fracY,fracW,fracH);
+  c.font='600 10px Share Tech Mono';c.fillStyle='rgba(255,255,255,0.5)';
+  c.textAlign='center';c.fillText('overlap: '+geo.overlap.toFixed(0)+'%', fracX+fracW/2, fracY+fracH+12);
+}
+
+// ═══ STATS ═══
+function updateStats(){
+  const geo=computeGeo();
+  if(!geo) return;
+  document.getElementById('val-cut').textContent=geo.cutAngle.toFixed(1)+'°';
+  document.getElementById('val-def').textContent=geo.defAngle.toFixed(1)+'°';
+  document.getElementById('val-ov').textContent=geo.overlap.toFixed(0)+'%';
+  document.getElementById('bar-cut').style.width=(geo.cutAngle/90*100)+'%';
+  document.getElementById('bar-def').style.width=(Math.max(0,geo.defAngle)/90*100)+'%';
+  document.getElementById('bar-ov').style.width=geo.overlap+'%';
+}
+
+// ═══ MINIMAP INTERACTION ═══
+let dragging=null;
+function mmPos(e){const r=mmC.getBoundingClientRect();const t=e.touches?e.touches[0]:e;return{x:t.clientX-r.left,y:t.clientY-r.top};}
+function hitBall(pos,ball){
+  const p=mmPad();
+  const bR=p.tw*BALL_R/TH;
+  const hitR=Math.max(8, bR)+4;
+  return Math.hypot(pos.x-(p.ox+ball.x*p.tw), pos.y-(p.oy+ball.y*p.th))<hitR;
+}
+function hitPocket(pos){
+  const p=mmPad();
+  for(let i=0;i<POCKETS.length;i++){
+    const pk=POCKETS[i];
+    if(Math.hypot(pos.x-(p.ox+pk.x*p.tw), pos.y-(p.oy+pk.y*p.th))<14) return i;
+  }
+  return -1;
+}
+mmC.addEventListener('mousedown',e=>{
+  const pos=mmPos(e);
+  if(hitBall(pos,state.cue)){dragging='cue';document.body.classList.add('dragging');return;}
+  if(hitBall(pos,state.target)){dragging='target';document.body.classList.add('dragging');return;}
+  const pi=hitPocket(pos);if(pi>=0){state.pocket=pi;redraw();}
+});
+document.addEventListener('mousemove',e=>{
+  if(!dragging) return;
+  const pos=mmPos(e);const n=fromMM(pos.x,pos.y);
+  state[dragging].x=clamp01(n.x);state[dragging].y=clamp01(n.y);redraw();
+});
+document.addEventListener('mouseup',()=>{dragging=null;document.body.classList.remove('dragging');});
+mmC.addEventListener('touchstart',e=>{
+  e.preventDefault();const pos=mmPos(e);
+  if(hitBall(pos,state.cue)){dragging='cue';return;}
+  if(hitBall(pos,state.target)){dragging='target';return;}
+  const pi=hitPocket(pos);if(pi>=0){state.pocket=pi;redraw();}
+},{passive:false});
+document.addEventListener('touchmove',e=>{
+  if(!dragging) return;e.preventDefault();
+  const pos=mmPos(e);const n=fromMM(pos.x,pos.y);
+  state[dragging].x=clamp01(n.x);state[dragging].y=clamp01(n.y);redraw();
+},{passive:false});
+document.addEventListener('touchend',()=>{dragging=null;});
+
+// ═══ REDRAW ═══
+function redraw(){drawMinimap();drawZoom();drawSide();updateStats();}
+function resizeAll(){
+  resizeMinimap();
+  setTimeout(()=>{resizeSide();resizeZoom();redraw();},10);
+}
+const ro=new ResizeObserver(()=>resizeAll());
+ro.observe(document.querySelector('.layout'));
+window.addEventListener('load',()=>setTimeout(resizeAll,80));
+</script>
+</body>
+</html>
