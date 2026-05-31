@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 =========================================================
-   CHESSLIKE ENGINE ChessChatPC (2026/05/29e): trapped queen penalty 500/300/80/25cp, trapped rook, king safety wide scan, French Advance Qb6 book lines
+   ChessChatPC1 (26/05/31 22:22)
    Base: ChessChat9 (2026/05/27): pendingBest always-run + gUseFastEval + BESTMOVE_MAX_MS + gGameToken + mvEq + gPendingEvalComplete
 ---------------------------------------------------------
    Lightweight JavaScript chess engine optimized for:
@@ -579,6 +579,7 @@ body {
 /* ═══════════════════════════════════════════════════
    CONSTANTS
    ═══════════════════════════════════════════════════ */
+var APP_VERSION = 'ChessChatPC1';
 var E=0, WP=1,WN=2,WB=3,WR=4,WQ=5,WK=6;
 var BP=-1,BN=-2,BB=-3,BR=-4,BQ=-5,BK=-6;
 var W=1, B=-1;
@@ -652,6 +653,7 @@ var cntLMR = 0;        /* số lần LMR được áp dụng (reduce) */
 var cntLMRresearch = 0;/* số lần LMR phải research lại vì s > alpha */
 var cntQnode = 0;      /* số node trong qsearch */
 var cntNMPcut = 0;     /* số lần null-move pruning cắt được beta */
+var cntKThreatExt = 0; /* số lần extend nước tạo áp lực quanh vua */
 var gUseFastEval = false; /* true khi pendingBest đang chạy — dùng evaluateFast() thay evaluate() */
 
 /* Phân tích nước đi (classify) */
@@ -1369,21 +1371,42 @@ function seeCapture(board, mv){
 
 function kingAttackPressure(board, side, ksq){
   if(ksq<0) return 0;
-  var enemy=-side, score=0, r=rk(ksq), f=fl(ksq), i, nr, nf, z, p, t, d;
+  var enemy=-side, score=0, r=rk(ksq), f=fl(ksq), i, nr, nf, p, t, d;
   for(var dr=-1;dr<=1;dr++){
     for(var df=-1;df<=1;df++){
       nr=r+dr; nf=f+df;
-      if(ob(nr,nf) && attacked(board,sq(nr,nf),enemy)) score += (dr===0&&df===0) ? 20 : 8;
+      if(ob(nr,nf) && attacked(board,sq(nr,nf),enemy)) score += (dr===0&&df===0) ? 24 : 10;
     }
   }
   for(i=0;i<64;i++){
     p=board[i];
     if(!p || col(p)!==enemy) continue;
     t=typ(p);
-    if(t!==4 && t!==5) continue;
     d=Math.max(Math.abs(rk(i)-r), Math.abs(fl(i)-f));
-    if(t===5 && d<=3) score += 45;
-    else if(t===4 && d<=3) score += 28;
+    if(t===5 && d<=3) score += 80;
+    else if(t===4 && d<=3) score += 34;
+    else if((t===2 || t===3) && d<=2) score += 28;
+  }
+  if(side===B && (ksq===62 || ksq===63 || ksq===61)){
+    if(board[53]!==BP) score += 24;  /* f7 */
+    if(board[54]!==BP) score += 38;  /* g7 */
+    if(board[55]!==BP) score += 26;  /* h7 */
+    if(board[39]===WQ) score += 65;  /* Qh5 motif */
+    if(board[46]===WQ) score += 85;  /* Qg6 motif */
+    if(board[55]===WQ) score += 95;  /* Qh7 motif */
+    if(board[47]===WB) score += 70;  /* Bh6 motif */
+    if(board[54]===WB) score += 80;  /* Bg7 motif */
+    if(board[53]===WN || board[47]===WN) score += 70; /* Nf7/Nh6 sacrifice motif */
+  } else if(side===W && (ksq===6 || ksq===7 || ksq===5)){
+    if(board[13]!==WP) score += 24;  /* f2 */
+    if(board[14]!==WP) score += 38;  /* g2 */
+    if(board[15]!==WP) score += 26;  /* h2 */
+    if(board[31]===BQ) score += 65;  /* Qh4 motif */
+    if(board[22]===BQ) score += 85;  /* Qg3 motif */
+    if(board[15]===BQ) score += 95;  /* Qh2 motif */
+    if(board[23]===BB) score += 70;  /* Bh3 motif */
+    if(board[14]===BB) score += 80;  /* Bg2 motif */
+    if(board[13]===BN || board[23]===BN) score += 70; /* Nf2/Nh3 sacrifice motif */
   }
   return score>260 ? 260 : score;
 }
@@ -2170,7 +2193,7 @@ function negamax(board, turn, ep, casB, depth, alpha, beta, ply, hash, nullOk) {
   sortMvs(pseudo, board, hashMove, ply<MAX_PLY?ply:MAX_PLY-1);
 
   /* Null-Move Pruning */
-  if(nullOk && depth>=3 && !isInCheck && materialNoKing(board,turn)>1300 && ownKingDanger<120){
+  if(nullOk && depth>=3 && !isInCheck && materialNoKing(board,turn)>1300 && ownKingDanger<80){
     var R = depth>=5 ? 3 : 2;
     var nullHash = hash ^ ZK_SIDE;
     if(ep>=0) nullHash ^= ZK_EP[ep];
@@ -2249,10 +2272,18 @@ function negamax(board, turn, ep, casB, depth, alpha, beta, ply, hash, nullOk) {
     /* Check Extension: nếu nước này chiếu đối phương → tăng depth +1.
        Tái dùng givesCheck đã tính ở futility step — không gọi attacked() lại.
        Chỉ áp dụng ở depth >= 2 để tránh explosion ở leaf node. */
-    var ext = (depth >= 2 && givesCheck) ? 1 : 0;
+    var threatExt = 0;
+    if(depth>=3 && !givesCheck){
+      var movedType = typ(board[m[0]]);
+      if(movedType===1 || movedType===2 || movedType===3 || movedType===5){
+        var enemyDanger = kingAttackPressure(nb, -turn, enemyKingSq);
+        if(enemyDanger>=170) { threatExt = 1; cntKThreatExt++; }
+      }
+    }
+    var ext = (depth >= 2 && givesCheck) ? 1 : threatExt;
     /* Late Move Reduction (LMR) — không áp dụng khi có extension */
     searchStack.push(nhash);
-    if(!ext && legalCount-1>=3 && depth>=3 && !m[2] && !m[3] && !isInCheck && !givesCheck && ownKingDanger<90){
+    if(!ext && legalCount-1>=3 && depth>=3 && !m[2] && !m[3] && !isInCheck && !givesCheck && ownKingDanger<60){
       cntLMR++;
       /* LMR reduction: scale theo depth và số nước đã xét.
          depth≥8 + move≥16: reduce 3 — tránh bỏ sót nước tấn công muộn
@@ -3014,27 +3045,50 @@ function scoreEndgameRootMove(board, turn, mv, nb){
   return score;
 }
 
+function rootKingDangerPenalty(board, turn, mv, nb){
+  var k0=findKingSq(board, turn);
+  var k1=findKingSq(nb, turn);
+  var before=kingAttackPressure(board, turn, k0);
+  var after=kingAttackPressure(nb, turn, k1);
+  var penalty=0;
+  if(after>before) penalty += (after-before)*2;
+  if(after>=170) penalty += after-120;
+  if(after>=220) penalty += 90;
+
+  var from=mv[0], to=mv[1], moved=typ(board[from]);
+  if(turn===B && (k1===62 || k1===63 || k1===61)){
+    if(from===55 || from===54 || from===53) penalty += 45; /* đẩy/tự bỏ tốt h/g/f trước vua */
+    if(to===55 || to===54 || to===53) penalty = Math.max(0, penalty-25);
+  } else if(turn===W && (k1===6 || k1===7 || k1===5)){
+    if(from===15 || from===14 || from===13) penalty += 45;
+    if(to===15 || to===14 || to===13) penalty = Math.max(0, penalty-25);
+  }
+  if(moved===6) penalty += 25;
+  return penalty>420 ? 420 : penalty;
+}
+
 function rootSafetyPenalty(board, turn, mv, nb){
+  var penalty=rootKingDangerPenalty(board,turn,mv,nb);
   var moved=typ(mv[3] || board[mv[0]]);
-  if(moved<2 || moved>5) return 0;
+  if(moved<2 || moved>5) return penalty;
   var val=PVAL[moved], cap=mv[2] ? PVAL[typ(mv[2])] : 0;
-  if(!seeNegative(nb,mv[1],turn)) return 0;
+  if(!seeNegative(nb,mv[1],turn)) return penalty;
   var defended=attacked(nb,mv[1],turn);
   var tacticalAttacker=attackedByPawnKnight(nb,mv[1],-turn);
   var loss = val - cap;
   if(!defended){
-    if(val>=900) return Math.max(0,980-cap);
-    if(val>=500) return Math.max(0,620-cap);
-    return Math.max(0,360-cap);
+    if(val>=900) return penalty + Math.max(0,980-cap);
+    if(val>=500) return penalty + Math.max(0,620-cap);
+    return penalty + Math.max(0,360-cap);
   }
   if(tacticalAttacker && loss>80){
-    if(val>=900) return Math.max(260, loss + 260);
-    if(val>=500) return Math.max(180, loss + 170);
-    return Math.max(120, loss + 110);
+    if(val>=900) return penalty + Math.max(260, loss + 260);
+    if(val>=500) return penalty + Math.max(180, loss + 170);
+    return penalty + Math.max(120, loss + 110);
   }
-  if(tacticalAttacker && val>=500 && cap<300) return val>=900 ? 220 : 120;
-  if(loss>250) return loss - 120;
-  return 0;
+  if(tacticalAttacker && val>=500 && cap<300) return penalty + (val>=900 ? 220 : 120);
+  if(loss>250) return penalty + loss - 120;
+  return penalty;
 }
 
 /* ═══════════════════════════════════════════════════
@@ -3052,7 +3106,7 @@ function bestMove(board, turn, ep, casB, maxDepth, rnd, hash) {
   histClear();
   searchStack=[];
   sortMvs(mvs,board,ttGetMove(hash),0);
-  cntLMR=0; cntLMRresearch=0; cntQnode=0; cntNMPcut=0;
+  cntLMR=0; cntLMRresearch=0; cntQnode=0; cntNMPcut=0; cntKThreatExt=0;
 
   var best=mvs[0];
   aiStartTime=Date.now();
@@ -3169,7 +3223,7 @@ function bestMove(board, turn, ep, casB, maxDepth, rnd, hash) {
   }
   var bmElapsed = Math.max(1, Date.now() - aiStartTime);
   tMark('bm|d='+completedDepth+'/'+maxDepth+'|score='+prevScore+'|best='+mvUci(best)+'|nodes='+aiNodeCount+'|nps='+((aiNodeCount*1000/bmElapsed)|0));
-  tMark('LMR='+cntLMR+'/re='+cntLMRresearch+' Q='+cntQnode+' NMP='+cntNMPcut);
+  tMark('LMR='+cntLMR+'/re='+cntLMRresearch+' Q='+cntQnode+' NMP='+cntNMPcut+' KX='+cntKThreatExt);
   return best;
 }
 
@@ -3718,7 +3772,7 @@ function newGame(){
   showColorBtn();
   resetStats();
   if(feedbackTimer){ clearTimeout(feedbackTimer); feedbackTimer=null; }
-  document.getElementById('history').textContent='\u2014';
+  document.getElementById('history').textContent=APP_VERSION;
   gAllLegal=legalMoves(gB,gTurn,gEP,gCasB);
   hideSplitButton();
   renderBoard(); setStatus();
