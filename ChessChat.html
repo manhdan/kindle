@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 =========================================================
-   ChessChatPC2 (26/06/01 15:09)
+   ChessChatPC3 (26/06/01 17:28)
    Base: ChessChat9 (2026/05/27): pendingBest always-run + gUseFastEval + BESTMOVE_MAX_MS + gGameToken + mvEq + gPendingEvalComplete
 ---------------------------------------------------------
    Lightweight JavaScript chess engine optimized for:
@@ -579,7 +579,7 @@ body {
 /* ═══════════════════════════════════════════════════
    CONSTANTS
    ═══════════════════════════════════════════════════ */
-var APP_VERSION = 'ChessChatPC2';
+var APP_VERSION = 'ChessChatPC3';
 var E=0, WP=1,WN=2,WB=3,WR=4,WQ=5,WK=6;
 var BP=-1,BN=-2,BB=-3,BR=-4,BQ=-5,BK=-6;
 var W=1, B=-1;
@@ -1526,6 +1526,7 @@ function evaluate(board, turn) {
   var phase = mat / PHASE_MAX;
   if(phase > 1.0) phase = 1.0;
   var extra = evalPawnStructure(board, pawnsW, pawnsB, pawnSqW, pawnSqB, phase) +
+              evalPassedPawnRace(board, pawnSqW, pawnSqB, rookSqW, rookSqB, kingW, kingB, phase) +
               mobility +
               evalPieceActivity(board, pawnsW, pawnsB, rookSqW, rookSqB, phase) +
               evalKingSafety(board, kingW, kingB, phase) +
@@ -1545,6 +1546,8 @@ function evaluateFast(board, turn) {
   var mg=0, eg=0, mat=0, mobility=0;
   var i, p, s, t, r, f, pi, pv;
   var bishopsW=0, bishopsB=0;
+  var pawnsW=[0,0,0,0,0,0,0,0], pawnsB=[0,0,0,0,0,0,0,0], pawnSqW=[], pawnSqB=[], rookSqW=[], rookSqB=[];
+  var kingW=-1, kingB=-1;
   for(i=0;i<64;i++){
     p=board[i]; if(!p) continue;
     s=col(p); t=typ(p);
@@ -1557,11 +1560,23 @@ function evaluateFast(board, turn) {
       mat += pv;
       mobility += s * MOB_BONUS[t][MOBILITY_CTR[i]];
     }
+    if(t===1){
+      if(s===W){ pawnsW[f]++; pawnSqW.push(i); }
+      else { pawnsB[f]++; pawnSqB.push(i); }
+    } else if(t===4){
+      if(s===W) rookSqW.push(i);
+      else rookSqB.push(i);
+    } else if(t===6){
+      if(s===W) kingW=i;
+      else kingB=i;
+    }
     if(t===3){ if(s===W) bishopsW++; else bishopsB++; }
   }
   var phase = mat / PHASE_MAX;
   if(phase > 1.0) phase = 1.0;
-  var extra = mobility + evalBishopPair(bishopsW, bishopsB);
+  var extra = mobility + evalBishopPair(bishopsW, bishopsB) +
+              evalPawnStructure(board, pawnsW, pawnsB, pawnSqW, pawnSqB, phase) +
+              evalPassedPawnRace(board, pawnSqW, pawnSqB, rookSqW, rookSqB, kingW, kingB, phase);
   mg += extra;
   eg += extra;
   var score = (mg * phase + eg * (1.0 - phase)) | 0;
@@ -1577,29 +1592,93 @@ function evalPawnStructure(board, pawnsW, pawnsB, pawnSqW, pawnSqB, phase){
   for(i=0;i<pawnSqW.length;i++){
     sqi=pawnSqW[i]; r=rk(sqi); f=fl(sqi);
     if((f===0||!pawnsW[f-1]) && (f===7||!pawnsW[f+1])) score -= 12;
-    passed=true;
-    for(ff=f-1;ff<=f+1;ff++){
-      if(ff<0||ff>7) continue;
-      for(rr=r+1;rr<8;rr++) if(board[sq(rr,ff)]===BP){passed=false; break;}
-      if(!passed) break;
-    }
-    if(passed) score += ((18 + r*7) * PASSED_PAWN_SCALE) | 0;
+    if(isPassedPawn(board, sqi, W)) score += ((18 + r*7) * PASSED_PAWN_SCALE) | 0;
   }
   for(i=0;i<pawnSqB.length;i++){
     sqi=pawnSqB[i]; r=rk(sqi); f=fl(sqi);
     if((f===0||!pawnsB[f-1]) && (f===7||!pawnsB[f+1])) score += 12;
-    passed=true;
-    for(ff=f-1;ff<=f+1;ff++){
-      if(ff<0||ff>7) continue;
-      for(rr=r-1;rr>=0;rr--) if(board[sq(rr,ff)]===WP){passed=false; break;}
-      if(!passed) break;
-    }
-    if(passed) score -= ((18 + (7-r)*7) * PASSED_PAWN_SCALE) | 0;
+    if(isPassedPawn(board, sqi, B)) score -= ((18 + (7-r)*7) * PASSED_PAWN_SCALE) | 0;
   }
   return score;
 }
 
 /* ── 3. Bishop pair bonus ──────────────────────────────*/
+function rookBehindPassedPawn(rookSqList, side, f, r){
+  var i, rsq, rr;
+  for(i=0;i<rookSqList.length;i++){
+    rsq=rookSqList[i];
+    if(fl(rsq)!==f) continue;
+    rr=rk(rsq);
+    if(side===W){ if(rr<r) return true; }
+    else { if(rr>r) return true; }
+  }
+  return false;
+}
+
+function isPassedPawn(board, sqi, side){
+  var r=rk(sqi), f=fl(sqi), ff, rr;
+  if(side===W){
+    for(ff=f-1;ff<=f+1;ff++){
+      if(ff<0||ff>7) continue;
+      for(rr=r+1;rr<8;rr++) if(board[sq(rr,ff)]===BP) return false;
+    }
+  } else {
+    for(ff=f-1;ff<=f+1;ff++){
+      if(ff<0||ff>7) continue;
+      for(rr=r-1;rr>=0;rr--) if(board[sq(rr,ff)]===WP) return false;
+    }
+  }
+  return true;
+}
+
+function passedPawnRaceBonus(board, side, sqi, rookSqOwn, rookSqEnemy, ownKingSq, enemyKingSq, phase){
+  if(!isPassedPawn(board, sqi, side)) return 0;
+  var r=rk(sqi), f=fl(sqi);
+  var adv = (side===W) ? r : (7-r);
+  var score = ((16 + adv*18 + adv*adv*4) * PASSED_PAWN_SCALE) | 0;
+  var endgameFactor = 1.0 + ((1.0 - phase) * 1.1);
+  score = (score * endgameFactor) | 0;
+  if(adv>=4) score += (adv-3) * 18;
+  if(adv>=5) score += 40 + (adv-5) * 35;
+  if(adv>=6) score += 90 + (adv-6) * 55;
+  if(adv===7) score += 160;
+  var ahead = (side===W) ? (r+1) : (r-1);
+  if(ahead>=0 && ahead<8 && board[sq(ahead,f)]===E) score += (adv>=6 ? 70 : (adv>=5 ? 40 : 20));
+  if(enemyKingSq>=0){
+    var d=Math.max(Math.abs(rk(enemyKingSq)-r), Math.abs(fl(enemyKingSq)-f));
+    score += Math.max(0, 110 - d*18);
+    if(adv>=5) score += Math.max(0, 75 - d*14);
+    if(adv>=6 && d<=1) score += 70;
+  }
+  if(ownKingSq>=0){
+    var d2=Math.max(Math.abs(rk(ownKingSq)-r), Math.abs(fl(ownKingSq)-f));
+    if(d2<=2) score += 16;
+  }
+  if(rookBehindPassedPawn(rookSqOwn, side, f, r)) score += 28 + adv*4;
+  if(rookBehindPassedPawn(rookSqEnemy, side, f, r)) score -= (adv>=5 ? 45 + adv*5 : 25);
+  return score;
+}
+
+function evalPassedPawnRace(board, pawnsW, pawnsB, rookSqW, rookSqB, kingW, kingB, phase){
+  var score=0, i;
+  for(i=0;i<pawnsW.length;i++) score += passedPawnRaceBonus(board, W, pawnsW[i], rookSqW, rookSqB, kingW, kingB, phase);
+  for(i=0;i<pawnsB.length;i++) score -= passedPawnRaceBonus(board, B, pawnsB[i], rookSqB, rookSqW, kingB, kingW, phase);
+  return score;
+}
+
+function evalPassedPawnRaceBoard(board, phase){
+  var pawnsW=[], pawnsB=[], rookSqW=[], rookSqB=[], kingW=-1, kingB=-1;
+  var i, p, s, t;
+  for(i=0;i<64;i++){
+    p=board[i]; if(!p) continue;
+    s=col(p); t=typ(p);
+    if(t===1){ if(s===W) pawnsW.push(i); else pawnsB.push(i); }
+    else if(t===4){ if(s===W) rookSqW.push(i); else rookSqB.push(i); }
+    else if(t===6){ if(s===W) kingW=i; else kingB=i; }
+  }
+  return evalPassedPawnRace(board, pawnsW, pawnsB, rookSqW, rookSqB, kingW, kingB, phase);
+}
+
 function evalBishopPair(bishopsW, bishopsB){
   var score=0;
   if(bishopsW>=2) score += BISHOP_PAIR_BONUS;
@@ -3024,6 +3103,7 @@ function isWinningConversion(board, turn){
 function scoreEndgameRootMove(board, turn, mv, nb){
   var score=0;
   var pieceType=typ(board[mv[0]]);
+  var phase=0;
   if(inCheck(nb, -turn))                          score += EG_BONUS_CHECK;
   if(mv[3])                                        score += EG_BONUS_PROMOTION;
   if(mv[2]){
@@ -3033,6 +3113,13 @@ function scoreEndgameRootMove(board, turn, mv, nb){
   if(pieceType===1){
     score += EG_BONUS_PAWN_PUSH;
     score += (turn===W ? rk(mv[1]) : (7-rk(mv[1]))) * EG_BONUS_ADV_PAWN;
+    if(isPassedPawn(board, mv[0], turn)){
+      var adv = (turn===W ? rk(mv[1]) : (7-rk(mv[1])));
+      score += ((adv+1) * 24) | 0;
+      if(adv>=5) score += 80;
+      if(adv>=6) score += 160;
+      if(adv>=7) score += 220;
+    }
   }
   if(mv[2] && typ(mv[2])>=pieceType)              score += EG_BONUS_SIMPLIFY;
   if(pieceType!==6){
@@ -3042,6 +3129,16 @@ function scoreEndgameRootMove(board, turn, mv, nb){
   if(pieceType===6){
     var dist=Math.abs(rk(mv[1])-rk(mv[0]))+Math.abs(fl(mv[1])-fl(mv[0]));
     if(dist<=1) score -= EG_KING_SHUFFLE;
+  }
+  if(EG_ENABLE){
+    phase = (materialNoKing(board,W) + materialNoKing(board,B)) / PHASE_MAX;
+    if(phase > 1.0) phase = 1.0;
+    if(phase < 0.8){
+      var raceBefore = evalPassedPawnRaceBoard(board, phase);
+      var raceAfter = evalPassedPawnRaceBoard(nb, phase);
+      var raceDelta = (turn===W) ? (raceAfter - raceBefore) : (raceBefore - raceAfter);
+      score += (raceDelta * 3 / 2) | 0;
+    }
   }
   return score;
 }
@@ -3072,6 +3169,17 @@ function rootSafetyPenalty(board, turn, mv, nb){
   var penalty=rootKingDangerPenalty(board,turn,mv,nb);
   var moved=typ(mv[3] || board[mv[0]]);
   if(moved<2 || moved>5) return penalty;
+  if(EG_ENABLE){
+    var phase = (materialNoKing(board,W) + materialNoKing(board,B)) / PHASE_MAX;
+    if(phase > 1.0) phase = 1.0;
+    if(phase < 0.8){
+      var raceBefore = evalPassedPawnRaceBoard(board, phase);
+      var raceAfter = evalPassedPawnRaceBoard(nb, phase);
+      var raceDelta = (turn===W) ? (raceAfter - raceBefore) : (raceBefore - raceAfter);
+      if(raceDelta < 0) penalty += ((-raceDelta) * 3 / 4) | 0;
+      if(raceDelta >= 140) penalty -= 35;
+    }
+  }
   var val=PVAL[moved], cap=mv[2] ? PVAL[typ(mv[2])] : 0;
   if(!seeNegative(nb,mv[1],turn)) return penalty;
   var defended=attacked(nb,mv[1],turn);
