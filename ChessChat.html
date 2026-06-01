@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 =========================================================
-   ChessChatPC5 (26/06/01 18:25)
+   ChessChatPC7 (26/06/01 21:29)
    Base: ChessChat9 (2026/05/27): pendingBest always-run + gUseFastEval + BESTMOVE_MAX_MS + gGameToken + mvEq + gPendingEvalComplete
 ---------------------------------------------------------
    Lightweight JavaScript chess engine optimized for:
@@ -579,7 +579,7 @@ body {
 /* ═══════════════════════════════════════════════════
    CONSTANTS
    ═══════════════════════════════════════════════════ */
-var APP_VERSION = 'ChessChatPC5';
+var APP_VERSION = 'ChessChatPC7';
 var E=0, WP=1,WN=2,WB=3,WR=4,WQ=5,WK=6;
 var BP=-1,BN=-2,BB=-3,BR=-4,BQ=-5,BK=-6;
 var W=1, B=-1;
@@ -3173,11 +3173,14 @@ function rootMoveSafetyData(board, turn, mv, nb){
   var raceDelta = 0;
   var kingRisk = 0;
   var hangRisk = 0;
+  var looseRisk = 0;
   if(phase > 1.0) phase = 1.0;
   if(moved>=2 && moved<=5){
     if(kingCanTakeSquare(nb, mv[1], -turn) && !attacked(nb, mv[1], turn)){
-      kingRisk += (moved>=4 ? 260 : 170);
-      if(phase < 0.5) kingRisk += 60;
+      if(moved===5) kingRisk += 1100;
+      else if(moved===4) kingRisk += 680;
+      else kingRisk += 390;
+      if(phase < 0.5) kingRisk += 90;
     }
     if(seeNegative(nb, mv[1], turn)){
       var val=PVAL[moved], cap=mv[2] ? PVAL[typ(mv[2])] : 0;
@@ -3199,17 +3202,96 @@ function rootMoveSafetyData(board, turn, mv, nb){
       }
     }
   }
+  looseRisk = unresolvedRootThreatPenalty(board,turn,mv,nb);
   if(EG_ENABLE && moved===1 && phase < 0.8){
     var raceBefore = evalPassedPawnRaceBoard(board, phase);
     var raceAfter = evalPassedPawnRaceBoard(nb, phase);
     raceDelta = (turn===W) ? (raceAfter - raceBefore) : (raceBefore - raceAfter);
   }
-  return { moved:moved, phase:phase, raceDelta:raceDelta, kingRisk:kingRisk, hangRisk:hangRisk };
+  return { moved:moved, phase:phase, raceDelta:raceDelta, kingRisk:kingRisk, hangRisk:hangRisk, looseRisk:looseRisk };
+}
+
+function rootCaptureThreatInfo(board, side, targetSq){
+  var victim=board[targetSq];
+  if(!victim || col(victim)!==side) return null;
+  var vt=typ(victim);
+  if(vt<2 || vt>5) return null;
+
+  var enemy=-side;
+  if(!attacked(board,targetSq,enemy)) return null;
+  var victimVal=PVAL[vt];
+  var mvs=genPseudo(board,enemy,-1,0);
+  var bestGain=0, bestFrom=-1, bestType=0, bestVal=99999;
+  for(var i=0;i<mvs.length;i++){
+    var cm=mvs[i];
+    if(cm[1]!==targetSq || !cm[2]) continue;
+    if(inCheck(applyMv(board,cm),enemy)) continue;
+
+    var attacker=board[cm[0]];
+    if(!attacker || col(attacker)!==enemy) continue;
+    var at=typ(attacker);
+    var attackerVal=PVAL[at];
+    var gain=seeCapture(board,cm);
+
+    if(attackerVal < victimVal) gain=Math.max(gain, victimVal-attackerVal);
+    else if(!attacked(board,targetSq,side)) gain=Math.max(gain, victimVal);
+
+    if(gain>bestGain){
+      bestGain=gain;
+      bestFrom=cm[0];
+      bestType=at;
+      bestVal=attackerVal;
+    }
+  }
+  if(bestGain<=60) return null;
+  return { gain:bestGain, from:bestFrom, type:bestType, attackerVal:bestVal };
+}
+
+function unresolvedRootThreatPenalty(board, turn, mv, nb){
+  var penalty=0, sq2, p, t, before, after, wasSame;
+  var cap=mv[2] ? PVAL[typ(mv[2])] : 0;
+  var movedTo=mv[1];
+  var givesCheck=inCheck(nb,-turn);
+
+  for(sq2=0;sq2<64;sq2++){
+    p=nb[sq2];
+    if(!p || col(p)!==turn) continue;
+    t=typ(p);
+    if(t<2 || t>5) continue;
+    if(sq2===movedTo) continue; /* quân vừa đi đã được hangRisk kiểm tra riêng */
+
+    wasSame = (board[sq2]===p);
+    if(!wasSame) continue;
+    if(!attacked(nb,sq2,-turn)) continue;
+
+    after=rootCaptureThreatInfo(nb,turn,sq2);
+    if(!after) continue;
+
+    before=rootCaptureThreatInfo(board,turn,sq2);
+
+    if(t===5) penalty += 1250;
+    else if(t===4) penalty += 760;
+    else penalty += 430;
+
+    penalty += Math.min(after.gain, t===5 ? 700 : (t===4 ? 420 : 260));
+
+    if(before) penalty += (t===5 ? 260 : (t===4 ? 160 : 90));
+    if(after.type===1 || after.type===2) penalty += (t===5 ? 260 : (t===4 ? 150 : 90));
+    if(!attacked(nb,sq2,turn)) penalty += (t>=4 ? 180 : 90);
+  }
+
+  if(cap>=900) penalty -= 620;
+  else if(cap>=500) penalty -= (cap/2)|0;
+  else if(cap>=300) penalty -= 110;
+  if(givesCheck) penalty = (penalty*70/100)|0;
+  if(penalty<0) penalty=0;
+  return penalty>2600 ? 2600 : penalty;
 }
 
 function rootSafetyPenalty(board, turn, mv, nb){
   var penalty=rootKingDangerPenalty(board,turn,mv,nb);
   var info=rootMoveSafetyData(board,turn,mv,nb);
+  penalty += info.looseRisk;
   if(info.moved<2 || info.moved>5) return penalty;
   penalty += info.kingRisk + info.hangRisk;
   if(info.raceDelta < 0) penalty += ((-info.raceDelta) * 3 / 4) | 0;
