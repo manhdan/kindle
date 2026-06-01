@@ -40,6 +40,7 @@ header .sub{font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--d
 #zoom-wrap{flex:1;position:relative;min-height:0}
 .panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;position:relative}
 canvas{display:block}
+#zoom-canvas{display:block;width:100%;height:100%}
 #minimap-wrap{flex:0 0 auto;position:relative}
 #minimap{display:block;cursor:crosshair;user-select:none;width:100%}
 #stats-panel{flex:1;padding:14px;display:flex;flex-direction:column;gap:10px;overflow:hidden;min-height:0}
@@ -64,7 +65,7 @@ body.dragging{cursor:grabbing !important}
     <div class="felt-btn" id="btn-blue" title="Xanh dương" onclick="setFelt('blue')"></div>
     <div class="felt-btn" id="btn-gray" title="Xám" onclick="setFelt('gray')"></div>
     <label style="margin-left:8px">Bi đạn:</label>
-    <select id="ball-select" onchange="setBallNum(+this.value)" style="background:#1a2535;color:#c8d0da;border:1px solid #1f2d3d;border-radius:5px;padding:3px 6px;font-family:'Share Tech Mono',monospace;font-size:11px;cursor:pointer"></select>
+    <select id="ball-select" onchange="setBallNum(this.value)" style="background:#1a2535;color:#c8d0da;border:1px solid #1f2d3d;border-radius:5px;padding:3px 6px;font-family:'Share Tech Mono',monospace;font-size:11px;cursor:pointer"></select>
   </div>
 </header>
 <div class="layout">
@@ -111,6 +112,8 @@ body.dragging{cursor:grabbing !important}
   </div>
 </div>
 <script>
+const subgridVisible=true; // sub-grid always shown
+
 // ═══ FELT ═══
 const FELT_COLORS={
   green:{felt:'#2a6e38',felt2:'#1e5228',rail:'#5c3210',railD:'#3d2008',railT:'#8B5E3C',cush1:'#1a3320',cush2:'#1e5228',cush3:'#0e2010',outerA:'#8B5E3C',outerD:'#3d2008'},
@@ -135,7 +138,7 @@ const BALL_DATA=[
 ];
 let ballNum=2;
 function setBallNum(n){
-  if(n==='reset'||n==0){resetToDefaults();return;}
+  if(n==='reset'||n==='0'){resetToDefaults();return;}
   ballNum=+n;savePrefs();redraw();
 }
 // Populate select
@@ -176,11 +179,14 @@ let cuePower=0; // 0-100
 
 // ═══ GEOMETRY ═══
 // All positions in cm. Portrait: cx_cm = nx*TH, cy_cm = ny*TW
-function computeGeo(){
+// Optional virtualPocket: {x,y} in cm — overrides the real pocket (used for bank shot)
+function computeGeo(virtualPocket){
   const cx=state.cue.x*TH,    cy=state.cue.y*TW;
   const tx=state.target.x*TH, ty=state.target.y*TW;
   const pk=POCKETS[state.pocket];
-  const pockX=pk.x*TH, pockY=pk.y*TW;
+  const realPockX=pk.x*TH, realPockY=pk.y*TW;
+  const pockX = virtualPocket ? virtualPocket.x : realPockX;
+  const pockY = virtualPocket ? virtualPocket.y : realPockY;
 
   const D=BALL_R*2;
 
@@ -191,60 +197,35 @@ function computeGeo(){
   const tpUx=tpDx/tpLen, tpUy=tpDy/tpLen; // unit vec target→pocket
 
   // ── GHOST BALL ──
-  // Ghost ball = where the cue ball CENTRE must be to send target ball toward pocket.
-  // It sits on the line through target ball, in the direction OPPOSITE to target→pocket,
-  // at distance 2R from target centre.
-  // ghost = target - tpU * 2R
   const gbx=tx - tpUx*D;
   const gby=ty - tpUy*D;
 
-  // Contact point: midpoint of ghost centre and target centre (= the touching surface point)
+  // Contact point: midpoint of ghost centre and target centre
   const cpx=(gbx+tx)/2, cpy=(gby+ty)/2;
 
   // ── AIM DIRECTION (tia chết) ──
-  // The aim line = direction from cue ball toward ghost ball.
-  // This is what the player must aim at.
   const aimDx=gbx-cx, aimDy=gby-cy;
   const aimLen=Math.hypot(aimDx,aimDy);
   if(aimLen<0.5) return null;
   const aUx=aimDx/aimLen, aUy=aimDy/aimLen;
 
   // ── CUT ANGLE ──
-  // Angle between aim direction and target→pocket direction
   const dot=Math.max(-1,Math.min(1, aUx*tpUx+aUy*tpUy));
   const cutAngle=Math.acos(dot)*180/Math.PI;
   const defAngle=90-cutAngle;
 
-  // Overlap: at cut=0° (straight) = 100%, at cut=90° = 0%
-  // cos(cutAngle) = dot, but overlap is actually how much the cue ball disc
-  // covers the target ball disc when viewed from the aim direction.
-  // Lateral separation of centres = sin(cutAngle)*2R
-  // Overlap fraction = max(0, 1 - sin(cutAngle))... but more accurately:
-  // centres separated by sep=sin(cutAngle)*2R, each radius R:
-  // overlap fraction = max(0, (2R - sep)) / (2R) = max(0, 1 - sin(cutAngle))
-  // But the classic billiards "fraction" is: fraction = cos(cutAngle)
-  // We'll show both but use the geometric one:
   const sinCut=Math.sin(cutAngle*Math.PI/180);
   const overlap=cutAngle>90?0:Math.max(0,Math.min(100,(1-sinCut)*100));
 
-  // Lateral offset of target from aim line (cm) — for side view
-  // = sin(cutAngle) * 2R (distance of target centre from ghost centre, perpendicular to aim)
-  // direction: perpendicular to aim
-  // Which side? cross product of aim and ghost→target tells us
-  // ghost→target = tpU (since ghost = target - tpU*D, so target - ghost = tpU*D)
-  const cross=aUx*tpUy - aUy*tpUx; // positive = target is to the left of aim
-  // Lateral distance = |cross| * D (since |tpU|=1 and distance ghost→target = D)
-  // Actually: lateral = (target - ghost) · rightVec
-  // where rightVec = perp to aim = (aUy, -aUx)
+  const cross=aUx*tpUy - aUy*tpUx;
   const rightX=aUy, rightY=-aUx;
-  const latTarget=(tpUx*D)*rightX + (tpUy*D)*rightY; // signed lateral of target from ghost (=aim line)
+  const latTarget=(tpUx*D)*rightX + (tpUy*D)*rightY;
 
-  // Cue deflection direction: perpendicular to AIM toward pocket side
   const perpX=cross>=0?-aUy:aUy;
   const perpY=cross>=0? aUx:-aUx;
 
   return{
-    cx,cy, tx,ty, pockX,pockY,
+    cx,cy, tx,ty, pockX,pockY, realPockX,realPockY,
     gbx,gby, cpx,cpy,
     gb_n:{x:gbx/TH, y:gby/TW},
     cp_n:{x:cpx/TH, y:cpy/TW},
@@ -252,8 +233,179 @@ function computeGeo(){
     tpUx,tpUy,
     perpX,perpY,
     cutAngle, defAngle, overlap,
-    latTarget, // signed lateral cm of target from aim line
+    latTarget,
   };
+}
+
+// ═══ EFFECTIVE GEO ═══
+// Trả về geo thực tế: nếu cutAngle>90, tính hit point → coi như lỗ ảo → tính lại geo
+function computeEffectiveGeo(){
+  const geoStraight = computeGeo(); // tính theo lỗ thật
+  if(!geoStraight) return {geo:null, bank:null, isBank:false};
+
+  if(geoStraight.cutAngle <= 90){
+    return {geo:geoStraight, bank:null, isBank:false};
+  }
+
+  // Thử A băng: tính hit point
+  const bank = computeBankGeo(geoStraight.tx, geoStraight.ty,
+                               geoStraight.pockX, geoStraight.pockY,
+                               1, geoStraight.cx, geoStraight.cy);
+  if(!bank){
+    // Không tìm được băng hợp lệ
+    return {geo:geoStraight, bank:null, isBank:true, noValidBank:true};
+  }
+
+  // Coi hit point như lỗ ảo → tính lại toàn bộ geo
+  const hp = bank.hitPoints[0];
+  const geoBank = computeGeo({x:hp.x, y:hp.y});
+  if(!geoBank) return {geo:geoStraight, bank, isBank:true};
+
+  return {geo:geoBank, bank, isBank:true, geoStraight};
+}
+
+// ═══ BANK SHOT GEOMETRY ═══
+// Tính đường đi 1 băng hoặc 2 băng cho bi đạn khi cutAngle > 90°
+// Dùng phép phản chiếu gương (mirror image of pocket) để tìm điểm chạm băng
+// Table cm bounds: x:[0,TH], y:[0,TW]
+function computeBankGeo(tx, ty, pockX, pockY, maxBanks, cx, cy){
+  const D = BALL_R*2;
+  // Validate ghost ball: must be on the same side as cue, closer to cue than target is
+  function isValidGhostBall(gbx, gby){
+    // Vector from target to ghost
+    const tgx = gbx - tx, tgy = gby - ty;
+    // Vector from target to cue
+    const tcx = cx - tx, tcy = cy - ty;
+    // Same side: dot product > 0
+    if(tgx*tcx + tgy*tcy <= 0) return false;
+    // dist(cue→ghost) < dist(cue→target)
+    const distCueGhost  = Math.hypot(cx-gbx, cy-gby);
+    const distCueTarget = Math.hypot(cx-tx,  cy-ty);
+    if(distCueGhost >= distCueTarget) return false;
+    return true;
+  }
+  const rails = [
+    {axis:'x', val:0,   reflect:(x,y)=>({x:-x,      y:y     }), unref:(x,y)=>({x:-x,y:y}),    name:'left'},
+    {axis:'x', val:TH,  reflect:(x,y)=>({x:2*TH-x,  y:y     }), unref:(x,y)=>({x:2*TH-x,y:y}),name:'right'},
+    {axis:'y', val:0,   reflect:(x,y)=>({x:x,        y:-y    }), unref:(x,y)=>({x:x,y:-y}),    name:'top'},
+    {axis:'y', val:TW,  reflect:(x,y)=>({x:x,        y:2*TW-y}), unref:(x,y)=>({x:x,y:2*TW-y}),name:'bottom'},
+  ];
+
+  // Try 1-bank then 2-bank solutions
+  for(let nBanks=1; nBanks<=maxBanks; nBanks++){
+    // For 1 bank: mirror pocket through each rail, draw straight line from target to mirroredPocket,
+    //             find intersection with that rail → contact point
+    if(nBanks===1){
+      for(const rail of rails){
+        // Mirror pocket through this rail
+        const mp = rail.reflect(pockX, pockY);
+        // Line from target (tx,ty) to mirrored pocket (mp.x,mp.y)
+        const dx=mp.x-tx, dy=mp.y-ty;
+        const len=Math.hypot(dx,dy);
+        if(len<1) continue;
+        // Find t where line hits rail
+        let t;
+        if(rail.axis==='x') t=(rail.val-tx)/dx;
+        else                 t=(rail.val-ty)/dy;
+        if(t<0.01||t>0.99) continue;
+        const hx=tx+dx*t, hy=ty+dy*t;
+        // Check contact point is within table bounds (not in pocket)
+        if(hx<-1||hx>TH+1||hy<-1||hy>TW+1) continue;
+        // Must stay on the rail edge (within table extent)
+        if(rail.axis==='x' && (hy<0||hy>TW)) continue;
+        if(rail.axis==='y' && (hx<0||hx>TH)) continue;
+        // Check not too close to a pocket (avoid pocket areas)
+        const nearPocket = POCKETS.some(pk=>{
+          const px=pk.x*TH, py=pk.y*TW;
+          return Math.hypot(hx-px, hy-py) < BALL_R*4;
+        });
+        if(nearPocket) continue;
+        // Direction after bounce: target→hit, then reflect
+        const d1x=hx-tx, d1y=hy-ty;
+        const d1len=Math.hypot(d1x,d1y)||1;
+        const d1ux=d1x/d1len, d1uy=d1y/d1len;
+        // Reflected direction toward pocket
+        let d2x=pockX-hx, d2y=pockY-hy;
+        const d2len=Math.hypot(d2x,d2y)||1;
+        d2x/=d2len; d2y/=d2len;
+        // Ghost ball for this bank: target must be hit so that ball goes toward hx,hy
+        const tpBx=d1ux, tpBy=d1uy;
+        const gbx = tx - tpBx*D;
+        const gby = ty - tpBy*D;
+        // Validate: ghost ball must be on same side as cue, closer than target
+        if(!isValidGhostBall(gbx, gby)) continue;
+        return {
+          nBanks:1,
+          railName: rail.name,
+          hitPoints:[{x:hx,y:hy}],
+          tpBx, tpBy,   // target→first-hit unit vec
+          gbx, gby,     // ghost ball position (cm)
+          // segment: target→hit→pocket
+          segments:[
+            {x1:tx,y1:ty, x2:hx,y2:hy},
+            {x1:hx,y1:hy, x2:pockX,y2:pockY},
+          ]
+        };
+      }
+    }
+    if(nBanks===2){
+      // Mirror pocket through rail1, then mirror that through rail2
+      for(const rail1 of rails){
+        for(const rail2 of rails){
+          if(rail1===rail2) continue;
+          // Double mirror
+          const mp1 = rail1.reflect(pockX, pockY);
+          const mp2 = rail2.reflect(mp1.x, mp1.y);
+          // Line from target to mp2
+          const dx=mp2.x-tx, dy=mp2.y-ty;
+          const len=Math.hypot(dx,dy);
+          if(len<1) continue;
+          // Hit rail2 first (closest to target along path)
+          let t2;
+          if(rail2.axis==='x') t2=(rail2.val-tx)/dx;
+          else                  t2=(rail2.val-ty)/dy;
+          if(t2<0.01||t2>0.99) continue;
+          const h2x=tx+dx*t2, h2y=ty+dy*t2;
+          if(h2x<-1||h2x>TH+1||h2y<-1||h2y>TW+1) continue;
+          if(rail2.axis==='x'&&(h2y<0||h2y>TW)) continue;
+          if(rail2.axis==='y'&&(h2x<0||h2x>TH)) continue;
+          const np2=POCKETS.some(pk=>Math.hypot(h2x-pk.x*TH,h2y-pk.y*TW)<BALL_R*4);
+          if(np2) continue;
+          // From h2x,h2y toward unmirrored mp1 = mp1 reflected back through rail2
+          const mp1u = rail2.unref(mp1.x, mp1.y);
+          const dx2=mp1u.x-h2x, dy2=mp1u.y-h2y;
+          const len2=Math.hypot(dx2,dy2);
+          if(len2<1) continue;
+          let t1;
+          if(rail1.axis==='x') t1=(rail1.val-h2x)/dx2;
+          else                  t1=(rail1.val-h2y)/dy2;
+          if(t1<0.01||t1>0.99) continue;
+          const h1x=h2x+dx2*t1, h1y=h2y+dy2*t1;
+          if(h1x<-1||h1x>TH+1||h1y<-1||h1y>TW+1) continue;
+          if(rail1.axis==='x'&&(h1y<0||h1y>TW)) continue;
+          if(rail1.axis==='y'&&(h1x<0||h1x>TH)) continue;
+          const np1=POCKETS.some(pk=>Math.hypot(h1x-pk.x*TH,h1y-pk.y*TW)<BALL_R*4);
+          if(np1) continue;
+          const tpBLen=Math.hypot(h2x-tx,h2y-ty)||1;
+          const tpBx=(h2x-tx)/tpBLen, tpBy=(h2y-ty)/tpBLen;
+          const gbx2=tx-tpBx*D, gby2=ty-tpBy*D;
+          if(!isValidGhostBall(gbx2, gby2)) continue;
+          return {
+            nBanks:2,
+            hitPoints:[{x:h2x,y:h2y},{x:h1x,y:h1y}],
+            tpBx, tpBy,
+            gbx:gbx2, gby:gby2,
+            segments:[
+              {x1:tx,y1:ty,x2:h2x,y2:h2y},
+              {x1:h2x,y1:h2y,x2:h1x,y2:h1y},
+              {x1:h1x,y1:h1y,x2:pockX,y2:pockY},
+            ]
+          };
+        }
+      }
+    }
+  }
+  return null; // no valid bank found
 }
 
 // ═══ HELPER: vẽ bi đạn với màu theo lựa chọn ═══
@@ -396,6 +548,26 @@ function drawMinimap(){
   c.strokeStyle='rgba(255,255,255,0.25)';
   c.beginPath();c.moveTo(p.ox,p.oy+p.th*0.75);c.lineTo(p.ox+p.tw,p.oy+p.th*0.75);c.stroke();
   c.setLineDash([]);
+
+  // ── Sub-grid lines (chia ô diamond thành 4 ô nhỏ hơn) ──
+  if(subgridVisible){
+    c.lineWidth=0.4;c.setLineDash([2,4]);
+    // Sub vertical lines: midpoints between existing diamond verticals
+    // Diamond x positions: 0, 0.25, 0.5, 0.75, 1
+    // Sub-x: 0.125, 0.375, 0.625, 0.875
+    [0.125, 0.375, 0.625, 0.875].forEach(nx=>{
+      c.strokeStyle='rgba(255,255,255,0.06)';
+      c.beginPath();c.moveTo(p.ox+nx*p.tw,p.oy);c.lineTo(p.ox+nx*p.tw,p.oy+p.th);c.stroke();
+    });
+    // Sub horizontal lines: midpoints between existing diamond horizontals
+    // Diamond y positions: 0, 0.125, 0.25, 0.375, 0.5, 0.625, (0.75 head string), 0.875, 1
+    // Sub-y: 0.0625, 0.1875, 0.3125, 0.4375, 0.5625, 0.6875, 0.8125, 0.9375
+    [0.0625, 0.1875, 0.3125, 0.4375, 0.5625, 0.6875, 0.8125, 0.9375].forEach(ny=>{
+      c.strokeStyle='rgba(255,255,255,0.06)';
+      c.beginPath();c.moveTo(p.ox,p.oy+ny*p.th);c.lineTo(p.ox+p.tw,p.oy+ny*p.th);c.stroke();
+    });
+    c.setLineDash([]);
+  }
   c.restore();
 
   // Foot Spot (y=0.25, x=0.5)
@@ -445,111 +617,131 @@ function drawMinimap(){
     }
   });
 
-  const geo=computeGeo();
-  const bR=p.tw*BALL_R/TH*2; // x2 for visibility
+  const {geo, bank, isBank, noValidBank} = computeEffectiveGeo();
+  const bR=p.tw*BALL_R/TH*2.6; // 2x base *1.3 for visibility
 
   if(geo){
     const cuePx =toMM(state.cue.x,    state.cue.y);
-    const pkPx  =toMM(POCKETS[state.pocket].x, POCKETS[state.pocket].y);
     const tarPx =toMM(state.target.x,  state.target.y);
+    // Effective pocket: hit point (bank) or real pocket (straight)
+    const effPockPx = bank
+      ? toMM(bank.hitPoints[0].x/TH, bank.hitPoints[0].y/TW)
+      : toMM(POCKETS[state.pocket].x, POCKETS[state.pocket].y);
+    const realPockPx = toMM(POCKETS[state.pocket].x, POCKETS[state.pocket].y);
 
-    // Ghost ball: tâm nằm trên đường thẳng lỗ → bi đạn, phía đối diện lỗ, cách bi đạn 2*bR
-    // Vector từ lỗ → bi đạn (trong pixel space)
-    const tpDx=tarPx.x - pkPx.x;
-    const tpDy=tarPx.y - pkPx.y;
-    const tpLen=Math.hypot(tpDx,tpDy)||1;
-    const tpNx=tpDx/tpLen, tpNy=tpDy/tpLen; // unit vec lỗ→bi đạn
-    // Ghost ball tâm = tarPx + tpN * 2*bR (tiếp tục qua bi đạn, ngược chiều lỗ)
-    const gbDrawX=tarPx.x + tpNx*2*bR;
-    const gbDrawY=tarPx.y + tpNy*2*bR;
+    // Ghost ball pixel position: tâm cách tâm bi đạn đúng 2*bR theo hướng ngược tpU
+    // (tpU = hướng từ bi đạn đến lỗ, ghost nằm phía ngược lại)
+    const tpUxPx = geo.tpUx * p.tw/TH, tpUyPx = geo.tpUy * p.th/TW;
+    const tpUPxLen = Math.hypot(tpUxPx, tpUyPx) || 1;
+    const tpNx = tpUxPx/tpUPxLen, tpNy = tpUyPx/tpUPxLen; // unit vec in px space
+    const gbPx = { x: tarPx.x - tpNx*2*bR, y: tarPx.y - tpNy*2*bR };
 
-    // Tia chết: hướng dựa trên vector pixel thực tế từ bi cái → ghost ball
-    // Đảm bảo đường đi qua cả tâm bi cái và tâm ghost ball
-    const aimDxPx=gbDrawX-cuePx.x, aimDyPx=gbDrawY-cuePx.y;
-    const aimPxLen=Math.hypot(aimDxPx,aimDyPx)||1;
-    const cnx=aimDxPx/aimPxLen, cny=aimDyPx/aimPxLen;
+    // Aim unit vector in pixel space
+    const aimDxPx = gbPx.x - cuePx.x, aimDyPx = gbPx.y - cuePx.y;
+    const aimPxLen = Math.hypot(aimDxPx, aimDyPx)||1;
+    const cnx = aimDxPx/aimPxLen, cny = aimDyPx/aimPxLen;
 
-    // Tia chết
-    const ext=Math.max(p.tw,p.th)*3;
+    const shotColor = (isBank && noValidBank) ? '#666677' : '#f5c518';
+
+    // ── Tia chết (đỏ) + mũi tên ──
+    const ext2=Math.max(p.tw,p.th)*3;
     c.save();c.beginPath();c.rect(p.ox,p.oy,p.tw,p.th);c.clip();
-    c.beginPath();c.moveTo(cuePx.x-cnx*ext, cuePx.y-cny*ext);c.lineTo(cuePx.x+cnx*ext, cuePx.y+cny*ext);
+    c.beginPath();c.moveTo(cuePx.x-cnx*ext2, cuePx.y-cny*ext2);
+    c.lineTo(cuePx.x+cnx*ext2, cuePx.y+cny*ext2);
     c.strokeStyle='#ff3c3c';c.lineWidth=0.8;c.setLineDash([4,3]);c.stroke();c.setLineDash([]);
+    // Arrow on tia chết: hướng từ bi cái về phía bi đạn (cnx,cny)
+    // Tìm giao điểm với mép bàn theo chiều cnx,cny từ ghost ball
+    {
+      let tMin2=Infinity;
+      if(cnx>0.0001){ const t=(p.ox+p.tw-gbPx.x)/cnx; if(t>bR&&t<tMin2) tMin2=t; }
+      if(cnx<-0.0001){ const t=(p.ox-gbPx.x)/cnx; if(t>bR&&t<tMin2) tMin2=t; }
+      if(cny>0.0001){ const t=(p.oy+p.th-gbPx.y)/cny; if(t>bR&&t<tMin2) tMin2=t; }
+      if(cny<-0.0001){ const t=(p.oy-gbPx.y)/cny; if(t>bR&&t<tMin2) tMin2=t; }
+      if(tMin2<Infinity){
+        const tip2={x:gbPx.x+cnx*tMin2, y:gbPx.y+cny*tMin2};
+        const aS2=bR*0.9;
+        c.beginPath();
+        c.moveTo(tip2.x, tip2.y);
+        c.lineTo(tip2.x - cnx*aS2 + cny*aS2*0.45, tip2.y - cny*aS2 - cnx*aS2*0.45);
+        c.lineTo(tip2.x - cnx*aS2 - cny*aS2*0.45, tip2.y - cny*aS2 + cnx*aS2*0.45);
+        c.closePath();c.fillStyle='#ff3c3c';c.fill();
+      }
+    }
     c.restore();
 
-    // Tia ăn
-    const shotColor = geo.cutAngle>90 ? '#666677' : '#f5c518';
-    c.beginPath();c.moveTo(tarPx.x,tarPx.y);c.lineTo(pkPx.x,pkPx.y);
-    c.strokeStyle=shotColor;c.lineWidth=2;c.stroke();
+    // ── Tia ăn ──
+    if(bank && !noValidBank){
+      // Bank path: target→hitPoint→realPocket
+      c.save();c.beginPath();c.rect(p.ox,p.oy,p.tw,p.th);c.clip();
+      c.strokeStyle='#f5c518';c.lineWidth=2;c.setLineDash([6,3]);
+      for(const seg of bank.segments){
+        const s1=toMM(seg.x1/TH, seg.y1/TW);
+        const s2=toMM(seg.x2/TH, seg.y2/TW);
+        c.beginPath();c.moveTo(s1.x,s1.y);c.lineTo(s2.x,s2.y);c.stroke();
+      }
+      c.setLineDash([]);
+      for(const hp of bank.hitPoints){
+        const hpPx=toMM(hp.x/TH, hp.y/TW);
+        c.beginPath();c.arc(hpPx.x,hpPx.y,bR*0.55,0,Math.PI*2);
+        c.fillStyle='rgba(245,197,24,0.7)';c.fill();
+      }
+      c.restore();
+    } else if(!isBank){
+      c.beginPath();c.moveTo(tarPx.x,tarPx.y);c.lineTo(realPockPx.x,realPockPx.y);
+      c.strokeStyle=shotColor;c.lineWidth=2;c.stroke();
+    }
 
-    // 1. Vẽ bi đạn TRƯỚC
+    // 1. Bi đạn
     drawBallOnCanvas(c, tarPx.x, tarPx.y, bR, BALL_DATA[ballNum-1]);
 
-    // 2. Ghost ball SAU, cùng bR — viền vẽ bên trong (inset) để không vượt quá bR
+    // 2. Ghost ball
     const ghostLW=1.2;
-    c.beginPath();c.arc(gbDrawX,gbDrawY,bR-ghostLW/2,0,Math.PI*2);
+    c.beginPath();c.arc(gbPx.x,gbPx.y,bR-ghostLW/2,0,Math.PI*2);
     c.fillStyle='rgba(255,255,255,0.10)';c.fill();
-    c.strokeStyle='rgba(232,232,232,0.75)';c.lineWidth=ghostLW;c.setLineDash([3,2]);c.stroke();c.setLineDash([]);
+    c.strokeStyle= bank ? 'rgba(245,197,24,0.75)' : 'rgba(232,232,232,0.75)';
+    c.lineWidth=ghostLW;c.setLineDash([3,2]);c.stroke();c.setLineDash([]);
 
-    // 3. Bi cái trên cùng
+    // 3. Bi cái
     const cg=c.createRadialGradient(cuePx.x-bR*.35,cuePx.y-bR*.35,bR*.05,cuePx.x,cuePx.y,bR);
     cg.addColorStop(0,'#fff');cg.addColorStop(1,'#999');
     c.beginPath();c.arc(cuePx.x,cuePx.y,bR,0,Math.PI*2);c.fillStyle=cg;c.fill();
     c.strokeStyle='rgba(255,255,255,0.5)';c.lineWidth=1;c.stroke();
 
     // ── Đường đi bi cái sau khi đánh ──
-    // Hướng đi bi cái = vuông góc với hướng tia ăn (tpU), về phía nào phụ thuộc góc cắt
-    // cross = aUx*tpUy - aUy*tpUx: dương = bi đạn bên trái tia chết → bi cái đi sang phải
-    // Hướng vuông góc với tpU trong pixel space:
-    // tpU pixel = (tnx, tny); perp = (-tny, tnx) hoặc (tny, -tnx)
-    // sign: nếu cross>0 (cắt bên phải), bi cái bật sang trái (perp âm), và ngược lại
-    const cuePxPath = cuePx; // điểm xuất phát = tâm ghost ball
-    // cuePathLen: max = 2*TW in pixels when overlap<5%, scales with overlap
-    const maxLenCm = 2*TW; // 2 lần chiều dài băng dài
+    const maxLenCm = 2*TW;
     const overlap01 = geo.overlap/100;
-    // Length scales: max at overlap=0 (very thin cut), 0 at overlap=100 (straight)
     const overlapScale = Math.max(0, 1 - overlap01);
-    // Also scale by power slider (0-100)
     const powerScale = cuePower/100;
     const cuePathLenCm = maxLenCm * overlapScale * powerScale;
-    const cuePathLen = cuePathLenCm * (p.tw/TH); // convert cm→pixels
-    // perpendicular to tpU in pixel space (tnx,tny computed from geo.tpUx/tpUy)
+    const cuePathLen = cuePathLenCm * (p.tw/TH);
     const _tdx=geo.tpUx*p.tw/TH, _tdy=geo.tpUy*p.th/TW;
     const _tdLen=Math.hypot(_tdx,_tdy)||1;
     const _tnx=_tdx/_tdLen, _tny=_tdy/_tdLen;
     const cuePerpX = -_tny, cuePerpY = _tnx;
-    // side: geo.latTarget > 0 means target is to right of aim → cue deflects left (negative perp)
-    // cross product geo: cross = aUx*tpUy - aUy*tpUx
     const crossVal = geo.aUx*geo.tpUy - geo.aUy*geo.tpUx;
     const cueSign = crossVal >= 0 ? -1 : 1;
-    // Direction vector in pixel space
     const cueDirX = cuePerpX * cueSign;
     const cueDirY = cuePerpY * cueSign;
 
-    // Trace path with reflections off rails, stopping at any pocket
-    // Table bounds in pixel: left=p.ox, right=p.ox+p.tw, top=p.oy, bot=p.oy+p.th
     function traceCuePath(startX, startY, dx, dy, totalLen) {
       const segments = [];
       let x = startX, y = startY;
       let dirX = dx, dirY = dy;
       let remaining = totalLen;
       const maxBounces = 5;
-      // Pocket positions in pixel for collision check
       const pockPxList = POCKETS.map(pk=>toMM(pk.x,pk.y));
-      const pockHitR = pockR * 0.85; // pocket catch radius
+      const pockHitR = pockR * 0.85;
       for (let bounce = 0; bounce <= maxBounces && remaining > 0.5; bounce++) {
         let tMin = remaining;
         let hitWall = null;
-        // Check rails
         if (dirX < -0.0001) { const t=(p.ox-x)/dirX; if(t>0.001&&t<tMin){tMin=t;hitWall='left';} }
         if (dirX > 0.0001)  { const t=(p.ox+p.tw-x)/dirX; if(t>0.001&&t<tMin){tMin=t;hitWall='right';} }
         if (dirY < -0.0001) { const t=(p.oy-y)/dirY; if(t>0.001&&t<tMin){tMin=t;hitWall='top';} }
         if (dirY > 0.0001)  { const t=(p.oy+p.th-y)/dirY; if(t>0.001&&t<tMin){tMin=t;hitWall='bottom';} }
-        // Check pockets along this segment: parametric check
         let pocketHit = false;
         for (const pk of pockPxList) {
-          // Closest point on ray (x+t*dirX, y+t*dirY) to pocket centre
           const toX=pk.x-x, toY=pk.y-y;
-          const tProj=toX*dirX+toY*dirY; // dot with unit dir (dirX,dirY already unit)
+          const tProj=toX*dirX+toY*dirY;
           if(tProj>0.001 && tProj<tMin){
             const closX=x+dirX*tProj, closY=y+dirY*tProj;
             if(Math.hypot(closX-pk.x,closY-pk.y)<pockHitR){
@@ -570,7 +762,7 @@ function drawMinimap(){
     }
 
     if (cuePathLen > 1) {
-      const segments = traceCuePath(gbDrawX, gbDrawY, cueDirX, cueDirY, cuePathLen);
+      const segments = traceCuePath(gbPx.x, gbPx.y, cueDirX, cueDirY, cuePathLen);
       c.save();
       c.beginPath();c.rect(p.ox, p.oy, p.tw, p.th);c.clip();
       c.strokeStyle = 'rgba(255,255,255,0.75)';
@@ -580,7 +772,6 @@ function drawMinimap(){
         c.beginPath();c.moveTo(seg.x1, seg.y1);c.lineTo(seg.x2, seg.y2);c.stroke();
       }
       c.setLineDash([]);
-      // Mũi tên ở cuối đoạn cuối
       const last = segments[segments.length - 1];
       const arrowDx = last.x2 - last.x1, arrowDy = last.y2 - last.y1;
       const arrowLen = Math.hypot(arrowDx, arrowDy) || 1;
@@ -596,46 +787,55 @@ function drawMinimap(){
       c.restore();
     }
 
-    // ── Góc cắt label: phía lỗ so với ghost ball, bisector (aim fwd + tia ăn), 10R ──
-    const tdx=geo.tpUx*p.tw/TH, tdy=geo.tpUy*p.th/TW;
-    const tdLen=Math.hypot(tdx,tdy)||1;
-    const tnx=tdx/tdLen, tny=tdy/tdLen;
-    const bx2=cnx+tnx, by2=cny+tny;
-    const blen2=Math.hypot(bx2,by2)||1;
-    const bnx2=bx2/blen2, bny2=by2/blen2;
-    const labelDist=bR*10;
-    const labelX=gbDrawX + bnx2*labelDist;
-    const labelY=gbDrawY + bny2*labelDist;
-    c.font='700 13px Rajdhani';c.fillStyle=shotColor;
-    c.textAlign='center';c.textBaseline='middle';
-    c.fillText(Math.round(geo.cutAngle)+'°', labelX, labelY);
+    // ── Góc cắt label ──
+    if(!noValidBank){
+      const tpnx_px = effPockPx.x - tarPx.x, tpny_px = effPockPx.y - tarPx.y;
+      const tppl = Math.hypot(tpnx_px,tpny_px)||1;
+      const tnx=tpnx_px/tppl, tny=tpny_px/tppl;
+      const bx2=cnx+tnx, by2=cny+tny;
+      const blen2=Math.hypot(bx2,by2)||1;
+      const labelDirX = bx2/blen2, labelDirY = by2/blen2;
+      const labelDist=bR*10;
+      const labelX=gbPx.x + labelDirX*labelDist;
+      const labelY=gbPx.y + labelDirY*labelDist;
+      c.font='700 13px Rajdhani';c.fillStyle='#f5c518';
+      c.textAlign='center';c.textBaseline='middle';
+      c.fillText(Math.round(geo.cutAngle)+'°', labelX, labelY);
+    }
   }
 }
-
-// ═══ ZOOM CANVAS — top-down, zoomed out x0.5, true orientation ═══
 const zC=document.getElementById('zoom-canvas');
 const zX=zC.getContext('2d');
-function resizeZoom(){const wrap=document.getElementById('zoom-wrap');zC.width=wrap.clientWidth-2;zC.height=wrap.clientHeight-2;drawZoom();}
+function resizeZoom(){
+  const wrap=document.getElementById('zoom-wrap');
+  zC.width=wrap.clientWidth-2;
+  zC.height=wrap.clientHeight-2;
+  drawZoom();
+}
 
 function drawZoom(){
   const c=zX, W=zC.width, H=zC.height;
   c.clearRect(0,0,W,H);
-  const geo=computeGeo(); const f=felt();
+  const f=felt();
 
   c.fillStyle=f.felt;c.fillRect(0,0,W,H);
   const shd=c.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.max(W,H)*.65);
   shd.addColorStop(0,'rgba(255,255,255,0.04)');shd.addColorStop(1,'rgba(0,0,0,0.3)');
   c.fillStyle=shd;c.fillRect(0,0,W,H);
+
+  const {geo, bank, isBank, noValidBank} = computeEffectiveGeo();
   if(!geo) return;
 
   // ══ CAM TRÊN: bi đạn ở trung tâm canvas ══
-  const pxPerCm=Math.min(W,H)*0.09;
-  const R=BALL_R*pxPerCm;
+  // Scale để 2 bi vừa vặn + khoảng đệm — fill toàn ô
+  const D = BALL_R*2;
+  // Khoảng cách ghost→target = D (2R), ta muốn 2 bi + margin chiếm ~60% chiều nhỏ
+  const pxPerCm = Math.min(W,H) * 0.60 / (D * 3.5) * 1.5;
+  const R = BALL_R * pxPerCm;
 
   // Bi đạn ở trung tâm canvas
   const tbX=W/2, tbY=H/2;
 
-  // Chuyển cm → canvas pixel (tâm = bi đạn)
   function cmToCanvas(cmX, cmY){
     return{
       x: tbX+(cmX-geo.tx)*pxPerCm,
@@ -643,17 +843,20 @@ function drawZoom(){
     };
   }
 
-  const gbPx=cmToCanvas(geo.gbx, geo.gby); // ghost ball
-  const cpPx=cmToCanvas(geo.cpx, geo.cpy);
-  const cuePx=cmToCanvas(geo.cx, geo.cy);
-  const pkPx=cmToCanvas(geo.pockX, geo.pockY);
+  const gbPx = cmToCanvas(geo.gbx, geo.gby);
+  const cpPx = cmToCanvas(geo.cpx, geo.cpy);
+  const cuePx = cmToCanvas(geo.cx, geo.cy);
+  // Effective pocket pixel (hit point or real pocket)
+  const effPockPx = bank
+    ? cmToCanvas(bank.hitPoints[0].x, bank.hitPoints[0].y)
+    : cmToCanvas(geo.pockX, geo.pockY);
 
   const anx=geo.aUx, any=geo.aUy;
   const tpnx=geo.tpUx, tpny=geo.tpUy;
 
   const ext=Math.max(W,H)*2;
 
-  // ── TIA CHẾT: đi qua tâm ghost ball theo hướng aim ──
+  // ── TIA CHẾT: đi qua ghost ball theo hướng aim ──
   c.save();c.beginPath();c.rect(0,0,W,H);c.clip();
   c.beginPath();
   c.moveTo(gbPx.x - anx*ext, gbPx.y - any*ext);
@@ -661,14 +864,29 @@ function drawZoom(){
   c.strokeStyle='#ff3c3c';c.lineWidth=1.8;c.setLineDash([8,5]);c.stroke();
   c.setLineDash([]);
 
-  // ── Parallel line to tia chết, offset by R (perpendicular) ──
-  // perpendicular unit vec to aim = (-any, anx) or (any, -anx)
-  // pick direction toward target from ghost
+  // Arrow on tia chết at canvas border (direction: from ghost ball toward further end i.e. anx,any)
+  {
+    let tMin=Infinity;
+    if(anx>0.0001){ const t=(W-gbPx.x)/anx; if(t>R&&t<tMin) tMin=t; }
+    if(anx<-0.0001){ const t=(0-gbPx.x)/anx; if(t>R&&t<tMin) tMin=t; }
+    if(any>0.0001){ const t=(H-gbPx.y)/any; if(t>R&&t<tMin) tMin=t; }
+    if(any<-0.0001){ const t=(0-gbPx.y)/any; if(t>R&&t<tMin) tMin=t; }
+    if(tMin<Infinity){
+      const arrowTip={x:gbPx.x+anx*tMin, y:gbPx.y+any*tMin};
+      const aSize=R*0.9*0.375;
+      c.beginPath();
+      c.moveTo(arrowTip.x, arrowTip.y);
+      c.lineTo(arrowTip.x - anx*aSize + any*aSize*0.45, arrowTip.y - any*aSize - anx*aSize*0.45);
+      c.lineTo(arrowTip.x - anx*aSize - any*aSize*0.45, arrowTip.y - any*aSize + anx*aSize*0.45);
+      c.closePath();c.fillStyle='#ff3c3c';c.fill();
+    }
+  }
+
+  // ── Parallel line to tia chết, offset by R ──
   const perpX=-any, perpY=anx;
-  // sign: ghost→target direction = tpnx,tpny; project onto perp
-  const sign=(tpnx*perpX+tpny*perpY)>=0?1:-1;
-  const offX=perpX*sign*R, offY=perpY*sign*R;
-  // Parallel line passes through ghost ball centre + offset
+  const g2tDx = tbX-gbPx.x, g2tDy = tbY-gbPx.y;
+  const signZ=(g2tDx*perpX+g2tDy*perpY)>=0?1:-1;
+  const offX=perpX*signZ*R, offY=perpY*signZ*R;
   const plX=gbPx.x+offX, plY=gbPx.y+offY;
   c.beginPath();
   c.moveTo(plX - anx*ext, plY - any*ext);
@@ -677,25 +895,79 @@ function drawZoom(){
   c.setLineDash([]);
   c.restore();
 
-  // ── TIA ĂN: từ tâm bi đạn → lỗ ──
+  // ── TIA ĂN ──
   c.save();c.beginPath();c.rect(0,0,W,H);c.clip();
-  const zShotColor = geo.cutAngle>90 ? '#666677' : '#f5c518';
-  c.beginPath();c.moveTo(tbX,tbY);c.lineTo(pkPx.x, pkPx.y);
-  c.strokeStyle=zShotColor;c.lineWidth=2.5;c.stroke();
-  // Arrow
-  const pal=R*3;
-  const pax=tbX+tpnx*pal, pay=tbY+tpny*pal;
-  c.beginPath();
-  c.moveTo(pax, pay);
-  c.lineTo(pax-tpnx*12+tpny*5, pay-tpny*12-tpnx*5);
-  c.lineTo(pax-tpnx*12-tpny*5, pay-tpny*12+tpnx*5);
-  c.closePath();c.fillStyle=zShotColor;c.fill();
+  if(bank && !noValidBank){
+    // Bank path: target→hitPoint (tia ăn thực tế)
+    c.setLineDash([6,3]);c.strokeStyle='#f5c518';c.lineWidth=2.5;
+    for(const seg of bank.segments){
+      const zs1=cmToCanvas(seg.x1, seg.y1), zs2=cmToCanvas(seg.x2, seg.y2);
+      c.beginPath();c.moveTo(zs1.x,zs1.y);c.lineTo(zs2.x,zs2.y);c.stroke();
+    }
+    c.setLineDash([]);
+    for(const hp of bank.hitPoints){
+      const hpx=cmToCanvas(hp.x, hp.y);
+      c.beginPath();c.arc(hpx.x,hpx.y,R*0.55,0,Math.PI*2);
+      c.fillStyle='rgba(245,197,24,0.7)';c.fill();
+    }
+    // Arrow on first segment (target→first hitPoint) at canvas border
+    // Only if hitPoint is outside visible canvas
+    if(bank.segments.length>0){
+      const seg0=bank.segments[0];
+      const zs1=cmToCanvas(seg0.x1,seg0.y1), zs2=cmToCanvas(seg0.x2,seg0.y2);
+      const sdx=zs2.x-zs1.x, sdy=zs2.y-zs1.y;
+      const sLen=Math.hypot(sdx,sdy)||1;
+      const snx=sdx/sLen, sny=sdy/sLen;
+      // hitPoint in canvas coords
+      const hpCanvas=cmToCanvas(bank.hitPoints[0].x, bank.hitPoints[0].y);
+      const hpInsideCanvas = hpCanvas.x>0&&hpCanvas.x<W&&hpCanvas.y>0&&hpCanvas.y<H;
+      if(!hpInsideCanvas){
+        // Find canvas edge intersection from zs1 in direction snx,sny
+        let tMin=Infinity;
+        if(snx>0.0001){ const t=(W-zs1.x)/snx; if(t>R&&t<tMin) tMin=t; }
+        if(snx<-0.0001){ const t=(0-zs1.x)/snx; if(t>R&&t<tMin) tMin=t; }
+        if(sny>0.0001){ const t=(H-zs1.y)/sny; if(t>R&&t<tMin) tMin=t; }
+        if(sny<-0.0001){ const t=(0-zs1.y)/sny; if(t>R&&t<tMin) tMin=t; }
+        if(tMin<Infinity){
+          const tip={x:zs1.x+snx*tMin, y:zs1.y+sny*tMin};
+          const aSize=R*0.9*0.375;
+          c.beginPath();
+          c.moveTo(tip.x,tip.y);
+          c.lineTo(tip.x-snx*aSize+sny*aSize*0.45, tip.y-sny*aSize-snx*aSize*0.45);
+          c.lineTo(tip.x-snx*aSize-sny*aSize*0.45, tip.y-sny*aSize+snx*aSize*0.45);
+          c.closePath();c.fillStyle='#f5c518';c.fill();
+        }
+      }
+    }
+  } else if(!isBank){
+    c.beginPath();c.moveTo(tbX,tbY);c.lineTo(effPockPx.x, effPockPx.y);
+    c.strokeStyle='#f5c518';c.lineWidth=2.5;c.stroke();
+    // Arrow at canvas edge, same style as bank case
+    {
+      const snx=tpnx, sny=tpny;
+      let tMin=Infinity;
+      if(snx>0.0001){ const t=(W-tbX)/snx; if(t>R&&t<tMin) tMin=t; }
+      if(snx<-0.0001){ const t=(0-tbX)/snx; if(t>R&&t<tMin) tMin=t; }
+      if(sny>0.0001){ const t=(H-tbY)/sny; if(t>R&&t<tMin) tMin=t; }
+      if(sny<-0.0001){ const t=(0-tbY)/sny; if(t>R&&t<tMin) tMin=t; }
+      if(tMin<Infinity){
+        const tip={x:tbX+snx*tMin, y:tbY+sny*tMin};
+        const aSize=R*0.9*0.375;
+        c.beginPath();
+        c.moveTo(tip.x,tip.y);
+        c.lineTo(tip.x-snx*aSize+sny*aSize*0.45, tip.y-sny*aSize-snx*aSize*0.45);
+        c.lineTo(tip.x-snx*aSize-sny*aSize*0.45, tip.y-sny*aSize+snx*aSize*0.45);
+        c.closePath();c.fillStyle='#f5c518';c.fill();
+      }
+    }
+  }
   c.restore();
 
   // ── Ghost ball ──
   c.beginPath();c.arc(gbPx.x,gbPx.y,R,0,Math.PI*2);
   c.fillStyle='rgba(220,220,220,0.15)';c.fill();
-  c.strokeStyle='rgba(220,220,220,0.75)';c.lineWidth=1.5;c.setLineDash([3,3]);c.stroke();
+  c.strokeStyle= bank ? 'rgba(245,197,24,0.85)' : 'rgba(220,220,220,0.75)';
+  c.lineWidth=1.5;c.setLineDash([3,3]);c.stroke();
   c.setLineDash([]);
 
   // ── Target ball (centre) ──
@@ -705,18 +977,18 @@ function drawZoom(){
   c.beginPath();c.arc(cpPx.x,cpPx.y,5,0,Math.PI*2);
   c.fillStyle='#ff3c3c';c.fill();c.strokeStyle='#fff';c.lineWidth=1.5;c.stroke();
 
-  // ── Góc cut label: phía lỗ so với ghost ball, 3R ──
-  // bisector của hướng tia chết đi tới (anx,any) và hướng tia ăn (tpnx,tpny)
-  // cả hai đều đi về phía "trước" ghost ball → phía lỗ
-  const bx=anx+tpnx, by=any+tpny;
-  const blen=Math.hypot(bx,by)||1;
-  const bnx=bx/blen, bny=by/blen;
-  const labelDist=R*4;
-  const labelX=gbPx.x + bnx*labelDist;
-  const labelY=gbPx.y + bny*labelDist;
-  c.font='700 16px Rajdhani';c.fillStyle=zShotColor;
-  c.textAlign='center';c.textBaseline='middle';
-  c.fillText(Math.round(geo.cutAngle)+'°', labelX, labelY);
+  // ── Góc cắt label ──
+  if(!noValidBank){
+    const bx=anx+tpnx, by=any+tpny;
+    const blen=Math.hypot(bx,by)||1;
+    const labelDirX=bx/blen, labelDirY=by/blen;
+    const labelDist=R*4;
+    const labelX=gbPx.x + labelDirX*labelDist;
+    const labelY=gbPx.y + labelDirY*labelDist;
+    c.font='700 16px Rajdhani';c.fillStyle='#f5c518';
+    c.textAlign='center';c.textBaseline='middle';
+    c.fillText(Math.round(geo.cutAngle)+'°', labelX, labelY);
+  }
 }
 
 // ═══ SIDE VIEW — nhìn từ bi cái thẳng về phía bi đạn ═══
@@ -740,109 +1012,85 @@ function resizeSide(){const wrap=document.getElementById('side-wrap');sC.width=w
 function drawSide(){
   const c=sX, W=sC.width, H=sC.height;
   c.clearRect(0,0,W,H);
-  const geo=computeGeo(); const f=felt();
+  const f=felt();
 
-  // Dark background (view from cue)
   const bgG=c.createLinearGradient(0,0,0,H);
   bgG.addColorStop(0,'#070b0f');bgG.addColorStop(1,'#0e1520');
   c.fillStyle=bgG;c.fillRect(0,0,W,H);
 
+  const {geo, bank, isBank, noValidBank} = computeEffectiveGeo();
   if(!geo) return;
 
-  // ── Orthographic projection along aim direction ──
-  // Ghost ball is ALWAYS on aim line (ghostCX = aimLineX).
-  // Target ball is offset laterally by latTarg pixels.
-  // Distance between ghost centre and target centre = 2R (they touch).
-  // ghostCX = aimLineX (on aim line)
-  // targCX = aimLineX + latTarg*pxPerCm
-  // They share the same Y (ballCY) in this orthographic front view.
-  // So horizontal distance = |latTarg*pxPerCm|
-  // For them to be separated by 2R in px: that requires the view to show lateral separation.
-  // The balls touch at the contact point which is the midpoint.
-  //
-  // IMPORTANT: ghost and target must be drawn at exactly 2R apart.
-  // latTarg in cm is the lateral separation. At cut=0 latTarg=0 (full overlap/straight shot).
-  // At cut=90° latTarg=2R (just grazing). Beyond 2R = miss.
-  // We scale so 2R cm of lateral = 2*viewR pixels, so pxPerCm = viewR/BALL_R is correct.
-  // The balls touch tangentially when |latTarg| = 2R, drawn at |latTarg*pxPerCm| = 2*viewR apart. ✓
-
-  const latTarg = -geo.latTarget;
-
-  // Scale: viewR pixels = 1 ball radius. 2R separation = 2*viewR pixels.
+  // Scale: viewR pixels = 1 ball radius
   const viewR=Math.min(W,H)*0.22;
   const pxPerCm=viewR/BALL_R;
 
-  // Center on TARGET ball (bi đạn ở giữa canvas)
-  const targCX=W/2;
-  const latPx = latTarg*pxPerCm;
-  const ghostCX=targCX - latPx; // ghost offset ngược chiều so với target
-  const aimLineX=ghostCX; // aim line đi qua ghost ball
+  // Lateral offset của bi đạn so với tia chết (geo đã tính đúng theo hit point hoặc lỗ thật)
+  const latPx = geo.latTarget * pxPerCm;
 
-  // ── Floor: thin brown bar 4px, no felt fill above ──
+  // Center on TARGET ball
+  const targCX = W/2;
+  const ghostCX = targCX + latPx;
+  const aimLineX = ghostCX;
+
+  // ── Floor ──
   const ballCY=H*0.52;
   const floorY=ballCY+viewR+2;
-
-  // Only draw dark bg - no felt surface behind balls
-  // Thin rail bar 4px
   const railGrad=c.createLinearGradient(0,floorY,0,floorY+4);
-  railGrad.addColorStop(0,felt().railT);railGrad.addColorStop(1,felt().railD);
+  railGrad.addColorStop(0,f.railT);railGrad.addColorStop(1,f.railD);
   c.fillStyle=railGrad;c.fillRect(0,floorY,W,4);
 
-  // ── Shadow under balls ──
+  // ── Shadow ──
   [ghostCX, targCX].forEach(bx=>{
     const sg=c.createRadialGradient(bx,floorY,0,bx,floorY,viewR*1.2);
     sg.addColorStop(0,'rgba(0,0,0,0.4)');sg.addColorStop(1,'rgba(0,0,0,0)');
     c.beginPath();c.ellipse(bx,floorY,viewR*1.1,viewR*.15,0,0,Math.PI*2);c.fillStyle=sg;c.fill();
   });
 
-  // ── Aim line (vertical centre line in this view) ──
+  // ── Aim line ──
   c.strokeStyle='rgba(255,60,60,0.25)';c.lineWidth=1;c.setLineDash([5,4]);
   c.beginPath();c.moveTo(aimLineX,20);c.lineTo(aimLineX,floorY);c.stroke();
   c.setLineDash([]);
 
   // ── Target ball ──
   drawBallOnCanvas(c, targCX, ballCY, viewR, BALL_DATA[ballNum-1]);
-  // Tâm bi đạn
   c.beginPath();c.arc(targCX,ballCY,5,0,Math.PI*2);
   c.fillStyle='#fff';c.fill();c.strokeStyle='#333';c.lineWidth=1.5;c.stroke();
 
-  // ── Ghost ball (đè lên bi đạn — 30% fill, viền nét đứt) ──
+  // ── Ghost ball ──
   c.beginPath();c.arc(ghostCX, ballCY, viewR, 0, Math.PI*2);
   c.fillStyle='rgba(220,220,220,0.20)';c.fill();
-  c.strokeStyle='rgba(220,220,220,0.85)';c.lineWidth=2;c.setLineDash([4,3]);c.stroke();
+  c.strokeStyle= bank ? 'rgba(245,197,24,0.85)' : 'rgba(220,220,220,0.85)';
+  c.lineWidth=2;c.setLineDash([4,3]);c.stroke();
   c.setLineDash([]);
-  // Tâm ghost ball
   c.beginPath();c.arc(ghostCX,ballCY,5,0,Math.PI*2);
   c.fillStyle='rgba(255,255,255,0.9)';c.fill();c.strokeStyle='rgba(150,150,150,0.8)';c.lineWidth=1.5;c.stroke();
-  // Ghost crosshair mờ
   c.strokeStyle='rgba(220,220,220,0.4)';c.lineWidth=1;c.setLineDash([2,2]);
   c.beginPath();c.moveTo(ghostCX-viewR*.7,ballCY);c.lineTo(ghostCX+viewR*.7,ballCY);c.stroke();
   c.beginPath();c.moveTo(ghostCX,ballCY-viewR*.7);c.lineTo(ghostCX,ballCY+viewR*.7);c.stroke();
   c.setLineDash([]);
 
-  // Contact point
+  // ── Contact point ──
   const cpViewX = (ghostCX + targCX) / 2;
   const cpViewY = ballCY;
   c.beginPath();c.arc(cpViewX, cpViewY, 5, 0, Math.PI*2);
   c.fillStyle='#ff3c3c';c.fill();c.strokeStyle='#fff';c.lineWidth=1.5;c.stroke();
 
-  // ── Lateral offset line with red dot on bar ──
-  if(Math.abs(latTarg)>0.2){
+  // ── Lateral offset measurement line ──
+  const latAbs = Math.abs(geo.latTarget);
+  if(latAbs > 0.2){
     const lineY=ballCY-viewR*1.35;
     c.strokeStyle='rgba(255,255,255,0.25)';c.lineWidth=1;
     c.beginPath();c.moveTo(aimLineX,lineY);c.lineTo(targCX,lineY);c.stroke();
     c.beginPath();c.moveTo(aimLineX,lineY-5);c.lineTo(aimLineX,lineY+5);c.stroke();
     c.beginPath();c.moveTo(targCX,lineY-5);c.lineTo(targCX,lineY+5);c.stroke();
-    // Label
-    c.font='600 10px Share Tech Mono';c.fillStyle='rgba(255,255,255,0.45)';
+    c.font='700 11px Share Tech Mono';c.fillStyle='rgba(255,255,255,0.90)';
     c.textAlign='center';
-    c.fillText((Math.abs(latTarg)).toFixed(1)+' cm', (aimLineX+targCX)/2, lineY-9);
-    // Red dot in middle of the bar - half size
+    c.fillText(latAbs.toFixed(1)+' cm', (aimLineX+targCX)/2, lineY-9);
     const dotX=(aimLineX+targCX)/2;
     c.beginPath();c.arc(dotX, lineY, 1.8, 0, Math.PI*2);
     c.fillStyle='#ff3c3c';c.fill();
   } else {
-    // Straight shot — red dot in center of aim line bar area
     const lineY=ballCY-viewR*1.35;
     c.beginPath();c.arc(aimLineX, lineY, 1.8, 0, Math.PI*2);
     c.fillStyle='#ff3c3c';c.fill();
@@ -855,14 +1103,19 @@ function drawSide(){
 
 // ═══ STATS ═══
 function updateStats(){
-  const geo=computeGeo();
-  if(!geo) return;
   const hdrCutEl=document.getElementById('hdr-cut');
-  hdrCutEl.textContent=Math.round(geo.cutAngle)+'°';
-  hdrCutEl.style.color=geo.cutAngle>90?'var(--dim)':'var(--gold)';
   const hdrOvEl=document.getElementById('hdr-ov');
+  const {geo, bank, isBank, noValidBank} = computeEffectiveGeo();
+  if(!geo){ hdrCutEl.textContent='—°'; hdrOvEl.textContent='—%'; return; }
+  if(noValidBank){
+    hdrCutEl.textContent='—°'; hdrCutEl.style.color='var(--dim)';
+    hdrOvEl.textContent='—%'; hdrOvEl.style.color='var(--dim)';
+    return;
+  }
+  hdrCutEl.textContent=Math.round(geo.cutAngle)+'°';
+  hdrCutEl.style.color='var(--gold)';
   hdrOvEl.textContent=geo.overlap.toFixed(0)+'%';
-  hdrOvEl.style.color=geo.cutAngle>90?'var(--dim)':'var(--purple)';
+  hdrOvEl.style.color='var(--purple)';
 }
 
 // ═══ MINIMAP INTERACTION ═══
@@ -870,7 +1123,7 @@ let dragging=null;
 function mmPos(e){const r=mmC.getBoundingClientRect();const t=e.touches?e.touches[0]:e;return{x:t.clientX-r.left,y:t.clientY-r.top};}
 function hitBall(pos,ball){
   const p=mmPad();
-  const bR=p.tw*BALL_R/TH;
+  const bR=p.tw*BALL_R/TH*2.6;
   const hitR=Math.max(8, bR)+4;
   return Math.hypot(pos.x-(p.ox+ball.x*p.tw), pos.y-(p.oy+ball.y*p.th))<hitR;
 }
@@ -891,7 +1144,7 @@ mmC.addEventListener('mousedown',e=>{
 document.addEventListener('mousemove',e=>{
   if(!dragging) return;
   const pos=mmPos(e);const n=fromMM(pos.x,pos.y);
-  state[dragging].x=clamp01(n.x);state[dragging].y=clamp01(n.y);redraw();
+  state[dragging].x=clamp01(n.x);state[dragging].y=clamp01(n.y);savePrefs();redraw();
 });
 document.addEventListener('mouseup',()=>{dragging=null;document.body.classList.remove('dragging');});
 mmC.addEventListener('touchstart',e=>{
@@ -903,7 +1156,7 @@ mmC.addEventListener('touchstart',e=>{
 document.addEventListener('touchmove',e=>{
   if(!dragging) return;e.preventDefault();
   const pos=mmPos(e);const n=fromMM(pos.x,pos.y);
-  state[dragging].x=clamp01(n.x);state[dragging].y=clamp01(n.y);redraw();
+  state[dragging].x=clamp01(n.x);state[dragging].y=clamp01(n.y);savePrefs();redraw();
 },{passive:false});
 document.addEventListener('touchend',()=>{dragging=null;});
 
@@ -1015,6 +1268,8 @@ function savePrefs(){
     localStorage.setItem('bia_prefs',JSON.stringify({
       feltKey, ballNum, cuePower,
       pocket:state.pocket,
+      cueX:state.cue.x, cueY:state.cue.y,
+      targetX:state.target.x, targetY:state.target.y,
       rightPct, camPct
     }));
   }catch(e){}
@@ -1035,6 +1290,8 @@ function loadPrefs(){
       document.getElementById('power-val').textContent=cuePower+'%';
     }
     if(p.pocket!==undefined) state.pocket=p.pocket;
+    if(p.cueX!==undefined){ state.cue.x=p.cueX; state.cue.y=p.cueY; }
+    if(p.targetX!==undefined){ state.target.x=p.targetX; state.target.y=p.targetY; }
     // Restore pane widths as % of current layout
     const totalW=document.querySelector('.layout').offsetWidth||window.innerWidth;
     if(p.rightPct!==undefined){
