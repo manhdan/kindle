@@ -112,7 +112,7 @@ body.dragging{cursor:grabbing !important}
   </div>
 </div>
 <script>
-const subgridVisible=true; // sub-grid always shown
+let subgridVisible=true; // sub-grid toggle (click lỗ đang chọn để bật/tắt)
 
 // ═══ FELT ═══
 const FELT_COLORS={
@@ -551,19 +551,13 @@ function drawMinimap(){
 
   // ── Sub-grid lines (chia ô diamond thành 4 ô nhỏ hơn) ──
   if(subgridVisible){
-    c.lineWidth=0.4;c.setLineDash([2,4]);
-    // Sub vertical lines: midpoints between existing diamond verticals
-    // Diamond x positions: 0, 0.25, 0.5, 0.75, 1
-    // Sub-x: 0.125, 0.375, 0.625, 0.875
+    c.lineWidth=0.6;c.setLineDash([3,4]);
     [0.125, 0.375, 0.625, 0.875].forEach(nx=>{
-      c.strokeStyle='rgba(255,255,255,0.06)';
+      c.strokeStyle='rgba(255,255,255,0.10)';
       c.beginPath();c.moveTo(p.ox+nx*p.tw,p.oy);c.lineTo(p.ox+nx*p.tw,p.oy+p.th);c.stroke();
     });
-    // Sub horizontal lines: midpoints between existing diamond horizontals
-    // Diamond y positions: 0, 0.125, 0.25, 0.375, 0.5, 0.625, (0.75 head string), 0.875, 1
-    // Sub-y: 0.0625, 0.1875, 0.3125, 0.4375, 0.5625, 0.6875, 0.8125, 0.9375
     [0.0625, 0.1875, 0.3125, 0.4375, 0.5625, 0.6875, 0.8125, 0.9375].forEach(ny=>{
-      c.strokeStyle='rgba(255,255,255,0.06)';
+      c.strokeStyle='rgba(255,255,255,0.10)';
       c.beginPath();c.moveTo(p.ox,p.oy+ny*p.th);c.lineTo(p.ox+p.tw,p.oy+ny*p.th);c.stroke();
     });
     c.setLineDash([]);
@@ -614,6 +608,7 @@ function drawMinimap(){
     if(sel){
       c.beginPath();c.arc(pp.x,pp.y,pr*1.9,0,Math.PI*2);
       c.strokeStyle='rgba(245,197,24,0.18)';c.lineWidth=3;c.stroke();
+
     }
   });
 
@@ -1139,7 +1134,11 @@ mmC.addEventListener('mousedown',e=>{
   const pos=mmPos(e);
   if(hitBall(pos,state.cue)){dragging='cue';document.body.classList.add('dragging');return;}
   if(hitBall(pos,state.target)){dragging='target';document.body.classList.add('dragging');return;}
-  const pi=hitPocket(pos);if(pi>=0){state.pocket=pi;savePrefs();redraw();}
+  const pi=hitPocket(pos);if(pi>=0){
+    if(pi===state.pocket){subgridVisible=!subgridVisible;}
+    else{state.pocket=pi;}
+    savePrefs();redraw();
+  }
 });
 document.addEventListener('mousemove',e=>{
   if(!dragging) return;
@@ -1151,7 +1150,11 @@ mmC.addEventListener('touchstart',e=>{
   e.preventDefault();const pos=mmPos(e);
   if(hitBall(pos,state.cue)){dragging='cue';return;}
   if(hitBall(pos,state.target)){dragging='target';return;}
-  const pi=hitPocket(pos);if(pi>=0){state.pocket=pi;redraw();}
+  const pi=hitPocket(pos);if(pi>=0){
+    if(pi===state.pocket){subgridVisible=!subgridVisible;}
+    else{state.pocket=pi;}
+    redraw();
+  }
 },{passive:false});
 document.addEventListener('touchmove',e=>{
   if(!dragging) return;e.preventDefault();
@@ -1268,6 +1271,7 @@ function savePrefs(){
     localStorage.setItem('bia_prefs',JSON.stringify({
       feltKey, ballNum, cuePower,
       pocket:state.pocket,
+      subgridVisible,
       cueX:state.cue.x, cueY:state.cue.y,
       targetX:state.target.x, targetY:state.target.y,
       rightPct, camPct
@@ -1290,6 +1294,7 @@ function loadPrefs(){
       document.getElementById('power-val').textContent=cuePower+'%';
     }
     if(p.pocket!==undefined) state.pocket=p.pocket;
+    if(p.subgridVisible!==undefined) subgridVisible=p.subgridVisible;
     if(p.cueX!==undefined){ state.cue.x=p.cueX; state.cue.y=p.cueY; }
     if(p.targetX!==undefined){ state.target.x=p.targetX; state.target.y=p.targetY; }
     // Restore pane widths as % of current layout
