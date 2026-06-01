@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 =========================================================
-   ChessChatPC1 (26/05/31 22:22)
+   ChessChatPC2 (26/06/01 15:09)
    Base: ChessChat9 (2026/05/27): pendingBest always-run + gUseFastEval + BESTMOVE_MAX_MS + gGameToken + mvEq + gPendingEvalComplete
 ---------------------------------------------------------
    Lightweight JavaScript chess engine optimized for:
@@ -579,7 +579,7 @@ body {
 /* ═══════════════════════════════════════════════════
    CONSTANTS
    ═══════════════════════════════════════════════════ */
-var APP_VERSION = 'ChessChatPC1';
+var APP_VERSION = 'ChessChatPC2';
 var E=0, WP=1,WN=2,WB=3,WR=4,WQ=5,WK=6;
 var BP=-1,BN=-2,BB=-3,BR=-4,BQ=-5,BK=-6;
 var W=1, B=-1;
@@ -654,6 +654,7 @@ var cntLMRresearch = 0;/* số lần LMR phải research lại vì s > alpha */
 var cntQnode = 0;      /* số node trong qsearch */
 var cntNMPcut = 0;     /* số lần null-move pruning cắt được beta */
 var cntKThreatExt = 0; /* số lần extend nước tạo áp lực quanh vua */
+var gKThreatEnabled = false;
 var gUseFastEval = false; /* true khi pendingBest đang chạy — dùng evaluateFast() thay evaluate() */
 
 /* Phân tích nước đi (classify) */
@@ -2185,7 +2186,7 @@ function negamax(board, turn, ep, casB, depth, alpha, beta, ply, hash, nullOk) {
     if(board[ki]===turn*6)  kingSq=ki;
     if(board[ki]===-turn*6) enemyKingSq=ki;
   }
-  var ownKingDanger = (depth>=5) ? kingAttackPressure(board, turn, kingSq) : 0;
+  var ownKingDanger = (depth>=3) ? kingAttackPressure(board, turn, kingSq) : 0;
 
   /* [v6] Sinh pseudo-moves và sort TRƯỚC NMP — legalMoves() đã bị loại bỏ */
   var pseudo = genPseudo(board, turn, ep, casB);
@@ -2193,7 +2194,7 @@ function negamax(board, turn, ep, casB, depth, alpha, beta, ply, hash, nullOk) {
   sortMvs(pseudo, board, hashMove, ply<MAX_PLY?ply:MAX_PLY-1);
 
   /* Null-Move Pruning */
-  if(nullOk && depth>=3 && !isInCheck && materialNoKing(board,turn)>1300 && ownKingDanger<80){
+  if(nullOk && depth>=3 && !isInCheck && materialNoKing(board,turn)>1300 && ownKingDanger<40){
     var R = depth>=5 ? 3 : 2;
     var nullHash = hash ^ ZK_SIDE;
     if(ep>=0) nullHash ^= ZK_EP[ep];
@@ -2273,17 +2274,17 @@ function negamax(board, turn, ep, casB, depth, alpha, beta, ply, hash, nullOk) {
        Tái dùng givesCheck đã tính ở futility step — không gọi attacked() lại.
        Chỉ áp dụng ở depth >= 2 để tránh explosion ở leaf node. */
     var threatExt = 0;
-    if(depth>=3 && !givesCheck){
+    if(gKThreatEnabled && depth<=5 && ply<=4 && cntKThreatExt<800 && !givesCheck){
       var movedType = typ(board[m[0]]);
       if(movedType===1 || movedType===2 || movedType===3 || movedType===5){
         var enemyDanger = kingAttackPressure(nb, -turn, enemyKingSq);
-        if(enemyDanger>=170) { threatExt = 1; cntKThreatExt++; }
+        if(enemyDanger>=220) { threatExt = 1; cntKThreatExt++; }
       }
     }
     var ext = (depth >= 2 && givesCheck) ? 1 : threatExt;
     /* Late Move Reduction (LMR) — không áp dụng khi có extension */
     searchStack.push(nhash);
-    if(!ext && legalCount-1>=3 && depth>=3 && !m[2] && !m[3] && !isInCheck && !givesCheck && ownKingDanger<60){
+    if(!ext && legalCount-1>=3 && depth>=3 && !m[2] && !m[3] && !isInCheck && !givesCheck && ownKingDanger<40){
       cntLMR++;
       /* LMR reduction: scale theo depth và số nước đã xét.
          depth≥8 + move≥16: reduce 3 — tránh bỏ sót nước tấn công muộn
@@ -3095,12 +3096,14 @@ function rootSafetyPenalty(board, turn, mv, nb){
    BEST MOVE — Iterative Deepening + Aspiration Windows
    ═══════════════════════════════════════════════════ */
 function bestMove(board, turn, ep, casB, maxDepth, rnd, hash) {
+  var oldKThreatEnabled = gKThreatEnabled;
+  gKThreatEnabled = (maxDepth >= 10);
   var mvs=legalMoves(board,turn,ep,casB);
-  if(!mvs.length) return null;
+  if(!mvs.length){ gKThreatEnabled = oldKThreatEnabled; return null; }
   var bookMove=openingBookMove(board,turn,mvs);
-  if(bookMove) return bookMove;
+  if(bookMove){ gKThreatEnabled = oldKThreatEnabled; return bookMove; }
   var rndMove=safeRandomMove(board,turn,ep,casB,mvs,rnd);
-  if(rndMove) return rndMove;
+  if(rndMove){ gKThreatEnabled = oldKThreatEnabled; return rndMove; }
 
   killerClear();
   histClear();
@@ -3224,6 +3227,7 @@ function bestMove(board, turn, ep, casB, maxDepth, rnd, hash) {
   var bmElapsed = Math.max(1, Date.now() - aiStartTime);
   tMark('bm|d='+completedDepth+'/'+maxDepth+'|score='+prevScore+'|best='+mvUci(best)+'|nodes='+aiNodeCount+'|nps='+((aiNodeCount*1000/bmElapsed)|0));
   tMark('LMR='+cntLMR+'/re='+cntLMRresearch+' Q='+cntQnode+' NMP='+cntNMPcut+' KX='+cntKThreatExt);
+  gKThreatEnabled = oldKThreatEnabled;
   return best;
 }
 
@@ -3791,14 +3795,39 @@ function toggleColor(){
 }
 
 /* ═══════════════════════════════════════════════════
-   BOARD SIZING — chỉ gọi khi resize, không gọi mỗi nước
+   BOARD SIZING — fit theo viewport và PGN hiện tại
    ═══════════════════════════════════════════════════ */
 var gCellH = 0;  /* cache để tránh đọc offsetWidth liên tục */
 
 function fixBoardSize(){
   var bd=document.getElementById('board');
-  var w=bd.offsetWidth;
-  if(!w) return;
+  if(!bd) return;
+  var outer=bd.parentNode;
+  var hist=document.getElementById('history');
+  var vw=window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth || 0;
+  var vh=window.innerHeight || document.documentElement.clientHeight || document.body.clientHeight || 0;
+  if(!vw || !vh) return;
+  var cs = window.getComputedStyle ? window.getComputedStyle(document.body, null) : null;
+  var padL = cs ? (parseInt(cs.paddingLeft,10)||0) : 8;
+  var padR = cs ? (parseInt(cs.paddingRight,10)||0) : 8;
+  var padB = cs ? (parseInt(cs.paddingBottom,10)||0) : 28;
+  var maxW = Math.max(220, vw - padL - padR);
+  var w = maxW;
+  for(var pass=0; pass<2; pass++){
+    if(outer){
+      outer.style.width = w + 'px';
+      outer.style.maxWidth = w + 'px';
+    }
+    bd.style.height = w + 'px';
+    var top = bd.getBoundingClientRect ? bd.getBoundingClientRect().top : 0;
+    var histH = hist ? hist.offsetHeight : 32;
+    if(vw > vh){
+      var avail = Math.max(220, vh - top - histH - padB);
+      w = Math.min(maxW, avail);
+    } else {
+      w = maxW;
+    }
+  }
   bd.style.height=w+'px';
   var cellH=Math.floor(w/8);
   if(cellH===gCellH) return;  /* không thay đổi — bỏ qua */
@@ -4912,6 +4941,7 @@ function addHistory(mv){
   var preview = gHist.slice(-8).join('  ');
   var el = document.getElementById('history');
   if(el) el.textContent = (gHist.length > 8 ? '\u2026 ' : '') + preview + '  \u25bc';
+  fixBoardSize();
 }
 
 /* Hàm tách log từ timing-log DOM sang detail-log */
