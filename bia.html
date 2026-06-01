@@ -51,6 +51,45 @@ canvas{display:block}
 .bar{height:100%;border-radius:2px;transition:width .25s ease}
 body.col-resize{cursor:col-resize !important}
 body.dragging{cursor:grabbing !important}
+
+/* ── Mobile portrait tab layout ── */
+#tab-bar{display:none}
+@media (max-width:600px) and (orientation:portrait){
+  header{padding:8px 12px}
+  header h1, header .sub, header .dot{display:none}
+  .felt-picker label{display:none}
+  /* hide splitters */
+  .splitter{display:none!important}
+  /* layout becomes stacked: only active tab visible */
+  .layout{padding:6px;flex-direction:column}
+  .cam-col,.mid-col,.left-col{
+    flex:1!important;min-width:0!important;min-height:0!important;
+    width:100%!important;flex-basis:auto!important;
+    display:none!important;
+  }
+  .cam-col.tab-active,.mid-col.tab-active,.left-col.tab-active{
+    display:flex!important;
+  }
+  /* tab bar */
+  #tab-bar{
+    display:flex;flex-shrink:0;
+    background:var(--panel);border-top:1px solid var(--border);
+    order:999;
+  }
+  .tab-btn{
+    flex:1;padding:10px 4px 8px;
+    display:flex;flex-direction:column;align-items:center;gap:3px;
+    background:none;border:none;color:var(--dim);cursor:pointer;
+    font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:.5px;
+    text-transform:uppercase;transition:color .15s;
+    border-top:2px solid transparent;
+  }
+  .tab-btn svg{width:18px;height:18px;opacity:.55;transition:opacity .15s}
+  .tab-btn.active{color:var(--accent);border-top-color:var(--accent)}
+  .tab-btn.active svg{opacity:1}
+  /* minimap fills available height in table tab */
+  #minimap-wrap{flex:1!important}
+}
 </style>
 </head>
 <body>
@@ -110,6 +149,40 @@ body.dragging{cursor:grabbing !important}
       </div>
     </div>
   </div>
+</div>
+<!-- Mobile tab bar -->
+<div id="tab-bar">
+  <button class="tab-btn" id="tab-table" onclick="setTab('table')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="4" width="18" height="16" rx="2"/>
+      <circle cx="7" cy="8" r="1.2" fill="currentColor" stroke="none"/>
+      <circle cx="17" cy="8" r="1.2" fill="currentColor" stroke="none"/>
+      <circle cx="7" cy="16" r="1.2" fill="currentColor" stroke="none"/>
+      <circle cx="17" cy="16" r="1.2" fill="currentColor" stroke="none"/>
+      <line x1="12" y1="4" x2="12" y2="20"/>
+    </svg>
+    Bàn
+  </button>
+  <button class="tab-btn" id="tab-side" onclick="setTab('side')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="9" cy="13" r="4"/>
+      <circle cx="15" cy="13" r="4"/>
+      <line x1="9" y1="9" x2="15" y2="9"/>
+      <circle cx="12" cy="11" r="1.2" fill="currentColor" stroke="none"/>
+    </svg>
+    Góc ngắm
+  </button>
+  <button class="tab-btn" id="tab-cam" onclick="setTab('cam')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="5"/>
+      <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>
+      <line x1="12" y1="2" x2="12" y2="5"/>
+      <line x1="12" y1="19" x2="12" y2="22"/>
+      <line x1="2" y1="12" x2="5" y2="12"/>
+      <line x1="19" y1="12" x2="22" y2="12"/>
+    </svg>
+    Cam trên
+  </button>
 </div>
 <script>
 let subgridVisible=true; // sub-grid toggle (click lỗ đang chọn để bật/tắt)
@@ -1338,9 +1411,35 @@ function setInitialWidths(){
 }
 setInitialWidths();
 
-const ro=new ResizeObserver(()=>resizeAll());
+// ═══ MOBILE TABS ═══
+var TAB_MAP={table:'right-pane',side:'mid-pane',cam:'cam-pane'};
+var activeTab='table';
+function isMobilePortrait(){return window.innerWidth<=600&&window.innerHeight>window.innerWidth;}
+function setTab(tab){
+  activeTab=tab;
+  try{localStorage.setItem('bia_tab',tab);}catch(e){}
+  applyTab();
+  setTimeout(resizeAll,20);
+}
+function applyTab(){
+  if(!isMobilePortrait()) return;
+  Object.keys(TAB_MAP).forEach(function(t){
+    var pane=document.getElementById(TAB_MAP[t]);
+    var btn=document.getElementById('tab-'+t);
+    if(pane) pane.classList.toggle('tab-active',t===activeTab);
+    if(btn)  btn.classList.toggle('active',t===activeTab);
+  });
+}
+function initMobile(){
+  if(!isMobilePortrait()) return;
+  try{var saved=localStorage.getItem('bia_tab');if(saved) activeTab=saved;}catch(e){}
+  applyTab();
+}
+
+const ro=new ResizeObserver(()=>{initMobile();resizeAll();});
 ro.observe(document.querySelector('.layout'));
-window.addEventListener('load',()=>{loadPrefs();setTimeout(resizeAll,80);});
+window.addEventListener('load',()=>{loadPrefs();initMobile();setTimeout(resizeAll,80);});
+window.addEventListener('orientationchange',()=>{setTimeout(()=>{initMobile();resizeAll();},100);});
 </script>
 </body>
 </html>
