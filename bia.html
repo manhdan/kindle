@@ -54,42 +54,43 @@ body.dragging{cursor:grabbing !important}
 
 /* ── Mobile portrait tab layout ── */
 #tab-bar{display:none}
-@media (max-width:600px) and (orientation:portrait){
-  header{padding:8px 12px}
-  header h1, header .sub, header .dot{display:none}
-  .felt-picker label{display:none}
-  /* hide splitters */
-  .splitter{display:none!important}
-  /* layout becomes stacked: only active tab visible */
-  .layout{padding:6px;flex-direction:column}
-  .cam-col,.mid-col,.left-col{
-    flex:1!important;min-width:0!important;min-height:0!important;
-    width:100%!important;flex-basis:auto!important;
-    display:none!important;
-  }
-  .cam-col.tab-active,.mid-col.tab-active,.left-col.tab-active{
-    display:flex!important;
-  }
-  /* tab bar */
-  #tab-bar{
-    display:flex;flex-shrink:0;
-    background:var(--panel);border-top:1px solid var(--border);
-    order:999;
-  }
-  .tab-btn{
-    flex:1;padding:10px 4px 8px;
-    display:flex;flex-direction:column;align-items:center;gap:3px;
-    background:none;border:none;color:var(--dim);cursor:pointer;
-    font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:.5px;
-    text-transform:uppercase;transition:color .15s;
-    border-top:2px solid transparent;
-  }
-  .tab-btn svg{width:18px;height:18px;opacity:.55;transition:opacity .15s}
-  .tab-btn.active{color:var(--accent);border-top-color:var(--accent)}
-  .tab-btn.active svg{opacity:1}
-  /* minimap fills available height in table tab */
-  #minimap-wrap{flex:1!important}
+/* iOS Safari: 100vh includes browser chrome, use fill-available fallback */
+body{height:100vh;height:-webkit-fill-available}
+html{height:-webkit-fill-available}
+
+body.mobile-portrait{overflow:hidden}
+body.mobile-portrait header{padding:8px 12px}
+body.mobile-portrait header .sub, body.mobile-portrait header .dot{display:none}
+body.mobile-portrait header h1{font-size:15px;letter-spacing:2px}
+body.mobile-portrait .felt-picker label{display:none}
+body.mobile-portrait .splitter{display:none!important}
+body.mobile-portrait .layout{padding:6px;flex-direction:column;flex:1;min-height:0}
+body.mobile-portrait .cam-col,
+body.mobile-portrait .mid-col,
+body.mobile-portrait .left-col{
+  flex:1!important;min-width:0!important;min-height:0!important;
+  width:100%!important;flex-basis:auto!important;
+  display:none!important;
 }
+body.mobile-portrait .cam-col.tab-active,
+body.mobile-portrait .mid-col.tab-active,
+body.mobile-portrait .left-col.tab-active{display:flex!important}
+body.mobile-portrait #minimap-wrap{flex:1!important}
+body.mobile-portrait #tab-bar{
+  display:flex!important;flex-shrink:0;
+  background:var(--panel);border-top:1px solid var(--border);
+}
+body.mobile-portrait .tab-btn{
+  flex:1;padding:10px 4px 10px;
+  display:flex;flex-direction:column;align-items:center;gap:3px;
+  background:none;border:none;color:var(--dim);cursor:pointer;
+  font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:.5px;
+  text-transform:uppercase;
+  border-top:2px solid transparent;
+}
+body.mobile-portrait .tab-btn svg{width:18px;height:18px;opacity:.55}
+body.mobile-portrait .tab-btn.active{color:var(--accent);border-top-color:var(--accent)}
+body.mobile-portrait .tab-btn.active svg{opacity:1}
 </style>
 </head>
 <body>
@@ -1422,7 +1423,6 @@ function setTab(tab){
   setTimeout(resizeAll,20);
 }
 function applyTab(){
-  if(!isMobilePortrait()) return;
   Object.keys(TAB_MAP).forEach(function(t){
     var pane=document.getElementById(TAB_MAP[t]);
     var btn=document.getElementById('tab-'+t);
@@ -1431,15 +1431,21 @@ function applyTab(){
   });
 }
 function initMobile(){
-  if(!isMobilePortrait()) return;
+  var isMob=isMobilePortrait();
+  document.body.classList.toggle('mobile-portrait',isMob);
+  if(!isMob) return;
   try{var saved=localStorage.getItem('bia_tab');if(saved) activeTab=saved;}catch(e){}
   applyTab();
 }
 
-const ro=new ResizeObserver(()=>{initMobile();resizeAll();});
+let _roTimer=null;
+const ro=new ResizeObserver(()=>{
+  if(_roTimer) clearTimeout(_roTimer);
+  _roTimer=setTimeout(()=>{initMobile();resizeAll();},30);
+});
 ro.observe(document.querySelector('.layout'));
 window.addEventListener('load',()=>{loadPrefs();initMobile();setTimeout(resizeAll,80);});
-window.addEventListener('orientationchange',()=>{setTimeout(()=>{initMobile();resizeAll();},100);});
+window.addEventListener('orientationchange',()=>{setTimeout(()=>{initMobile();resizeAll();},200);});
 </script>
 </body>
 </html>
