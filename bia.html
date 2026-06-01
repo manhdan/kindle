@@ -760,7 +760,7 @@ function drawMinimap(){
       const segments = traceCuePath(gbPx.x, gbPx.y, cueDirX, cueDirY, cuePathLen);
       c.save();
       c.beginPath();c.rect(p.ox, p.oy, p.tw, p.th);c.clip();
-      c.strokeStyle = 'rgba(255,255,255,0.75)';
+      c.strokeStyle = 'rgba(255,255,255,0.25)';
       c.lineWidth = 1.2;
       c.setLineDash([4, 3]);
       for (const seg of segments) {
@@ -777,7 +777,7 @@ function drawMinimap(){
       c.lineTo(last.x2 - ax*aSize + ay*aSize*0.45, last.y2 - ay*aSize - ax*aSize*0.45);
       c.lineTo(last.x2 - ax*aSize - ay*aSize*0.45, last.y2 - ay*aSize + ax*aSize*0.45);
       c.closePath();
-      c.fillStyle = 'rgba(255,255,255,0.85)';
+      c.fillStyle = 'rgba(255,255,255,0.25)';
       c.fill();
       c.restore();
     }
