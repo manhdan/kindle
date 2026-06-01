@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 =========================================================
-   ChessChatPC4 (26/06/01 18:25)
+   ChessChatPC5 (26/06/01 18:25)
    Base: ChessChat9 (2026/05/27): pendingBest always-run + gUseFastEval + BESTMOVE_MAX_MS + gGameToken + mvEq + gPendingEvalComplete
 ---------------------------------------------------------
    Lightweight JavaScript chess engine optimized for:
@@ -579,7 +579,7 @@ body {
 /* ═══════════════════════════════════════════════════
    CONSTANTS
    ═══════════════════════════════════════════════════ */
-var APP_VERSION = 'ChessChatPC4';
+var APP_VERSION = 'ChessChatPC5';
 var E=0, WP=1,WN=2,WB=3,WR=4,WQ=5,WK=6;
 var BP=-1,BN=-2,BB=-3,BR=-4,BQ=-5,BK=-6;
 var W=1, B=-1;
@@ -3109,7 +3109,7 @@ function isWinningConversion(board, turn){
 function scoreEndgameRootMove(board, turn, mv, nb){
   var score=0;
   var pieceType=typ(board[mv[0]]);
-  var phase=0;
+  var info=rootMoveSafetyData(board,turn,mv,nb);
   if(inCheck(nb, -turn))                          score += EG_BONUS_CHECK;
   if(mv[3])                                        score += EG_BONUS_PROMOTION;
   if(mv[2]){
@@ -3137,20 +3137,9 @@ function scoreEndgameRootMove(board, turn, mv, nb){
     if(dist<=1) score -= EG_KING_SHUFFLE;
   }
   if(EG_ENABLE){
-    phase = (materialNoKing(board,W) + materialNoKing(board,B)) / PHASE_MAX;
-    if(phase > 1.0) phase = 1.0;
-    if(phase < 0.8){
-      var raceBefore = evalPassedPawnRaceBoard(board, phase);
-      var raceAfter = evalPassedPawnRaceBoard(nb, phase);
-      var raceDelta = (turn===W) ? (raceAfter - raceBefore) : (raceBefore - raceAfter);
-      score += (raceDelta * 3 / 2) | 0;
-    }
-    if(pieceType>=2 && pieceType<=5){
-      var enemyKingSq = findKingSq(nb, -turn);
-      if(enemyKingSq>=0 && kingCanTakeSquare(nb, mv[1], -turn) && !attacked(nb, mv[1], turn)){
-        score -= (phase < 0.7 ? 240 : 180);
-        if(phase < 0.45) score -= 60;
-      }
+    if(info.raceDelta) score += (info.raceDelta * 3 / 2) | 0;
+    if(pieceType>=2 && pieceType<=5 && info.kingRisk){
+      score -= info.kingRisk;
     }
   }
   return score;
@@ -3178,42 +3167,53 @@ function rootKingDangerPenalty(board, turn, mv, nb){
   return penalty>420 ? 420 : penalty;
 }
 
+function rootMoveSafetyData(board, turn, mv, nb){
+  var moved = typ(mv[3] || board[mv[0]]);
+  var phase = (materialNoKing(board,W) + materialNoKing(board,B)) / PHASE_MAX;
+  var raceDelta = 0;
+  var kingRisk = 0;
+  var hangRisk = 0;
+  if(phase > 1.0) phase = 1.0;
+  if(moved>=2 && moved<=5){
+    if(kingCanTakeSquare(nb, mv[1], -turn) && !attacked(nb, mv[1], turn)){
+      kingRisk += (moved>=4 ? 260 : 170);
+      if(phase < 0.5) kingRisk += 60;
+    }
+    if(seeNegative(nb, mv[1], turn)){
+      var val=PVAL[moved], cap=mv[2] ? PVAL[typ(mv[2])] : 0;
+      var defended=attacked(nb,mv[1],turn);
+      var tacticalAttacker=attackedByPawnKnight(nb,mv[1],-turn);
+      var loss = val - cap;
+      if(!defended){
+        if(val>=900) hangRisk += Math.max(0,980-cap);
+        else if(val>=500) hangRisk += Math.max(0,620-cap);
+        else hangRisk += Math.max(0,360-cap);
+      } else if(tacticalAttacker && loss>80){
+        if(val>=900) hangRisk += Math.max(260, loss + 260);
+        else if(val>=500) hangRisk += Math.max(180, loss + 170);
+        else hangRisk += Math.max(120, loss + 110);
+      } else if(tacticalAttacker && val>=500 && cap<300){
+        hangRisk += (val>=900 ? 220 : 120);
+      } else if(loss>250){
+        hangRisk += loss - 120;
+      }
+    }
+  }
+  if(EG_ENABLE && moved===1 && phase < 0.8){
+    var raceBefore = evalPassedPawnRaceBoard(board, phase);
+    var raceAfter = evalPassedPawnRaceBoard(nb, phase);
+    raceDelta = (turn===W) ? (raceAfter - raceBefore) : (raceBefore - raceAfter);
+  }
+  return { moved:moved, phase:phase, raceDelta:raceDelta, kingRisk:kingRisk, hangRisk:hangRisk };
+}
+
 function rootSafetyPenalty(board, turn, mv, nb){
   var penalty=rootKingDangerPenalty(board,turn,mv,nb);
-  var moved=typ(mv[3] || board[mv[0]]);
-  if(moved<2 || moved>5) return penalty;
-  if(EG_ENABLE){
-    var phase = (materialNoKing(board,W) + materialNoKing(board,B)) / PHASE_MAX;
-    if(phase > 1.0) phase = 1.0;
-    if(phase < 0.8){
-      var raceBefore = evalPassedPawnRaceBoard(board, phase);
-      var raceAfter = evalPassedPawnRaceBoard(nb, phase);
-      var raceDelta = (turn===W) ? (raceAfter - raceBefore) : (raceBefore - raceAfter);
-      if(raceDelta < 0) penalty += ((-raceDelta) * 3 / 4) | 0;
-      if(raceDelta >= 140) penalty -= 35;
-    }
-    if(kingCanTakeSquare(nb, mv[1], -turn) && !attacked(nb, mv[1], turn)){
-      penalty += (moved>=4 ? 260 : 170);
-      if(phase < 0.5) penalty += 60;
-    }
-  }
-  var val=PVAL[moved], cap=mv[2] ? PVAL[typ(mv[2])] : 0;
-  if(!seeNegative(nb,mv[1],turn)) return penalty;
-  var defended=attacked(nb,mv[1],turn);
-  var tacticalAttacker=attackedByPawnKnight(nb,mv[1],-turn);
-  var loss = val - cap;
-  if(!defended){
-    if(val>=900) return penalty + Math.max(0,980-cap);
-    if(val>=500) return penalty + Math.max(0,620-cap);
-    return penalty + Math.max(0,360-cap);
-  }
-  if(tacticalAttacker && loss>80){
-    if(val>=900) return penalty + Math.max(260, loss + 260);
-    if(val>=500) return penalty + Math.max(180, loss + 170);
-    return penalty + Math.max(120, loss + 110);
-  }
-  if(tacticalAttacker && val>=500 && cap<300) return penalty + (val>=900 ? 220 : 120);
-  if(loss>250) return penalty + loss - 120;
+  var info=rootMoveSafetyData(board,turn,mv,nb);
+  if(info.moved<2 || info.moved>5) return penalty;
+  penalty += info.kingRisk + info.hangRisk;
+  if(info.raceDelta < 0) penalty += ((-info.raceDelta) * 3 / 4) | 0;
+  if(info.raceDelta >= 140) penalty -= 35;
   return penalty;
 }
 
