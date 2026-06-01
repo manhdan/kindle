@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 =========================================================
-   ChessChatPC7 (26/06/01 21:29)
+   ChessChatPC8 (26/06/01 21:45)
    Base: ChessChat9 (2026/05/27): pendingBest always-run + gUseFastEval + BESTMOVE_MAX_MS + gGameToken + mvEq + gPendingEvalComplete
 ---------------------------------------------------------
    Lightweight JavaScript chess engine optimized for:
@@ -579,7 +579,7 @@ body {
 /* ═══════════════════════════════════════════════════
    CONSTANTS
    ═══════════════════════════════════════════════════ */
-var APP_VERSION = 'ChessChatPC7';
+var APP_VERSION = 'ChessChatPC8';
 var E=0, WP=1,WN=2,WB=3,WR=4,WQ=5,WK=6;
 var BP=-1,BN=-2,BB=-3,BR=-4,BQ=-5,BK=-6;
 var W=1, B=-1;
@@ -3048,7 +3048,8 @@ var OPENING_BOOK = [
   ['e2e4','e7e6','d2d4','d7d5','b1c3','g8f6','e4e5','f6e4','c3e4','d5e4','d1d4','b8c6','d4e4'],
   ['d2d4','f7f5','g1f3','g8f6','g2g3','e7e6','f1g2','f8e7','e1g1','e8g8','c2c4','d7d5','b1c3'],
   ['e2e4','c7c5','g1f3','e7e6','b1c3','a7a6','g2g3','b7b5','f1g2','c8b7','d2d3','d7d5','e4d5'],
-  ['d2d4','g8f6','g1f3','e7e6','c2c4','b7b6','g2g3','c8b7','f1g2','f8e7','e1g1','e8g8','b1c3','g8e8']
+  ['d2d4','g8f6','g1f3','e7e6','c2c4','b7b6','g2g3','c8b7','f1g2','f8e7','e1g1','e8g8','b1c3','g8e8'],
+  ['e2e4','g8f6','e4e5','f6d5','d2d4','d7d6','e5d6','d8d6','c2c4','d5f6','b1c3','c8f5','c4c5','d6d7']
 ];
 
 function mvUci(mv){
@@ -3199,6 +3200,19 @@ function rootMoveSafetyData(board, turn, mv, nb){
         hangRisk += (val>=900 ? 220 : 120);
       } else if(loss>250){
         hangRisk += loss - 120;
+      }
+    }
+    var movedThreat=rootCaptureThreatInfo(nb,turn,mv[1]);
+    if(movedThreat){
+      var movedVal=PVAL[moved], movedCap=mv[2] ? PVAL[typ(mv[2])] : 0;
+      var movedLoss=movedThreat.gain - movedCap;
+      if(movedLoss>80){
+        if(movedVal>=900) hangRisk += Math.max(900, movedLoss + 420);
+        else if(movedVal>=500) hangRisk += Math.max(560, movedLoss + 280);
+        else hangRisk += Math.max(760, movedLoss + 520);
+        if(movedVal<500 && movedCap<300 && movedThreat.type>=4) hangRisk += 180;
+        if(movedThreat.type===1 || movedThreat.type===2) hangRisk += (movedVal>=500 ? 140 : 90);
+        if(!attacked(nb,mv[1],turn)) hangRisk += (movedVal>=500 ? 160 : 80);
       }
     }
   }
