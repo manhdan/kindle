@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 =========================================================
-   ChessChatPC3 (26/06/01 17:28)
+   ChessChatPC4 (26/06/01 18:25)
    Base: ChessChat9 (2026/05/27): pendingBest always-run + gUseFastEval + BESTMOVE_MAX_MS + gGameToken + mvEq + gPendingEvalComplete
 ---------------------------------------------------------
    Lightweight JavaScript chess engine optimized for:
@@ -579,7 +579,7 @@ body {
 /* ═══════════════════════════════════════════════════
    CONSTANTS
    ═══════════════════════════════════════════════════ */
-var APP_VERSION = 'ChessChatPC3';
+var APP_VERSION = 'ChessChatPC4';
 var E=0, WP=1,WN=2,WB=3,WR=4,WQ=5,WK=6;
 var BP=-1,BN=-2,BB=-3,BR=-4,BQ=-5,BK=-6;
 var W=1, B=-1;
@@ -1250,6 +1250,12 @@ function isAttacked(board, sq2, byCol) {
 }
 /* Alias ngắn — dùng ở legalMoves() và castling check */
 var attacked = isAttacked;
+
+function kingCanTakeSquare(board, sq2, side){
+  var ksq = findKingSq(board, side);
+  if(ksq < 0) return false;
+  return Math.abs(rk(ksq)-rk(sq2)) <= 1 && Math.abs(fl(ksq)-fl(sq2)) <= 1;
+}
 
 function inCheck(board, side) {
   var king=side*6;
@@ -3139,6 +3145,13 @@ function scoreEndgameRootMove(board, turn, mv, nb){
       var raceDelta = (turn===W) ? (raceAfter - raceBefore) : (raceBefore - raceAfter);
       score += (raceDelta * 3 / 2) | 0;
     }
+    if(pieceType>=2 && pieceType<=5){
+      var enemyKingSq = findKingSq(nb, -turn);
+      if(enemyKingSq>=0 && kingCanTakeSquare(nb, mv[1], -turn) && !attacked(nb, mv[1], turn)){
+        score -= (phase < 0.7 ? 240 : 180);
+        if(phase < 0.45) score -= 60;
+      }
+    }
   }
   return score;
 }
@@ -3178,6 +3191,10 @@ function rootSafetyPenalty(board, turn, mv, nb){
       var raceDelta = (turn===W) ? (raceAfter - raceBefore) : (raceBefore - raceAfter);
       if(raceDelta < 0) penalty += ((-raceDelta) * 3 / 4) | 0;
       if(raceDelta >= 140) penalty -= 35;
+    }
+    if(kingCanTakeSquare(nb, mv[1], -turn) && !attacked(nb, mv[1], turn)){
+      penalty += (moved>=4 ? 260 : 170);
+      if(phase < 0.5) penalty += 60;
     }
   }
   var val=PVAL[moved], cap=mv[2] ? PVAL[typ(mv[2])] : 0;
@@ -4335,6 +4352,8 @@ function seeNegative(boardAfter, toSq, playerCol){
   if(minAttVal < moverVal) return true;
   /* Nếu bằng giá trị: chỉ blunder nếu không có người bảo vệ */
   if(minAttVal === moverVal && !attacked(boardAfter, toSq, playerCol)) return true;
+  /* Vua đối phương có thể ăn trực tiếp nếu ô đích không được bảo vệ */
+  if(!attacked(boardAfter, toSq, playerCol) && kingCanTakeSquare(boardAfter, toSq, aiCol)) return true;
   return false;
 }
 
