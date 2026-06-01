@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bi-a Trainer</title>
+<title>Billiards</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -13,7 +13,7 @@
   --text:#c8d0da;--dim:#4a5568;--r:8px;
 }
 body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;height:100vh;overflow:hidden;display:flex;flex-direction:column}
-header{display:flex;align-items:center;gap:12px;padding:10px 20px;border-bottom:1px solid var(--border);background:var(--panel);flex-shrink:0}
+header{display:flex;align-items:center;gap:12px;padding:10px 20px;border-bottom:1px solid var(--border);background:var(--panel);flex-shrink:0;position:relative}
 header h1{font-size:20px;font-weight:700;letter-spacing:3px;color:var(--accent)}
 header .sub{font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--dim);margin-left:4px}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 6px var(--accent)}
@@ -25,35 +25,39 @@ header .sub{font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--d
 #btn-green{background:#2d7a3a}
 #btn-blue{background:#1a5c8a}
 #btn-gray{background:#7a7a82}
-.layout{flex:1;display:grid;grid-template-columns:1fr 260px;grid-template-rows:1fr 1fr;gap:12px;padding:12px;min-height:0}
-#side-wrap{grid-column:1;grid-row:1;position:relative}
-#zoom-wrap{grid-column:1;grid-row:2;position:relative}
-.right-col{grid-column:2;grid-row:1/3;display:flex;flex-direction:column;gap:12px;min-height:0}
+
+/* ── Resizable layout ── */
+.layout{flex:1;display:flex;flex-direction:row;gap:0;padding:10px;min-height:0;overflow:hidden}
+.left-col{display:flex;flex-direction:column;gap:10px;min-width:120px;flex-shrink:0;flex-grow:0}
+.splitter{width:6px;cursor:col-resize;flex-shrink:0;background:transparent;position:relative;margin:0 2px}
+.splitter::after{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:2px;height:40px;background:var(--border);border-radius:2px;transition:background .2s}
+.splitter:hover::after,.splitter.dragging::after{background:var(--accent)}
+.mid-col{flex:1;display:flex;flex-direction:column;gap:10px;min-width:80px;min-height:0}
+.cam-col{display:flex;flex-direction:column;gap:10px;min-width:80px;min-height:0;flex-shrink:0;flex-grow:0}
+.right-col{flex:1;display:flex;flex-direction:column;gap:10px;min-width:80px;min-height:0}
+
+#side-wrap{flex:1;position:relative;min-height:0}
+#zoom-wrap{flex:1;position:relative;min-height:0}
 .panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;position:relative}
-.panel-label{position:absolute;top:8px;left:12px;font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:1.2px;color:var(--dim);text-transform:uppercase;z-index:5;pointer-events:none}
 canvas{display:block}
 #minimap-wrap{flex:0 0 auto;position:relative}
 #minimap{display:block;cursor:crosshair;user-select:none;width:100%}
-#stats-panel{flex:1;padding:14px;display:flex;flex-direction:column;gap:10px;overflow:hidden}
+#stats-panel{flex:1;padding:14px;display:flex;flex-direction:column;gap:10px;overflow:hidden;min-height:0}
 .stat-row{display:flex;flex-direction:column;gap:3px}
 .stat-label{font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.8px}
 .stat-value{font-size:24px;font-weight:700;line-height:1}
 .bar-bg{height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-top:3px}
 .bar{height:100%;border-radius:2px;transition:width .25s ease}
-.divider{border:none;border-top:1px solid var(--border)}
-.legend{display:flex;flex-direction:column;gap:6px}
-.leg{display:flex;align-items:center;gap:7px;font-size:12px}
-.leg-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
-.leg-line{width:18px;height:2.5px;flex-shrink:0;border-radius:2px}
-.hint{font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--dim);line-height:1.65;margin-top:auto}
+body.col-resize{cursor:col-resize !important}
 body.dragging{cursor:grabbing !important}
 </style>
 </head>
 <body>
 <header>
   <div class="dot"></div>
-  <h1>BI-A TRAINER</h1>
-  <span class="sub">// tia chết · điểm chạm · góc ra bi</span>
+  <h1>BILLIARDS</h1>
+  <span class="sub">// Tia chết · Điểm chạm · Góc ra</span>
+  <!-- Right controls -->
   <div class="felt-picker" style="gap:14px">
     <label>Vải:</label>
     <div class="felt-btn active" id="btn-green" title="Xanh lá" onclick="setFelt('green')"></div>
@@ -64,49 +68,44 @@ body.dragging{cursor:grabbing !important}
   </div>
 </header>
 <div class="layout">
-  <div class="panel" id="side-wrap">
-    <div class="panel-label">GÓC NGẮM — nhìn từ bi cái thẳng về bi đạn</div>
-    <canvas id="side-canvas"></canvas>
+  <!-- LEFT: Cam trên -->
+  <div class="cam-col" id="cam-pane">
+    <div class="panel" style="flex:1;min-height:0" id="zoom-wrap">
+      <canvas id="zoom-canvas"></canvas>
+    </div>
   </div>
-  <div class="panel" id="zoom-wrap">
-    <div class="panel-label">CAM TRÊN — tia chết · ghost ball · tia ăn · góc</div>
-    <canvas id="zoom-canvas"></canvas>
+
+  <!-- SPLITTER 1 -->
+  <div class="splitter" id="splitter-left"></div>
+
+  <!-- MID: Góc ngắm -->
+  <div class="mid-col" id="mid-pane">
+    <div class="panel" style="flex:1;min-height:0;position:relative" id="side-wrap">
+      <canvas id="side-canvas"></canvas>
+      <div id="angle-overlay" style="position:absolute;top:8px;left:0;right:0;display:flex;justify-content:center;align-items:center;gap:10px;pointer-events:none">
+        <span style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.8px">Góc cắt</span>
+        <span id="hdr-cut" style="font-size:20px;font-weight:700;color:var(--gold);font-family:'Rajdhani',sans-serif;line-height:1">—°</span>
+        <div style="width:1px;height:20px;background:var(--border)"></div>
+        <span style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.8px">Che khuất</span>
+        <span id="hdr-ov" style="font-size:20px;font-weight:700;color:var(--purple);font-family:'Rajdhani',sans-serif;line-height:1">—%</span>
+      </div>
+    </div>
   </div>
-  <div class="right-col">
-    <div class="panel" id="minimap-wrap">
-      <div class="panel-label">BÀN BI A — kéo bi · click lỗ</div>
+
+  <!-- SPLITTER 2 -->
+  <div class="splitter" id="splitter-right"></div>
+
+  <!-- RIGHT: Bàn bi a -->
+  <div class="left-col" id="right-pane" style="display:flex;flex-direction:column;gap:6px">
+    <div class="panel" id="minimap-wrap" style="flex:1">
       <canvas id="minimap"></canvas>
     </div>
-    <div class="panel" id="stats-panel">
-      <div class="stat-row">
-        <div class="stat-label">Góc cut (cut angle)</div>
-        <div class="stat-value" style="color:var(--gold)" id="val-cut">—°</div>
-        <div class="bar-bg"><div class="bar" id="bar-cut" style="background:var(--gold);width:0%"></div></div>
-      </div>
-      <div class="stat-row">
-        <div class="stat-label">Góc ra bi cái (deflect)</div>
-        <div class="stat-value" style="color:var(--red)" id="val-def">—°</div>
-        <div class="bar-bg"><div class="bar" id="bar-def" style="background:var(--red);width:0%"></div></div>
-      </div>
-      <div class="stat-row">
-        <div class="stat-label">Độ che khuất</div>
-        <div class="stat-value" style="color:var(--purple)" id="val-ov">—%</div>
-        <div class="bar-bg"><div class="bar" id="bar-ov" style="background:var(--purple);width:0%"></div></div>
-      </div>
-      <hr class="divider">
-      <div class="legend">
-        <div class="leg"><span class="leg-dot" style="background:#e8e8e8"></span>Bi cái (cue ball)</div>
-        <div class="leg"><span class="leg-dot" style="background:#f5c518"></span>Bi đạn (object ball)</div>
-        <div class="leg"><span class="leg-dot" style="background:rgba(220,220,220,0.25);border:1px dashed #aaa;display:inline-block"></span>Ghost ball</div>
-        <div class="leg"><span class="leg-line" style="background:var(--red)"></span>Tia chết (aim line)</div>
-        <div class="leg"><span class="leg-line" style="background:var(--gold)"></span>Tia ăn bi → lỗ</div>
-        <div class="leg"><span class="leg-line" style="background:var(--accent)"></span>Hướng ra bi cái</div>
-      </div>
-      <div class="hint">
-        ▸ Kéo bi trắng hoặc bi vàng<br>
-        ▸ Click vào lỗ để chọn mục tiêu<br>
-        ▸ Tia chết đi qua tâm ghost ball<br>
-        ▸ Cut 30° → che khuất ~50% bi đạn
+    <div style="padding:6px 10px 8px;background:var(--panel);border:1px solid var(--border);border-radius:var(--r);flex-shrink:0">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--dim);white-space:nowrap;min-width:32px">LỰC</span>
+        <input type="range" id="power-slider" min="0" max="100" value="0"
+          style="flex:1;accent-color:var(--accent);cursor:pointer;height:4px">
+        <span id="power-val" style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--accent);min-width:32px;text-align:right">0%</span>
       </div>
     </div>
   </div>
@@ -114,12 +113,12 @@ body.dragging{cursor:grabbing !important}
 <script>
 // ═══ FELT ═══
 const FELT_COLORS={
-  green:{felt:'#2a6e38',felt2:'#1e5228',rail:'#5c3210',railD:'#3d2008',railT:'#8B5E3C'},
-  blue: {felt:'#1a4f7a',felt2:'#123a5c',rail:'#4a3218',railD:'#2e1e0a',railT:'#7a5c32'},
-  gray: {felt:'#606068',felt2:'#484850',rail:'#5c5040',railD:'#3a3028',railT:'#8a7860'},
+  green:{felt:'#2a6e38',felt2:'#1e5228',rail:'#5c3210',railD:'#3d2008',railT:'#8B5E3C',cush1:'#1a3320',cush2:'#1e5228',cush3:'#0e2010',outerA:'#8B5E3C',outerD:'#3d2008'},
+  blue: {felt:'#1a4f7a',felt2:'#123a5c',rail:'#5c3210',railD:'#3d2008',railT:'#8B5E3C',cush1:'#102030',cush2:'#1a4060',cush3:'#081018',outerA:'#8B5E3C',outerD:'#3d2008'},
+  gray: {felt:'#606068',felt2:'#484850',rail:'#5c3210',railD:'#3d2008',railT:'#8B5E3C',cush1:'#303038',cush2:'#484850',cush3:'#202025',outerA:'#8B5E3C',outerD:'#3d2008'},
 };
 let feltKey='green';
-function setFelt(k){feltKey=k;document.querySelectorAll('.felt-btn').forEach(b=>b.classList.remove('active'));document.getElementById('btn-'+k).classList.add('active');redraw();}
+function setFelt(k){feltKey=k;document.querySelectorAll('.felt-btn').forEach(b=>b.classList.remove('active'));document.getElementById('btn-'+k).classList.add('active');savePrefs();redraw();}
 function felt(){return FELT_COLORS[feltKey];}
 
 // ═══ BALL COLORS (pool 9-ball set) ═══
@@ -134,16 +133,24 @@ const BALL_DATA=[
   {num:8, name:'8 - Đen',       solid:true,  hex:'#111111'},
   {num:9, name:'9 - Vàng sọc',  solid:false, hex:'#FFD700'},
 ];
-let ballNum=1;
-function setBallNum(n){ballNum=n;redraw();}
+let ballNum=2;
+function setBallNum(n){
+  if(n==='reset'||n==0){resetToDefaults();return;}
+  ballNum=+n;savePrefs();redraw();
+}
 // Populate select
 (function(){
   const sel=document.getElementById('ball-select');
   BALL_DATA.forEach(b=>{
     const o=document.createElement('option');
     o.value=b.num; o.textContent=b.name;
+    if(b.num===2) o.selected=true;
     sel.appendChild(o);
   });
+  // Reset option
+  const oReset=document.createElement('option');
+  oReset.value='reset'; oReset.textContent='↩ Reset';
+  sel.appendChild(oReset);
 })();
 
 // ═══ CONSTANTS ═══
@@ -164,7 +171,8 @@ const POCKETS=[
   {x:1,   y:1  }, // bot-right corner
 ];
 
-const state={cue:{x:0.5,y:0.75}, target:{x:0.5,y:0.35}, pocket:1};
+const state={cue:{x:0.7796,y:0.75}, target:{x:0.5,y:0.25}, pocket:0};
+let cuePower=0; // 0-100
 
 // ═══ GEOMETRY ═══
 // All positions in cm. Portrait: cx_cm = nx*TH, cy_cm = ny*TW
@@ -217,7 +225,7 @@ function computeGeo(){
   // But the classic billiards "fraction" is: fraction = cos(cutAngle)
   // We'll show both but use the geometric one:
   const sinCut=Math.sin(cutAngle*Math.PI/180);
-  const overlap=Math.max(0,Math.min(100,(1-sinCut)*100));
+  const overlap=cutAngle>90?0:Math.max(0,Math.min(100,(1-sinCut)*100));
 
   // Lateral offset of target from aim line (cm) — for side view
   // = sin(cutAngle) * 2R (distance of target centre from ghost centre, perpendicular to aim)
@@ -293,17 +301,31 @@ const mmC=document.getElementById('minimap');
 const mmX=mmC.getContext('2d');
 
 function mmPad(){
-  const W=mmC.width, padX=16,padTop=28,padBot=10;
-  const availW=W-padX*2, availH=mmC.height-padTop-padBot;
-  let tw=availW, th=tw*(TW/TH);
-  if(th>availH){th=availH;tw=th*(TH/TW);}
-  return{ox:padX+(availW-tw)/2, oy:padTop+(availH-th)/2, tw, th};
+  const W=mmC.width, H=mmC.height;
+  // rail width = 9.5% of table pixel width; we need to reserve space for it
+  const railFrac=0.095;
+  // Available area with padding for rails so nothing is clipped
+  const padBase=14;
+  const padX=padBase, padTop=padBase, padBot=padBase;
+  const availW=W-padX*2, availH=H-padTop-padBot;
+  let tw, th;
+  // Fit table felt area within available, then check rail fits too
+  // tw*(1+2*railFrac) <= availW  => tw <= availW/(1+2*railFrac)
+  const maxTW=availW/(1+2*railFrac);
+  const maxTH=availH/(1+2*railFrac);
+  tw=maxTW; th=tw*(TW/TH);
+  if(th>maxTH){th=maxTH; tw=th*(TH/TW);}
+  // top-align: oy = padTop + railFrac*tw (so top rail sits just inside padTop)
+  const rw=tw*railFrac;
+  const ox=padX+rw+(availW-tw*(1+2*railFrac))/2;
+  const oy=padTop+rw; // top-aligned
+  return{ox, oy, tw, th};
 }
 function resizeMinimap(){
   const wrap=document.getElementById('minimap-wrap');
-  const W=wrap.clientWidth-2, padX=16,padTop=28,padBot=10;
-  const tw=W-padX*2;
-  mmC.width=W; mmC.height=tw*(TW/TH)+padTop+padBot;
+  const W=wrap.clientWidth-2;
+  const H=wrap.clientHeight-2;
+  mmC.width=W; mmC.height=H;
   drawMinimap();
 }
 function toMM(nx,ny){const p=mmPad();return{x:p.ox+nx*p.tw, y:p.oy+ny*p.th};}
@@ -315,105 +337,279 @@ function drawMinimap(){
   const p=mmPad(); const f=felt();
   c.clearRect(0,0,W,H);
 
-  // Rail wood
-  const rw=10;
-  c.fillStyle=f.rail;
-  c.beginPath();c.roundRect(p.ox-rw,p.oy-rw,p.tw+rw*2,p.th+rw*2,6);c.fill();
-  c.fillStyle=f.railD;
-  c.beginPath();c.roundRect(p.ox-3,p.oy-3,p.tw+6,p.th+6,2);c.fill();
-  // Felt
+  // ── Outer wood frame (thick) ──
+  const rw=p.tw*0.095; // ~9.5% of table width per side — much thicker
+  const outerX=p.ox-rw, outerY=p.oy-rw;
+  const outerW=p.tw+rw*2, outerH=p.th+rw*2;
+
+  // Outer shadow
+  c.shadowColor='rgba(0,0,0,0.6)';c.shadowBlur=12;c.shadowOffsetX=3;c.shadowOffsetY=4;
+  const outerGrad=c.createLinearGradient(outerX,outerY,outerX+outerW,outerY+outerH);
+  outerGrad.addColorStop(0,f.outerA);outerGrad.addColorStop(0.3,f.rail);outerGrad.addColorStop(0.7,f.railD);outerGrad.addColorStop(1,f.outerD);
+  c.fillStyle=outerGrad;
+  c.beginPath();c.roundRect(outerX,outerY,outerW,outerH,10);c.fill();
+  c.shadowColor='transparent';c.shadowBlur=0;c.shadowOffsetX=0;c.shadowOffsetY=0;
+
+  // Wood grain lines
+  c.save();c.beginPath();c.roundRect(outerX,outerY,outerW,outerH,10);c.clip();
+  for(let i=0;i<8;i++){
+    const y=outerY+outerH*i/8+2;
+    c.beginPath();c.moveTo(outerX,y);c.lineTo(outerX+outerW,y);
+    c.strokeStyle='rgba(255,255,255,0.03)';c.lineWidth=1;c.stroke();
+  }
+  c.restore();
+
+  // Inner rail cushion (slightly inset, dark ridge)
+  const cushW=rw*0.35;
+  const cX=p.ox-cushW, cY=p.oy-cushW, cW=p.tw+cushW*2, cH=p.th+cushW*2;
+  const cushGrad=c.createLinearGradient(cX,cY,cX,cY+cH);
+  cushGrad.addColorStop(0,f.cush1);cushGrad.addColorStop(0.5,f.cush2);cushGrad.addColorStop(1,f.cush3);
+  c.fillStyle=cushGrad;
+  c.fillRect(cX,cY,cW,cH);
+
+  // Felt surface
+  const feltGrad=c.createRadialGradient(p.ox+p.tw*.5,p.oy+p.th*.35,0,p.ox+p.tw*.5,p.oy+p.th*.5,p.tw*.9);
+  feltGrad.addColorStop(0,'rgba(255,255,255,0.07)');feltGrad.addColorStop(1,'rgba(0,0,0,0.18)');
   c.fillStyle=f.felt;c.fillRect(p.ox,p.oy,p.tw,p.th);
-  const shd=c.createRadialGradient(p.ox+p.tw*.5,p.oy+p.th*.35,0,p.ox+p.tw*.5,p.oy+p.th*.5,p.tw*.9);
-  shd.addColorStop(0,'rgba(255,255,255,0.06)');shd.addColorStop(1,'rgba(0,0,0,0.2)');
-  c.fillStyle=shd;c.fillRect(p.ox,p.oy,p.tw,p.th);
-  // Table markings
-  c.strokeStyle='rgba(255,255,255,0.09)';c.lineWidth=0.8;c.setLineDash([4,4]);
-  c.beginPath();c.moveTo(p.ox,p.oy+p.th*.5);c.lineTo(p.ox+p.tw,p.oy+p.th*.5);c.stroke();
-  c.beginPath();c.moveTo(p.ox,p.oy+p.th*.8);c.lineTo(p.ox+p.tw,p.oy+p.th*.8);c.stroke();
-  c.setLineDash([]);
-  // Diamond spots on long rails (left/right)
-  const dia='rgba(255,255,255,0.4)';
-  [.25,.5,.75].forEach(ny=>{
-    [{nx:0,side:-5},{nx:1,side:5}].forEach(({nx,side})=>{
-      const pp={x:p.ox+nx*p.tw+side, y:p.oy+ny*p.th};
-      c.beginPath();c.arc(pp.x,pp.y,2.5,0,Math.PI*2);c.fillStyle=dia;c.fill();
-    });
-  });
-  // Diamond spots on short rails (top/bottom)
-  [.25,.5,.75].forEach(nx=>{
-    [{ny:0,side:-5},{ny:1,side:5}].forEach(({ny,side})=>{
-      const pp={x:p.ox+nx*p.tw, y:p.oy+ny*p.th+side};
-      c.beginPath();c.arc(pp.x,pp.y,2.5,0,Math.PI*2);c.fillStyle=dia;c.fill();
-    });
-  });
+  c.fillStyle=feltGrad;c.fillRect(p.ox,p.oy,p.tw,p.th);
 
-  const geo=computeGeo();
-  // bR: ball radius in minimap pixels — scale thực tế theo tỉ lệ bàn
-  // Bàn thực: TH=127cm, BALL_R=1.43cm → bR/p.tw = BALL_R/TH
-  // Nhân 2.5 để bi dễ nhìn nhưng vẫn tỉ lệ hợp lý
-  const bR=p.tw*BALL_R/TH*2.5;
-
-  if(geo){
-    const cuePx =toMM(state.cue.x,    state.cue.y);
-    const gbPx  =toMM(geo.gb_n.x,     geo.gb_n.y);
-    const cpPx  =toMM(geo.cp_n.x,     geo.cp_n.y);
-    const pkPx  =toMM(POCKETS[state.pocket].x, POCKETS[state.pocket].y);
-    const tarPx =toMM(state.target.x,  state.target.y);
-
-    // ── TIA CHẾT: đi từ tâm bi cái theo hướng aim, qua ghost ball, kéo dài ──
-    // Direction in canvas pixels: aim vector in cm → canvas
-    // canvas: x = cm_x/TH * p.tw, y = cm_y/TW * p.th
-    // So canvas aim direction: (aUx*p.tw/TH, aUy*p.th/TW), then normalise
-    const cdx=geo.aUx*p.tw/TH, cdy=geo.aUy*p.th/TW;
-    const cdLen=Math.hypot(cdx,cdy)||1;
-    const cnx=cdx/cdLen, cny=cdy/cdLen; // normalised canvas direction
-    const ext=Math.max(p.tw,p.th)*3;
-
-    c.save();c.beginPath();c.rect(p.ox,p.oy,p.tw,p.th);c.clip();
-    // Tia chết: nét đứt mảnh từ bi cái theo hướng aim, qua ghost ball, kéo dài
-    c.beginPath();
-    c.moveTo(cuePx.x, cuePx.y);
-    c.lineTo(cuePx.x+cnx*ext, cuePx.y+cny*ext);
-    c.strokeStyle='#ff3c3c';c.lineWidth=0.8;c.setLineDash([4,3]);c.stroke();
-    c.setLineDash([]);
-    c.restore();
-
-    // ── TIA ĂN: từ tâm bi đạn → lỗ ──
-    c.beginPath();c.moveTo(tarPx.x,tarPx.y);c.lineTo(pkPx.x,pkPx.y);
-    c.strokeStyle='#f5c518';c.lineWidth=2;c.stroke();
-
-    // Ghost ball (mờ, nét đứt)
-    c.beginPath();c.arc(gbPx.x,gbPx.y,bR,0,Math.PI*2);
-    c.fillStyle='rgba(232,232,232,0.12)';c.fill();
-    c.strokeStyle='rgba(232,232,232,0.55)';c.lineWidth=1;c.setLineDash([2,2]);c.stroke();
-    c.setLineDash([]);
+  // Felt texture (subtle lines)
+  c.strokeStyle='rgba(255,255,255,0.04)';c.lineWidth=0.5;
+  for(let i=1;i<8;i++){
+    c.beginPath();c.moveTo(p.ox,p.oy+p.th*i/8);c.lineTo(p.ox+p.tw,p.oy+p.th*i/8);c.stroke();
   }
 
-  // Pocket holes
-  const pockR=p.tw*BALL_R/TH*2.5;
+  // ── Diamond grid lines ──
+  // Vertical lines at diamond x-positions (x = 0.25, 0.5, 0.75)
+  c.save();c.beginPath();c.rect(p.ox,p.oy,p.tw,p.th);c.clip();
+  c.lineWidth=0.6;c.setLineDash([3,4]);
+  [0.25, 0.5, 0.75].forEach(nx=>{
+    c.strokeStyle='rgba(255,255,255,0.10)';
+    c.beginPath();c.moveTo(p.ox+nx*p.tw,p.oy);c.lineTo(p.ox+nx*p.tw,p.oy+p.th);c.stroke();
+  });
+  // Horizontal lines at diamond y-positions
+  [0.125, 0.25, 0.375, 0.5, 0.625, 0.875].forEach(ny=>{
+    c.strokeStyle='rgba(255,255,255,0.10)';
+    c.beginPath();c.moveTo(p.ox,p.oy+ny*p.th);c.lineTo(p.ox+p.tw,p.oy+ny*p.th);c.stroke();
+  });
+  // Head string (y=0.75) — brighter
+  c.strokeStyle='rgba(255,255,255,0.25)';
+  c.beginPath();c.moveTo(p.ox,p.oy+p.th*0.75);c.lineTo(p.ox+p.tw,p.oy+p.th*0.75);c.stroke();
+  c.setLineDash([]);
+  c.restore();
+
+  // Foot Spot (y=0.25, x=0.5)
+  const fsX=p.ox+p.tw*0.5, fsY=p.oy+p.th*0.25;
+  c.beginPath();c.arc(fsX,fsY, Math.max(1.5,p.tw*0.012), 0, Math.PI*2);
+  c.fillStyle='rgba(255,255,255,0.7)';c.fill();
+
+  // ── Diamond System: white diamonds on rails ──
+  const diaS=Math.max(1.3, p.tw*0.0078);
+  const diaInset=rw*0.5;
+
+  function drawDiamond(cx,cy,s){
+    c.beginPath();
+    c.moveTo(cx,     cy-s);
+    c.lineTo(cx+s*0.6, cy);
+    c.lineTo(cx,     cy+s);
+    c.lineTo(cx-s*0.6, cy);
+    c.closePath();
+    c.fillStyle='rgba(255,255,255,0.88)';c.fill();
+    c.strokeStyle='rgba(180,160,100,0.6)';c.lineWidth=0.5;c.stroke();
+  }
+
+  [0.25,0.5,0.75].forEach(nx=>{
+    const xPx=p.ox+nx*p.tw;
+    drawDiamond(xPx, p.oy-diaInset, diaS);
+    drawDiamond(xPx, p.oy+p.th+diaInset, diaS);
+  });
+  [0.125,0.25,0.375, 0.625,0.75,0.875].forEach(ny=>{
+    const yPx=p.oy+ny*p.th;
+    drawDiamond(p.ox-diaInset, yPx, diaS);
+    drawDiamond(p.ox+p.tw+diaInset, yPx, diaS);
+  });
+
+  // ── Pocket holes (drawn BEFORE balls) ──
+  const pockR=p.tw*BALL_R/TH*2.8*1.2;
   POCKETS.forEach((pk,i)=>{
     const pp=toMM(pk.x,pk.y);
+    const pr=pockR;
     const sel=i===state.pocket;
-    c.beginPath();c.arc(pp.x,pp.y,sel?pockR*1.1:pockR*.9,0,Math.PI*2);
-    c.fillStyle='rgba(0,0,0,0.85)';c.fill();
+    c.beginPath();c.arc(pp.x,pp.y,pr*(sel?1.12:0.95),0,Math.PI*2);
+    c.fillStyle='#000';c.fill();
+    c.beginPath();c.arc(pp.x,pp.y,pr*(sel?1.12:0.95),0,Math.PI*2);
+    c.strokeStyle=sel?'#f5c518':'rgba(120,80,40,0.8)';c.lineWidth=sel?2:1.5;c.stroke();
     if(sel){
-      c.strokeStyle='#f5c518';c.lineWidth=2;c.stroke();
-      c.beginPath();c.arc(pp.x,pp.y,pockR*1.6,0,Math.PI*2);
-      c.strokeStyle='rgba(245,197,24,0.22)';c.lineWidth=3;c.stroke();
+      c.beginPath();c.arc(pp.x,pp.y,pr*1.9,0,Math.PI*2);
+      c.strokeStyle='rgba(245,197,24,0.18)';c.lineWidth=3;c.stroke();
     }
   });
 
-  // Balls
-  const tarPx=toMM(state.target.x,state.target.y);
-  // Target ball — dùng màu theo ballNum
-  drawBallOnCanvas(c, tarPx.x, tarPx.y, bR, BALL_DATA[ballNum-1]);
+  const geo=computeGeo();
+  const bR=p.tw*BALL_R/TH*2; // x2 for visibility
 
-  const cuePx=toMM(state.cue.x,state.cue.y);
-  // Cue (white)
-  const cg=c.createRadialGradient(cuePx.x-bR*.35,cuePx.y-bR*.35,bR*.05,cuePx.x,cuePx.y,bR);
-  cg.addColorStop(0,'#fff');cg.addColorStop(1,'#999');
-  c.beginPath();c.arc(cuePx.x,cuePx.y,bR,0,Math.PI*2);c.fillStyle=cg;c.fill();
-  c.strokeStyle='rgba(255,255,255,0.5)';c.lineWidth=1;c.stroke();
+  if(geo){
+    const cuePx =toMM(state.cue.x,    state.cue.y);
+    const pkPx  =toMM(POCKETS[state.pocket].x, POCKETS[state.pocket].y);
+    const tarPx =toMM(state.target.x,  state.target.y);
+
+    // Ghost ball: tâm nằm trên đường thẳng lỗ → bi đạn, phía đối diện lỗ, cách bi đạn 2*bR
+    // Vector từ lỗ → bi đạn (trong pixel space)
+    const tpDx=tarPx.x - pkPx.x;
+    const tpDy=tarPx.y - pkPx.y;
+    const tpLen=Math.hypot(tpDx,tpDy)||1;
+    const tpNx=tpDx/tpLen, tpNy=tpDy/tpLen; // unit vec lỗ→bi đạn
+    // Ghost ball tâm = tarPx + tpN * 2*bR (tiếp tục qua bi đạn, ngược chiều lỗ)
+    const gbDrawX=tarPx.x + tpNx*2*bR;
+    const gbDrawY=tarPx.y + tpNy*2*bR;
+
+    // Tia chết: hướng dựa trên vector pixel thực tế từ bi cái → ghost ball
+    // Đảm bảo đường đi qua cả tâm bi cái và tâm ghost ball
+    const aimDxPx=gbDrawX-cuePx.x, aimDyPx=gbDrawY-cuePx.y;
+    const aimPxLen=Math.hypot(aimDxPx,aimDyPx)||1;
+    const cnx=aimDxPx/aimPxLen, cny=aimDyPx/aimPxLen;
+
+    // Tia chết
+    const ext=Math.max(p.tw,p.th)*3;
+    c.save();c.beginPath();c.rect(p.ox,p.oy,p.tw,p.th);c.clip();
+    c.beginPath();c.moveTo(cuePx.x-cnx*ext, cuePx.y-cny*ext);c.lineTo(cuePx.x+cnx*ext, cuePx.y+cny*ext);
+    c.strokeStyle='#ff3c3c';c.lineWidth=0.8;c.setLineDash([4,3]);c.stroke();c.setLineDash([]);
+    c.restore();
+
+    // Tia ăn
+    const shotColor = geo.cutAngle>90 ? '#666677' : '#f5c518';
+    c.beginPath();c.moveTo(tarPx.x,tarPx.y);c.lineTo(pkPx.x,pkPx.y);
+    c.strokeStyle=shotColor;c.lineWidth=2;c.stroke();
+
+    // 1. Vẽ bi đạn TRƯỚC
+    drawBallOnCanvas(c, tarPx.x, tarPx.y, bR, BALL_DATA[ballNum-1]);
+
+    // 2. Ghost ball SAU, cùng bR — viền vẽ bên trong (inset) để không vượt quá bR
+    const ghostLW=1.2;
+    c.beginPath();c.arc(gbDrawX,gbDrawY,bR-ghostLW/2,0,Math.PI*2);
+    c.fillStyle='rgba(255,255,255,0.10)';c.fill();
+    c.strokeStyle='rgba(232,232,232,0.75)';c.lineWidth=ghostLW;c.setLineDash([3,2]);c.stroke();c.setLineDash([]);
+
+    // 3. Bi cái trên cùng
+    const cg=c.createRadialGradient(cuePx.x-bR*.35,cuePx.y-bR*.35,bR*.05,cuePx.x,cuePx.y,bR);
+    cg.addColorStop(0,'#fff');cg.addColorStop(1,'#999');
+    c.beginPath();c.arc(cuePx.x,cuePx.y,bR,0,Math.PI*2);c.fillStyle=cg;c.fill();
+    c.strokeStyle='rgba(255,255,255,0.5)';c.lineWidth=1;c.stroke();
+
+    // ── Đường đi bi cái sau khi đánh ──
+    // Hướng đi bi cái = vuông góc với hướng tia ăn (tpU), về phía nào phụ thuộc góc cắt
+    // cross = aUx*tpUy - aUy*tpUx: dương = bi đạn bên trái tia chết → bi cái đi sang phải
+    // Hướng vuông góc với tpU trong pixel space:
+    // tpU pixel = (tnx, tny); perp = (-tny, tnx) hoặc (tny, -tnx)
+    // sign: nếu cross>0 (cắt bên phải), bi cái bật sang trái (perp âm), và ngược lại
+    const cuePxPath = cuePx; // điểm xuất phát = tâm ghost ball
+    // cuePathLen: max = 2*TW in pixels when overlap<5%, scales with overlap
+    const maxLenCm = 2*TW; // 2 lần chiều dài băng dài
+    const overlap01 = geo.overlap/100;
+    // Length scales: max at overlap=0 (very thin cut), 0 at overlap=100 (straight)
+    const overlapScale = Math.max(0, 1 - overlap01);
+    // Also scale by power slider (0-100)
+    const powerScale = cuePower/100;
+    const cuePathLenCm = maxLenCm * overlapScale * powerScale;
+    const cuePathLen = cuePathLenCm * (p.tw/TH); // convert cm→pixels
+    // perpendicular to tpU in pixel space (tnx,tny computed from geo.tpUx/tpUy)
+    const _tdx=geo.tpUx*p.tw/TH, _tdy=geo.tpUy*p.th/TW;
+    const _tdLen=Math.hypot(_tdx,_tdy)||1;
+    const _tnx=_tdx/_tdLen, _tny=_tdy/_tdLen;
+    const cuePerpX = -_tny, cuePerpY = _tnx;
+    // side: geo.latTarget > 0 means target is to right of aim → cue deflects left (negative perp)
+    // cross product geo: cross = aUx*tpUy - aUy*tpUx
+    const crossVal = geo.aUx*geo.tpUy - geo.aUy*geo.tpUx;
+    const cueSign = crossVal >= 0 ? -1 : 1;
+    // Direction vector in pixel space
+    const cueDirX = cuePerpX * cueSign;
+    const cueDirY = cuePerpY * cueSign;
+
+    // Trace path with reflections off rails, stopping at any pocket
+    // Table bounds in pixel: left=p.ox, right=p.ox+p.tw, top=p.oy, bot=p.oy+p.th
+    function traceCuePath(startX, startY, dx, dy, totalLen) {
+      const segments = [];
+      let x = startX, y = startY;
+      let dirX = dx, dirY = dy;
+      let remaining = totalLen;
+      const maxBounces = 5;
+      // Pocket positions in pixel for collision check
+      const pockPxList = POCKETS.map(pk=>toMM(pk.x,pk.y));
+      const pockHitR = pockR * 0.85; // pocket catch radius
+      for (let bounce = 0; bounce <= maxBounces && remaining > 0.5; bounce++) {
+        let tMin = remaining;
+        let hitWall = null;
+        // Check rails
+        if (dirX < -0.0001) { const t=(p.ox-x)/dirX; if(t>0.001&&t<tMin){tMin=t;hitWall='left';} }
+        if (dirX > 0.0001)  { const t=(p.ox+p.tw-x)/dirX; if(t>0.001&&t<tMin){tMin=t;hitWall='right';} }
+        if (dirY < -0.0001) { const t=(p.oy-y)/dirY; if(t>0.001&&t<tMin){tMin=t;hitWall='top';} }
+        if (dirY > 0.0001)  { const t=(p.oy+p.th-y)/dirY; if(t>0.001&&t<tMin){tMin=t;hitWall='bottom';} }
+        // Check pockets along this segment: parametric check
+        let pocketHit = false;
+        for (const pk of pockPxList) {
+          // Closest point on ray (x+t*dirX, y+t*dirY) to pocket centre
+          const toX=pk.x-x, toY=pk.y-y;
+          const tProj=toX*dirX+toY*dirY; // dot with unit dir (dirX,dirY already unit)
+          if(tProj>0.001 && tProj<tMin){
+            const closX=x+dirX*tProj, closY=y+dirY*tProj;
+            if(Math.hypot(closX-pk.x,closY-pk.y)<pockHitR){
+              tMin=tProj; hitWall=null; pocketHit=true; break;
+            }
+          }
+        }
+        const nx2=x+dirX*tMin, ny2=y+dirY*tMin;
+        segments.push({x1:x,y1:y,x2:nx2,y2:ny2});
+        remaining-=tMin;
+        x=nx2; y=ny2;
+        if(pocketHit) break;
+        if(hitWall==='left'||hitWall==='right') dirX=-dirX;
+        if(hitWall==='top'||hitWall==='bottom') dirY=-dirY;
+        if(!hitWall) break;
+      }
+      return segments;
+    }
+
+    if (cuePathLen > 1) {
+      const segments = traceCuePath(gbDrawX, gbDrawY, cueDirX, cueDirY, cuePathLen);
+      c.save();
+      c.beginPath();c.rect(p.ox, p.oy, p.tw, p.th);c.clip();
+      c.strokeStyle = 'rgba(255,255,255,0.75)';
+      c.lineWidth = 1.2;
+      c.setLineDash([4, 3]);
+      for (const seg of segments) {
+        c.beginPath();c.moveTo(seg.x1, seg.y1);c.lineTo(seg.x2, seg.y2);c.stroke();
+      }
+      c.setLineDash([]);
+      // Mũi tên ở cuối đoạn cuối
+      const last = segments[segments.length - 1];
+      const arrowDx = last.x2 - last.x1, arrowDy = last.y2 - last.y1;
+      const arrowLen = Math.hypot(arrowDx, arrowDy) || 1;
+      const ax = arrowDx / arrowLen, ay = arrowDy / arrowLen;
+      const aSize = bR * 1.4;
+      c.beginPath();
+      c.moveTo(last.x2, last.y2);
+      c.lineTo(last.x2 - ax*aSize + ay*aSize*0.45, last.y2 - ay*aSize - ax*aSize*0.45);
+      c.lineTo(last.x2 - ax*aSize - ay*aSize*0.45, last.y2 - ay*aSize + ax*aSize*0.45);
+      c.closePath();
+      c.fillStyle = 'rgba(255,255,255,0.85)';
+      c.fill();
+      c.restore();
+    }
+
+    // ── Góc cắt label: phía lỗ so với ghost ball, bisector (aim fwd + tia ăn), 10R ──
+    const tdx=geo.tpUx*p.tw/TH, tdy=geo.tpUy*p.th/TW;
+    const tdLen=Math.hypot(tdx,tdy)||1;
+    const tnx=tdx/tdLen, tny=tdy/tdLen;
+    const bx2=cnx+tnx, by2=cny+tny;
+    const blen2=Math.hypot(bx2,by2)||1;
+    const bnx2=bx2/blen2, bny2=by2/blen2;
+    const labelDist=bR*10;
+    const labelX=gbDrawX + bnx2*labelDist;
+    const labelY=gbDrawY + bny2*labelDist;
+    c.font='700 13px Rajdhani';c.fillStyle=shotColor;
+    c.textAlign='center';c.textBaseline='middle';
+    c.fillText(Math.round(geo.cutAngle)+'°', labelX, labelY);
+  }
 }
 
 // ═══ ZOOM CANVAS — top-down, zoomed out x0.5, true orientation ═══
@@ -432,7 +628,7 @@ function drawZoom(){
   c.fillStyle=shd;c.fillRect(0,0,W,H);
   if(!geo) return;
 
-  // ══ CAM TRÊN: zoom x0.5 — bi đạn ở trung tâm, nhìn rộng hơn ══
+  // ══ CAM TRÊN: bi đạn ở trung tâm canvas ══
   const pxPerCm=Math.min(W,H)*0.09;
   const R=BALL_R*pxPerCm;
 
@@ -447,7 +643,7 @@ function drawZoom(){
     };
   }
 
-  const gbPx=cmToCanvas(geo.gbx, geo.gby);
+  const gbPx=cmToCanvas(geo.gbx, geo.gby); // ghost ball
   const cpPx=cmToCanvas(geo.cpx, geo.cpy);
   const cuePx=cmToCanvas(geo.cx, geo.cy);
   const pkPx=cmToCanvas(geo.pockX, geo.pockY);
@@ -457,20 +653,35 @@ function drawZoom(){
 
   const ext=Math.max(W,H)*2;
 
-  // ── TIA CHẾT: nét đứt đỏ đi qua tâm ghost ball (và tâm bi cái) ──
-  // Vẽ qua gbPx (luôn hiển thị gần trung tâm) theo hướng aim
+  // ── TIA CHẾT: đi qua tâm ghost ball theo hướng aim ──
   c.save();c.beginPath();c.rect(0,0,W,H);c.clip();
   c.beginPath();
   c.moveTo(gbPx.x - anx*ext, gbPx.y - any*ext);
   c.lineTo(gbPx.x + anx*ext, gbPx.y + any*ext);
   c.strokeStyle='#ff3c3c';c.lineWidth=1.8;c.setLineDash([8,5]);c.stroke();
   c.setLineDash([]);
+
+  // ── Parallel line to tia chết, offset by R (perpendicular) ──
+  // perpendicular unit vec to aim = (-any, anx) or (any, -anx)
+  // pick direction toward target from ghost
+  const perpX=-any, perpY=anx;
+  // sign: ghost→target direction = tpnx,tpny; project onto perp
+  const sign=(tpnx*perpX+tpny*perpY)>=0?1:-1;
+  const offX=perpX*sign*R, offY=perpY*sign*R;
+  // Parallel line passes through ghost ball centre + offset
+  const plX=gbPx.x+offX, plY=gbPx.y+offY;
+  c.beginPath();
+  c.moveTo(plX - anx*ext, plY - any*ext);
+  c.lineTo(plX + anx*ext, plY + any*ext);
+  c.strokeStyle='rgba(255,60,60,0.5)';c.lineWidth=1;c.setLineDash([8,5]);c.stroke();
+  c.setLineDash([]);
   c.restore();
 
   // ── TIA ĂN: từ tâm bi đạn → lỗ ──
   c.save();c.beginPath();c.rect(0,0,W,H);c.clip();
+  const zShotColor = geo.cutAngle>90 ? '#666677' : '#f5c518';
   c.beginPath();c.moveTo(tbX,tbY);c.lineTo(pkPx.x, pkPx.y);
-  c.strokeStyle='#f5c518';c.lineWidth=2.5;c.stroke();
+  c.strokeStyle=zShotColor;c.lineWidth=2.5;c.stroke();
   // Arrow
   const pal=R*3;
   const pax=tbX+tpnx*pal, pay=tbY+tpny*pal;
@@ -478,7 +689,7 @@ function drawZoom(){
   c.moveTo(pax, pay);
   c.lineTo(pax-tpnx*12+tpny*5, pay-tpny*12-tpnx*5);
   c.lineTo(pax-tpnx*12-tpny*5, pay-tpny*12+tpnx*5);
-  c.closePath();c.fillStyle='#f5c518';c.fill();
+  c.closePath();c.fillStyle=zShotColor;c.fill();
   c.restore();
 
   // ── Ghost ball ──
@@ -487,24 +698,25 @@ function drawZoom(){
   c.strokeStyle='rgba(220,220,220,0.75)';c.lineWidth=1.5;c.setLineDash([3,3]);c.stroke();
   c.setLineDash([]);
 
-  // ── Target ball ──
+  // ── Target ball (centre) ──
   drawBallOnCanvas(c, tbX, tbY, R, BALL_DATA[ballNum-1]);
 
   // ── Contact point ──
   c.beginPath();c.arc(cpPx.x,cpPx.y,5,0,Math.PI*2);
   c.fillStyle='#ff3c3c';c.fill();c.strokeStyle='#fff';c.lineWidth=1.5;c.stroke();
 
-  // ── Góc cut label ──
-  c.font='700 16px Rajdhani';c.fillStyle='#f5c518';
+  // ── Góc cut label: phía lỗ so với ghost ball, 3R ──
+  // bisector của hướng tia chết đi tới (anx,any) và hướng tia ăn (tpnx,tpny)
+  // cả hai đều đi về phía "trước" ghost ball → phía lỗ
+  const bx=anx+tpnx, by=any+tpny;
+  const blen=Math.hypot(bx,by)||1;
+  const bnx=bx/blen, bny=by/blen;
+  const labelDist=R*4;
+  const labelX=gbPx.x + bnx*labelDist;
+  const labelY=gbPx.y + bny*labelDist;
+  c.font='700 16px Rajdhani';c.fillStyle=zShotColor;
   c.textAlign='center';c.textBaseline='middle';
-  c.fillText(geo.cutAngle.toFixed(1)+'°', cpPx.x, cpPx.y - R*2.5);
-
-  // ── Labels ──
-  c.font='600 11px Rajdhani';c.textAlign='center';c.textBaseline='top';
-  c.fillStyle='rgba(210,210,210,0.8)';c.fillText('Ghost ball',gbPx.x,gbPx.y+R+5);
-  c.fillStyle='#f5c518';c.fillText('Bi đạn',tbX,tbY+R+5);
-  c.fillStyle='#ff6060';c.font='600 9px Share Tech Mono';c.textBaseline='bottom';
-  c.fillText('CONTACT',cpPx.x,cpPx.y-8);
+  c.fillText(Math.round(geo.cutAngle)+'°', labelX, labelY);
 }
 
 // ═══ SIDE VIEW — nhìn từ bi cái thẳng về phía bi đạn ═══
@@ -538,69 +750,55 @@ function drawSide(){
   if(!geo) return;
 
   // ── Orthographic projection along aim direction ──
-  // We look FROM the cue ball ALONG the aim direction.
-  // rightVec in world space = perpendicular to aim, pointing screen-right.
-  // latTarget = component of (target_centre - ghost_centre) along rightVec
-  // ghost_centre = aim line → always at screen centre (aimLineX)
-  // target_centre = aimLineX + latTarget*pxPerCm
+  // Ghost ball is ALWAYS on aim line (ghostCX = aimLineX).
+  // Target ball is offset laterally by latTarg pixels.
+  // Distance between ghost centre and target centre = 2R (they touch).
+  // ghostCX = aimLineX (on aim line)
+  // targCX = aimLineX + latTarg*pxPerCm
+  // They share the same Y (ballCY) in this orthographic front view.
+  // So horizontal distance = |latTarg*pxPerCm|
+  // For them to be separated by 2R in px: that requires the view to show lateral separation.
+  // The balls touch at the contact point which is the midpoint.
   //
-  // Sign check: ghost = target - tpU*D, so target - ghost = tpU*D
-  // rightVec = (aUy, -aUx) in cm space
-  // latTarget = tpUx*D*aUy + tpUy*D*(-aUx) = D*(tpUx*aUy - tpUy*aUx) = D*(-cross)
-  // where cross = aUx*tpUy - aUy*tpUx
-  // When cross > 0: target is to the LEFT of aim → latTarget < 0 → target shows LEFT ✓
-  //   (hitting right side of target ball = ghost is to the right = target is left of aim)
-  // This is correct: hitting right side → ghost right of target → target left of ghost → target left on screen
-  // latTarg: lateral offset của bi đạn so với tia chết (aim line).
-  // Đảo dấu để: khi đánh má phải (ghost bên phải bi đạn), bi đạn hiện bên TRÁI ghost trên màn hình
-  // → bi cái (aimLine) đúng bên PHẢI bi đạn.
-  const latTarg = -geo.latTarget;
-  // Overlap: at contact, cue and target centres are 2R apart.
-  // Lateral separation = |latTarg|.
-  // Circles overlap when |latTarg| < 2R.
-  // The apparent overlap (from this view) = max(0, 2R - |latTarg|)
+  // IMPORTANT: ghost and target must be drawn at exactly 2R apart.
+  // latTarg in cm is the lateral separation. At cut=0 latTarg=0 (full overlap/straight shot).
+  // At cut=90° latTarg=2R (just grazing). Beyond 2R = miss.
+  // We scale so 2R cm of lateral = 2*viewR pixels, so pxPerCm = viewR/BALL_R is correct.
+  // The balls touch tangentially when |latTarg| = 2R, drawn at |latTarg*pxPerCm| = 2*viewR apart. ✓
 
-  // Scale: make R big enough to see clearly
-  // The max lateral offset that still produces contact = 2R (just touching)
-  // Fit: canvas width should comfortably show 2R separation
-  const viewR=Math.min(W,H)*0.22; // ball radius in pixels (large, close view)
+  const latTarg = -geo.latTarget;
+
+  // Scale: viewR pixels = 1 ball radius. 2R separation = 2*viewR pixels.
+  const viewR=Math.min(W,H)*0.22;
   const pxPerCm=viewR/BALL_R;
 
-  // Canvas centre-line X = aim line = W/2
-  const aimLineX=W/2;
-  // Balls vertically centred slightly above mid
-  const ballCY=H*0.42;
+  // Center on TARGET ball (bi đạn ở giữa canvas)
+  const targCX=W/2;
+  const latPx = latTarg*pxPerCm;
+  const ghostCX=targCX - latPx; // ghost offset ngược chiều so với target
+  const aimLineX=ghostCX; // aim line đi qua ghost ball
 
-  // Cue ball centre (on aim line, at front)
-  const cueCX=aimLineX;
-  // Ghost ball centre (also on aim line, at ghost position)
-  const ghostCX=aimLineX;
-  // Target ball centre: lateral offset from aim line
-  const targCX=aimLineX + latTarg*pxPerCm;
+  // ── Floor: thin brown bar 4px, no felt fill above ──
+  const ballCY=H*0.52;
+  const floorY=ballCY+viewR+2;
 
-  // ── Floor strip ──
-  const floorY=ballCY+viewR+viewR*0.35;
-  c.fillStyle=f.felt;c.fillRect(0,floorY,W,H-floorY);
-  const floorShd=c.createLinearGradient(0,floorY,0,H);
-  floorShd.addColorStop(0,'rgba(255,255,255,0.06)');floorShd.addColorStop(1,'rgba(0,0,0,0.25)');
-  c.fillStyle=floorShd;c.fillRect(0,floorY,W,H-floorY);
-  c.fillStyle=f.railT;c.fillRect(0,floorY,W,4);
+  // Only draw dark bg - no felt surface behind balls
+  // Thin rail bar 4px
+  const railGrad=c.createLinearGradient(0,floorY,0,floorY+4);
+  railGrad.addColorStop(0,felt().railT);railGrad.addColorStop(1,felt().railD);
+  c.fillStyle=railGrad;c.fillRect(0,floorY,W,4);
 
-  // ── Shadow on floor ──
+  // ── Shadow under balls ──
   [ghostCX, targCX].forEach(bx=>{
-    const sg=c.createRadialGradient(bx,floorY+3,0,bx,floorY+3,viewR*1.1);
-    sg.addColorStop(0,'rgba(0,0,0,0.45)');sg.addColorStop(1,'rgba(0,0,0,0)');
-    c.beginPath();c.ellipse(bx,floorY+4,viewR*1.1,viewR*.18,0,0,Math.PI*2);c.fillStyle=sg;c.fill();
+    const sg=c.createRadialGradient(bx,floorY,0,bx,floorY,viewR*1.2);
+    sg.addColorStop(0,'rgba(0,0,0,0.4)');sg.addColorStop(1,'rgba(0,0,0,0)');
+    c.beginPath();c.ellipse(bx,floorY,viewR*1.1,viewR*.15,0,0,Math.PI*2);c.fillStyle=sg;c.fill();
   });
 
   // ── Aim line (vertical centre line in this view) ──
   c.strokeStyle='rgba(255,60,60,0.25)';c.lineWidth=1;c.setLineDash([5,4]);
   c.beginPath();c.moveTo(aimLineX,20);c.lineTo(aimLineX,floorY);c.stroke();
   c.setLineDash([]);
-
-  // Aim label at top
-  c.font='600 10px Share Tech Mono';c.fillStyle='rgba(255,80,80,0.6)';
-  c.textAlign='center';c.fillText('← TIA CHẾT →',aimLineX,16);
 
   // ── Target ball ──
   drawBallOnCanvas(c, targCX, ballCY, viewR, BALL_DATA[ballNum-1]);
@@ -622,62 +820,49 @@ function drawSide(){
   c.beginPath();c.moveTo(ghostCX,ballCY-viewR*.7);c.lineTo(ghostCX,ballCY+viewR*.7);c.stroke();
   c.setLineDash([]);
 
-  // Contact point = midpoint between ghost centre and target centre on screen
-  // (this is where the two balls touch, projected onto the front view plane)
+  // Contact point
   const cpViewX = (ghostCX + targCX) / 2;
   const cpViewY = ballCY;
   c.beginPath();c.arc(cpViewX, cpViewY, 5, 0, Math.PI*2);
   c.fillStyle='#ff3c3c';c.fill();c.strokeStyle='#fff';c.lineWidth=1.5;c.stroke();
 
-  // ── Cue ball: đã bỏ (đè lên ghost ball) ──
-
-  // ── Lateral offset line ──
+  // ── Lateral offset line with red dot on bar ──
   if(Math.abs(latTarg)>0.2){
     const lineY=ballCY-viewR*1.35;
     c.strokeStyle='rgba(255,255,255,0.25)';c.lineWidth=1;
-    // Line from aim to target centre
     c.beginPath();c.moveTo(aimLineX,lineY);c.lineTo(targCX,lineY);c.stroke();
-    // Ticks
     c.beginPath();c.moveTo(aimLineX,lineY-5);c.lineTo(aimLineX,lineY+5);c.stroke();
     c.beginPath();c.moveTo(targCX,lineY-5);c.lineTo(targCX,lineY+5);c.stroke();
     // Label
     c.font='600 10px Share Tech Mono';c.fillStyle='rgba(255,255,255,0.45)';
     c.textAlign='center';
     c.fillText((Math.abs(latTarg)).toFixed(1)+' cm', (aimLineX+targCX)/2, lineY-9);
+    // Red dot in middle of the bar - half size
+    const dotX=(aimLineX+targCX)/2;
+    c.beginPath();c.arc(dotX, lineY, 1.8, 0, Math.PI*2);
+    c.fillStyle='#ff3c3c';c.fill();
+  } else {
+    // Straight shot — red dot in center of aim line bar area
+    const lineY=ballCY-viewR*1.35;
+    c.beginPath();c.arc(aimLineX, lineY, 1.8, 0, Math.PI*2);
+    c.fillStyle='#ff3c3c';c.fill();
   }
 
   // ── Labels ──
-  c.font='700 12px Rajdhani';c.textAlign='center';
-  c.fillStyle='#f5c518';c.fillText('Bi đạn',targCX,ballCY+viewR+14);
-  c.fillStyle='rgba(200,200,200,0.7)';c.fillText('Ghost ball',ghostCX,ballCY-viewR-10);
-  c.fillStyle='#ff6060';c.font='600 9px Share Tech Mono';c.fillText('CONTACT',cpViewX,ballCY-10);
-
-  // ── HUD stats ──
-  const hudY=floorY+16;
-  c.font='700 13px Rajdhani';c.textAlign='left';
-  c.fillStyle='#f5c518';c.fillText('Góc cut: '+geo.cutAngle.toFixed(1)+'°', 14, hudY);
-  c.fillStyle='#c084fc';c.fillText('Che khuất: '+geo.overlap.toFixed(0)+'%', 14, hudY+17);
-  c.fillStyle='#00dfc4';c.fillText('Góc ra bi cái: '+geo.defAngle.toFixed(1)+'°', 14, hudY+34);
-
-  // ── Overlap fraction indicator (visual fraction bar) ──
-  const fracX=W-130, fracW=110, fracY=hudY, fracH=12;
-  c.fillStyle='rgba(255,255,255,0.08)';c.fillRect(fracX,fracY,fracW,fracH);
-  c.fillStyle='rgba(255,80,80,0.5)';c.fillRect(fracX,fracY,fracW*(geo.overlap/100),fracH);
-  c.strokeStyle='rgba(255,255,255,0.2)';c.lineWidth=1;c.strokeRect(fracX,fracY,fracW,fracH);
-  c.font='600 10px Share Tech Mono';c.fillStyle='rgba(255,255,255,0.5)';
-  c.textAlign='center';c.fillText('overlap: '+geo.overlap.toFixed(0)+'%', fracX+fracW/2, fracY+fracH+12);
+  c.fillStyle='#ff6060';c.font='600 9px Share Tech Mono';c.textAlign='center';c.textBaseline='middle';
+  c.fillText('CONTACT',cpViewX,ballCY-10);
 }
 
 // ═══ STATS ═══
 function updateStats(){
   const geo=computeGeo();
   if(!geo) return;
-  document.getElementById('val-cut').textContent=geo.cutAngle.toFixed(1)+'°';
-  document.getElementById('val-def').textContent=geo.defAngle.toFixed(1)+'°';
-  document.getElementById('val-ov').textContent=geo.overlap.toFixed(0)+'%';
-  document.getElementById('bar-cut').style.width=(geo.cutAngle/90*100)+'%';
-  document.getElementById('bar-def').style.width=(Math.max(0,geo.defAngle)/90*100)+'%';
-  document.getElementById('bar-ov').style.width=geo.overlap+'%';
+  const hdrCutEl=document.getElementById('hdr-cut');
+  hdrCutEl.textContent=Math.round(geo.cutAngle)+'°';
+  hdrCutEl.style.color=geo.cutAngle>90?'var(--dim)':'var(--gold)';
+  const hdrOvEl=document.getElementById('hdr-ov');
+  hdrOvEl.textContent=geo.overlap.toFixed(0)+'%';
+  hdrOvEl.style.color=geo.cutAngle>90?'var(--dim)':'var(--purple)';
 }
 
 // ═══ MINIMAP INTERACTION ═══
@@ -701,7 +886,7 @@ mmC.addEventListener('mousedown',e=>{
   const pos=mmPos(e);
   if(hitBall(pos,state.cue)){dragging='cue';document.body.classList.add('dragging');return;}
   if(hitBall(pos,state.target)){dragging='target';document.body.classList.add('dragging');return;}
-  const pi=hitPocket(pos);if(pi>=0){state.pocket=pi;redraw();}
+  const pi=hitPocket(pos);if(pi>=0){state.pocket=pi;savePrefs();redraw();}
 });
 document.addEventListener('mousemove',e=>{
   if(!dragging) return;
@@ -722,15 +907,178 @@ document.addEventListener('touchmove',e=>{
 },{passive:false});
 document.addEventListener('touchend',()=>{dragging=null;});
 
+// ═══ SPLITTER ═══
+(function(){
+  const SNAP_STRENGTH=20; // px within which snap triggers (stronger magnet)
+  const MIN_PCT=0.10, MAX_PCT=0.40; // cam and right pane constrained to 10-40% of layout
+
+  function snapToGrid(px, totalW){
+    const pct=px/totalW;
+    const snapped=Math.round(pct*20)/20; // nearest 5%
+    const snappedPx=snapped*totalW;
+    if(Math.abs(px-snappedPx)<SNAP_STRENGTH) return snappedPx;
+    return px;
+  }
+
+  function getLayoutW(){return document.querySelector('.layout').offsetWidth;}
+
+  function clampPane(px, totalW){
+    const minPx=MIN_PCT*totalW, maxPx=MAX_PCT*totalW;
+    return Math.max(minPx, Math.min(maxPx, px));
+  }
+
+  // RIGHT splitter
+  const splitterR=document.getElementById('splitter-right');
+  const rightPane=document.getElementById('right-pane');
+  let rdragging=false, rstartX=0, rstartW=0;
+  splitterR.addEventListener('mousedown', e=>{
+    rdragging=true; rstartX=e.clientX; rstartW=rightPane.offsetWidth;
+    splitterR.classList.add('dragging'); document.body.classList.add('col-resize'); e.preventDefault();
+  });
+  document.addEventListener('mousemove', e=>{
+    if(!rdragging) return;
+    const totalW=getLayoutW();
+    const rawW=rstartW+(rstartX-e.clientX);
+    const clamped=clampPane(rawW, totalW);
+    const snapped=snapToGrid(clamped, totalW);
+    rightPane.style.width=snapped+'px'; rightPane.style.flexGrow='0'; rightPane.style.flexShrink='0'; rightPane.style.flexBasis=snapped+'px';
+    resizeAll();
+  });
+  document.addEventListener('mouseup', ()=>{
+    if(rdragging){rdragging=false;splitterR.classList.remove('dragging');document.body.classList.remove('col-resize');savePrefs();}
+  });
+
+  // LEFT splitter
+  const splitterL=document.getElementById('splitter-left');
+  const camPane=document.getElementById('cam-pane');
+  let ldragging=false, lstartX=0, lstartW=0;
+  splitterL.addEventListener('mousedown', e=>{
+    ldragging=true; lstartX=e.clientX; lstartW=camPane.offsetWidth;
+    splitterL.classList.add('dragging'); document.body.classList.add('col-resize'); e.preventDefault();
+  });
+  document.addEventListener('mousemove', e=>{
+    if(!ldragging) return;
+    const totalW=getLayoutW();
+    const rawW=lstartW+(e.clientX-lstartX);
+    const clamped=clampPane(rawW, totalW);
+    const snapped=snapToGrid(clamped, totalW);
+    camPane.style.width=snapped+'px'; camPane.style.flexGrow='0'; camPane.style.flexShrink='0'; camPane.style.flexBasis=snapped+'px';
+    resizeAll();
+  });
+  document.addEventListener('mouseup', ()=>{
+    if(ldragging){ldragging=false;splitterL.classList.remove('dragging');document.body.classList.remove('col-resize');savePrefs();}
+  });
+})();
+
+// ═══ DEFAULTS ═══
+const DEFAULTS={
+  feltKey:'green', ballNum:2, cuePower:0, pocket:0,
+  cueX:0.7796, cueY:0.75, targetX:0.5, targetY:0.25
+};
+
+function resetToDefaults(){
+  // Clear localStorage
+  try{localStorage.removeItem('bia_prefs');}catch(e){}
+  // Apply defaults
+  feltKey=DEFAULTS.feltKey;
+  document.querySelectorAll('.felt-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('btn-'+feltKey).classList.add('active');
+  ballNum=DEFAULTS.ballNum;
+  const sel=document.getElementById('ball-select');
+  sel.value=DEFAULTS.ballNum;
+  cuePower=DEFAULTS.cuePower;
+  document.getElementById('power-slider').value=cuePower;
+  document.getElementById('power-val').textContent=cuePower+'%';
+  state.pocket=DEFAULTS.pocket;
+  state.cue.x=DEFAULTS.cueX; state.cue.y=DEFAULTS.cueY;
+  state.target.x=DEFAULTS.targetX; state.target.y=DEFAULTS.targetY;
+  // Restore default pane widths
+  const totalW=document.querySelector('.layout').offsetWidth||window.innerWidth;
+  const rp=document.getElementById('right-pane');
+  const cp=document.getElementById('cam-pane');
+  const rightW=Math.round(totalW*0.30); const camW=Math.round(totalW*0.20);
+  rp.style.width=rightW+'px'; rp.style.flexBasis=rightW+'px'; rp.style.flexGrow='0'; rp.style.flexShrink='0';
+  cp.style.width=camW+'px'; cp.style.flexBasis=camW+'px'; cp.style.flexGrow='0'; cp.style.flexShrink='0';
+  resizeAll();
+  redraw();
+}
+
+// ═══ PREFS (localStorage) ═══
+function savePrefs(){
+  try{
+    const totalW=document.querySelector('.layout').offsetWidth||window.innerWidth;
+    const rightWpx=document.getElementById('right-pane').offsetWidth;
+    const camWpx=document.getElementById('cam-pane').offsetWidth;
+    // Save as % so it restores correctly at any window size
+    const rightPct=rightWpx/totalW;
+    const camPct=camWpx/totalW;
+    localStorage.setItem('bia_prefs',JSON.stringify({
+      feltKey, ballNum, cuePower,
+      pocket:state.pocket,
+      rightPct, camPct
+    }));
+  }catch(e){}
+}
+function loadPrefs(){
+  try{
+    const raw=localStorage.getItem('bia_prefs');
+    if(!raw) return;
+    const p=JSON.parse(raw);
+    if(p.feltKey) setFelt(p.feltKey);
+    if(p.ballNum){
+      ballNum=p.ballNum;
+      document.getElementById('ball-select').value=ballNum;
+    }
+    if(p.cuePower!==undefined){
+      cuePower=p.cuePower;
+      document.getElementById('power-slider').value=cuePower;
+      document.getElementById('power-val').textContent=cuePower+'%';
+    }
+    if(p.pocket!==undefined) state.pocket=p.pocket;
+    // Restore pane widths as % of current layout
+    const totalW=document.querySelector('.layout').offsetWidth||window.innerWidth;
+    if(p.rightPct!==undefined){
+      const w=Math.round(p.rightPct*totalW);
+      const rp=document.getElementById('right-pane');
+      rp.style.width=w+'px'; rp.style.flexBasis=w+'px'; rp.style.flexGrow='0'; rp.style.flexShrink='0';
+    }
+    if(p.camPct!==undefined){
+      const w=Math.round(p.camPct*totalW);
+      const cp=document.getElementById('cam-pane');
+      cp.style.width=w+'px'; cp.style.flexBasis=w+'px'; cp.style.flexGrow='0'; cp.style.flexShrink='0';
+    }
+  }catch(e){}
+}
+
+// ═══ POWER SLIDER ═══
+document.getElementById('power-slider').addEventListener('input', function(){
+  cuePower=+this.value;
+  document.getElementById('power-val').textContent=this.value+'%';
+  savePrefs();
+  redraw();
+});
+
 // ═══ REDRAW ═══
 function redraw(){drawMinimap();drawZoom();drawSide();updateStats();}
 function resizeAll(){
   resizeMinimap();
   setTimeout(()=>{resizeSide();resizeZoom();redraw();},10);
 }
+// Set initial pane widths: cam=20%, right=30% of layout
+function setInitialWidths(){
+  const totalW=document.querySelector('.layout').offsetWidth||window.innerWidth;
+  const camW=Math.round(totalW*0.20);
+  const rightW=Math.round(totalW*0.30);
+  const rp=document.getElementById('right-pane');
+  const cp=document.getElementById('cam-pane');
+  rp.style.width=rightW+'px'; rp.style.flexBasis=rightW+'px'; rp.style.flexGrow='0'; rp.style.flexShrink='0';
+  cp.style.width=camW+'px'; cp.style.flexBasis=camW+'px'; cp.style.flexGrow='0'; cp.style.flexShrink='0';
+}
+setInitialWidths();
+
 const ro=new ResizeObserver(()=>resizeAll());
 ro.observe(document.querySelector('.layout'));
-window.addEventListener('load',()=>setTimeout(resizeAll,80));
+window.addEventListener('load',()=>{loadPrefs();setTimeout(resizeAll,80);});
 </script>
 </body>
 </html>
