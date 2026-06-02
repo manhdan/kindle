@@ -107,15 +107,15 @@ body.mobile-portrait #mob-controls{
 body.mobile-portrait #tab-bar{
   display:flex!important;
   position:fixed;bottom:0;left:0;right:0;
-  height:calc(52px + env(safe-area-inset-bottom,0px));
-  padding-bottom:env(safe-area-inset-bottom,0px);
   background:var(--panel);
   border-top:1px solid var(--border);
   z-index:100;
   align-items:flex-start;
+  /* safe-area handled via padding-bottom so buttons stay 44px */
+  padding-bottom:env(safe-area-inset-bottom,0px);
 }
 body.mobile-portrait .tab-btn{
-  flex:1;height:52px;
+  flex:1;height:44px;
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
   background:none;border:none;color:var(--dim);cursor:pointer;
   font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:.5px;
@@ -132,7 +132,8 @@ body.mobile-portrait .layout{
   position:fixed;
   left:0;right:0;
   top:calc(40px + env(safe-area-inset-top,0px));
-  bottom:calc(52px + env(safe-area-inset-bottom,0px));
+  /* bottom accounts for tab buttons + safe-area home bar */
+  bottom:calc(44px + env(safe-area-inset-bottom,0px));
   padding:4px;
   flex-direction:column;
   display:flex!important;
@@ -148,7 +149,7 @@ body.mobile-portrait .left-col{
 body.mobile-portrait .cam-col.tab-active,
 body.mobile-portrait .mid-col.tab-active,
 body.mobile-portrait .left-col.tab-active{display:flex!important}
-body.mobile-portrait #minimap-wrap{flex:1 1 0!important;min-height:0!important}
+body.mobile-portrait #right-pane{gap:0!important}
 </style>
 </head>
 <body>
@@ -629,17 +630,20 @@ function mmPad(){
   const maxTH=availH/(1+2*railFrac);
   tw=maxTW; th=tw*(TW/TH);
   if(th>maxTH){th=maxTH; tw=th*(TH/TW);}
-  // top-align: oy = padTop + railFrac*tw (so top rail sits just inside padTop)
+  // Center table both horizontally and vertically
   const rw=tw*railFrac;
   const ox=padX+rw+(availW-tw*(1+2*railFrac))/2;
-  const oy=padTop+rw; // top-aligned
+  const oy=padTop+rw+(availH-th*(1+2*railFrac))/2;
+  if(isMobilePortrait()) console.log('[mmPad] canvas:',W,'x',H,' tw:',tw.toFixed(1),' th:',th.toFixed(1),' ox:',ox.toFixed(1),' oy:',oy.toFixed(1),' spaceBelow:',((H-padBot)-(oy-rw+th+rw)).toFixed(1));
   return{ox, oy, tw, th};
 }
 function resizeMinimap(){
   const wrap=document.getElementById('minimap-wrap');
-  const W=wrap.offsetWidth-2;
-  const H=wrap.offsetHeight-2;
+  const r=wrap.getBoundingClientRect();
+  const W=Math.floor(r.width)-2;
+  const H=Math.floor(r.height)-2;
   if(W<10||H<10) return;
+  if(isMobilePortrait()) console.log('[minimap] wrap BRC:',r.width.toFixed(1),'x',r.height.toFixed(1),' canvas:',W,'x',H);
   mmC.width=W; mmC.height=H;
   drawMinimap();
 }
@@ -1540,7 +1544,17 @@ const ro=new ResizeObserver(()=>{
   _roTimer=setTimeout(()=>{initMobile();resizeAll();},30);
 });
 ro.observe(document.querySelector('.layout'));
-window.addEventListener('load',()=>{loadPrefs();initMobile();setTimeout(resizeAll,80);});
+// Also observe minimap-wrap directly so canvas always matches its container
+const roMM=new ResizeObserver(()=>{
+  requestAnimationFrame(()=>{resizeMinimap();drawMinimap();});
+});
+roMM.observe(document.getElementById('minimap-wrap'));
+
+window.addEventListener('load',()=>{
+  loadPrefs();initMobile();
+  // Double RAF ensures fixed-position layout has been painted before we measure
+  requestAnimationFrame(()=>requestAnimationFrame(()=>resizeAll()));
+});
 window.addEventListener('orientationchange',()=>{setTimeout(()=>{initMobile();resizeAll();},200);});
 </script>
 </body>
