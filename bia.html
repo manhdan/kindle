@@ -15,7 +15,7 @@
   --accent:#00dfc4;--gold:#f5c518;--red:#ff3c3c;--purple:#a78bfa;
   --text:#c8d0da;--dim:#4a5568;--r:8px;
 }
-body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;height:100vh;overflow:hidden;display:flex;flex-direction:column}
+body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;height:100vh;height:100dvh;overflow:hidden;display:flex;flex-direction:column}
 header{display:flex;align-items:center;gap:12px;padding:10px 20px;border-bottom:1px solid var(--border);background:var(--panel);flex-shrink:0;position:relative}
 header h1{font-size:20px;font-weight:700;letter-spacing:3px;color:var(--accent)}
 header .sub{font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--dim);margin-left:4px}
@@ -57,19 +57,25 @@ body.dragging{cursor:grabbing !important}
 
 /* ── Mobile portrait tab layout ── */
 #tab-bar{display:none}
-/* iOS Safari: 100vh includes browser chrome, use fill-available fallback */
-body{height:100vh;height:-webkit-fill-available}
-html{height:-webkit-fill-available}
-/* Safe area padding for iOS home bar */
-body.mobile-portrait #tab-bar{padding-bottom:env(safe-area-inset-bottom,0px)}
+/* Use 100dvh on modern browsers (excludes browser chrome correctly in PWA mode) */
+body{height:100vh;height:100dvh}
+html{height:100%;height:100dvh}
 
-body.mobile-portrait{overflow:hidden}
-body.mobile-portrait header{padding:8px 12px}
-body.mobile-portrait header .sub, body.mobile-portrait header .dot{display:none}
-body.mobile-portrait header h1{font-size:15px;letter-spacing:2px}
-body.mobile-portrait .felt-picker label{display:none}
+/* ── MOBILE PORTRAIT ── */
+body.mobile-portrait{
+  overflow:hidden;
+  /* Respect iOS safe areas (notch top, home bar bottom) */
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+/* Hide desktop header entirely on mobile */
+body.mobile-portrait header{display:none!important}
 body.mobile-portrait .splitter{display:none!important}
-body.mobile-portrait .layout{padding:6px;flex-direction:column;flex:1;min-height:0}
+body.mobile-portrait .layout{
+  padding:4px 4px 4px;
+  flex-direction:column;flex:1;min-height:0;
+  order:2; /* content in the middle */
+}
 body.mobile-portrait .cam-col,
 body.mobile-portrait .mid-col,
 body.mobile-portrait .left-col{
@@ -81,21 +87,42 @@ body.mobile-portrait .cam-col.tab-active,
 body.mobile-portrait .mid-col.tab-active,
 body.mobile-portrait .left-col.tab-active{display:flex!important}
 body.mobile-portrait #minimap-wrap{flex:1 1 0!important;min-height:0!important}
+
+/* Tab bar — TOP on mobile */
 body.mobile-portrait #tab-bar{
   display:flex!important;flex-shrink:0;
-  background:var(--panel);border-top:1px solid var(--border);
+  background:var(--panel);border-bottom:1px solid var(--border);
+  order:1; /* tab bar first = top */
+  align-items:stretch;
 }
 body.mobile-portrait .tab-btn{
-  flex:1;padding:8px 4px 10px;
+  flex:1;padding:10px 4px 8px;
   display:flex;flex-direction:column;align-items:center;gap:3px;
   background:none;border:none;color:var(--dim);cursor:pointer;
   font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:.5px;
   text-transform:uppercase;
   border-bottom:2px solid transparent;
+  -webkit-tap-highlight-color:transparent;
 }
-body.mobile-portrait .tab-btn svg{width:18px;height:18px;opacity:.55}
+body.mobile-portrait .tab-btn svg{width:20px;height:20px;opacity:.55}
 body.mobile-portrait .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
 body.mobile-portrait .tab-btn.active svg{opacity:1}
+
+body.mobile-portrait #power-row-desktop{display:none!important}
+body.mobile-portrait #mob-felt{
+  display:flex!important;align-items:center;justify-content:center;gap:10px;
+  padding:0 10px;border-left:1px solid var(--border);flex-shrink:0;
+}
+#mob-felt{display:none}
+
+/* Power slider row: shown below layout on mobile */
+body.mobile-portrait #power-row-mobile{
+  display:flex!important;flex-shrink:0;order:3;
+  padding:6px 12px 6px;
+  background:var(--panel);border-top:1px solid var(--border);
+  align-items:center;gap:8px;
+}
+#power-row-mobile{display:none}
 </style>
 </head>
 <body>
@@ -146,7 +173,7 @@ body.mobile-portrait .tab-btn.active svg{opacity:1}
     <div class="panel" id="minimap-wrap" style="flex:1">
       <canvas id="minimap"></canvas>
     </div>
-    <div style="padding:6px 10px 8px;background:var(--panel);border:1px solid var(--border);border-radius:var(--r);flex-shrink:0">
+    <div id="power-row-desktop" style="padding:6px 10px 8px;background:var(--panel);border:1px solid var(--border);border-radius:var(--r);flex-shrink:0">
       <div style="display:flex;align-items:center;gap:8px">
         <span style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--dim);white-space:nowrap;min-width:32px">LỰC</span>
         <input type="range" id="power-slider" min="0" max="100" value="0"
@@ -156,7 +183,7 @@ body.mobile-portrait .tab-btn.active svg{opacity:1}
     </div>
   </div>
 </div>
-<!-- Mobile tab bar -->
+<!-- Mobile tab bar (moves to top on mobile) -->
 <div id="tab-bar">
   <button class="tab-btn" id="tab-table" onclick="setTab('table')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -189,6 +216,20 @@ body.mobile-portrait .tab-btn.active svg{opacity:1}
     </svg>
     Cam trên
   </button>
+  <!-- Felt picker + ball select tucked at right of tab bar on mobile -->
+  <div id="mob-felt">
+    <div class="felt-btn active" id="mob-btn-green" title="Xanh lá" onclick="setFelt('green')"></div>
+    <div class="felt-btn" id="mob-btn-blue" title="Xanh dương" onclick="setFelt('blue')"></div>
+    <div class="felt-btn" id="mob-btn-gray" title="Xám" onclick="setFelt('gray')"></div>
+    <select id="mob-ball-select" onchange="setBallNum(this.value)" style="background:#1a2535;color:#c8d0da;border:1px solid #1f2d3d;border-radius:5px;padding:3px 5px;font-family:'Share Tech Mono',monospace;font-size:10px;cursor:pointer;max-width:90px"></select>
+  </div>
+</div>
+<!-- Mobile power slider (shown below layout on mobile) -->
+<div id="power-row-mobile">
+  <span style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--dim);white-space:nowrap;min-width:32px">LỰC</span>
+  <input type="range" id="power-slider-mob" min="0" max="100" value="0"
+    style="flex:1;accent-color:var(--accent);cursor:pointer;height:4px">
+  <span id="power-val-mob" style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--accent);min-width:32px;text-align:right">0%</span>
 </div>
 <script>
 let subgridVisible=true; // sub-grid toggle (click lỗ đang chọn để bật/tắt)
@@ -200,7 +241,17 @@ const FELT_COLORS={
   gray: {felt:'#606068',felt2:'#484850',rail:'#5c3210',railD:'#3d2008',railT:'#8B5E3C',cush1:'#303038',cush2:'#484850',cush3:'#202025',outerA:'#8B5E3C',outerD:'#3d2008'},
 };
 let feltKey='green';
-function setFelt(k){feltKey=k;document.querySelectorAll('.felt-btn').forEach(b=>b.classList.remove('active'));document.getElementById('btn-'+k).classList.add('active');savePrefs();redraw();}
+function setFelt(k){
+  feltKey=k;
+  document.querySelectorAll('.felt-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('btn-'+k).classList.add('active');
+  // sync mobile felt buttons
+  ['green','blue','gray'].forEach(c=>{
+    var mb=document.getElementById('mob-btn-'+c);
+    if(mb) mb.classList.toggle('active',c===k);
+  });
+  savePrefs();redraw();
+}
 function felt(){return FELT_COLORS[feltKey];}
 
 // ═══ BALL COLORS (pool 9-ball set) ═══
@@ -220,19 +271,22 @@ function setBallNum(n){
   if(n==='reset'||n==='0'){resetToDefaults();return;}
   ballNum=+n;savePrefs();redraw();
 }
-// Populate select
+// Populate select (both desktop and mobile)
 (function(){
-  const sel=document.getElementById('ball-select');
-  BALL_DATA.forEach(b=>{
-    const o=document.createElement('option');
-    o.value=b.num; o.textContent=b.name;
-    if(b.num===2) o.selected=true;
-    sel.appendChild(o);
+  var selectors=['ball-select','mob-ball-select'];
+  selectors.forEach(function(id){
+    var sel=document.getElementById(id);
+    if(!sel) return;
+    BALL_DATA.forEach(b=>{
+      const o=document.createElement('option');
+      o.value=b.num; o.textContent=b.name;
+      if(b.num===2) o.selected=true;
+      sel.appendChild(o);
+    });
+    const oReset=document.createElement('option');
+    oReset.value='reset'; oReset.textContent='↩ Reset';
+    sel.appendChild(oReset);
   });
-  // Reset option
-  const oReset=document.createElement('option');
-  oReset.value='reset'; oReset.textContent='↩ Reset';
-  sel.appendChild(oReset);
 })();
 
 // ═══ CONSTANTS ═══
@@ -1367,11 +1421,14 @@ function loadPrefs(){
     if(p.ballNum){
       ballNum=p.ballNum;
       document.getElementById('ball-select').value=ballNum;
+      var _mb=document.getElementById('mob-ball-select');if(_mb)_mb.value=ballNum;
     }
     if(p.cuePower!==undefined){
       cuePower=p.cuePower;
       document.getElementById('power-slider').value=cuePower;
       document.getElementById('power-val').textContent=cuePower+'%';
+      var _ms=document.getElementById('power-slider-mob');var _mv=document.getElementById('power-val-mob');
+      if(_ms)_ms.value=cuePower;if(_mv)_mv.textContent=cuePower+'%';
     }
     if(p.pocket!==undefined) state.pocket=p.pocket;
     if(p.subgridVisible!==undefined) subgridVisible=p.subgridVisible;
@@ -1393,12 +1450,22 @@ function loadPrefs(){
 }
 
 // ═══ POWER SLIDER ═══
-document.getElementById('power-slider').addEventListener('input', function(){
-  cuePower=+this.value;
-  document.getElementById('power-val').textContent=this.value+'%';
+function setPower(v){
+  cuePower=+v;
+  document.getElementById('power-slider').value=v;
+  document.getElementById('power-val').textContent=v+'%';
+  var ms=document.getElementById('power-slider-mob');
+  var mv=document.getElementById('power-val-mob');
+  if(ms) ms.value=v;
+  if(mv) mv.textContent=v+'%';
   savePrefs();
   redraw();
-});
+}
+document.getElementById('power-slider').addEventListener('input', function(){setPower(this.value);});
+(function(){
+  var ms=document.getElementById('power-slider-mob');
+  if(ms) ms.addEventListener('input',function(){setPower(this.value);});
+})();
 
 // ═══ REDRAW ═══
 function redraw(){drawMinimap();drawZoom();drawSide();updateStats();}
@@ -1452,29 +1519,6 @@ const ro=new ResizeObserver(()=>{
 ro.observe(document.querySelector('.layout'));
 window.addEventListener('load',()=>{loadPrefs();initMobile();setTimeout(resizeAll,80);});
 window.addEventListener('orientationchange',()=>{setTimeout(()=>{initMobile();resizeAll();},200);});
-
-// ── iOS hide-chrome trick ──
-// Scrolling the page 1px and back hides the address bar on Safari
-(function(){
-  function hideChrome(){
-    if(isMobilePortrait()){
-      // Only works if page is not already filling screen
-      document.body.style.height=(window.innerHeight+1)+'px';
-      window.scrollTo(0,1);
-      setTimeout(function(){
-        document.body.style.height='';
-        window.scrollTo(0,0);
-      },50);
-    }
-  }
-  window.addEventListener('load', function(){setTimeout(hideChrome,300);});
-  window.addEventListener('orientationchange', function(){setTimeout(hideChrome,400);});
-  // Also hide on first touch (user interaction makes it more reliable)
-  var firstTouch=true;
-  document.addEventListener('touchstart', function(){
-    if(firstTouch && isMobilePortrait()){firstTouch=false;hideChrome();}
-  },{passive:true});
-})();
 </script>
 </body>
 </html>
