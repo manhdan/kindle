@@ -45,7 +45,9 @@ header .sub{font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--d
 canvas{display:block}
 #zoom-canvas{display:block;width:100%;height:100%}
 #minimap-wrap{flex:0 0 auto;position:relative}
-#minimap{display:block;cursor:crosshair;user-select:none;width:100%}
+/* On mobile the wrap is flex:1, canvas must fill it absolutely */
+body.mobile-portrait #minimap-wrap{position:relative}
+body.mobile-portrait #minimap{position:absolute;top:0;left:0;width:100%!important;height:100%!important}
 #stats-panel{flex:1;padding:14px;display:flex;flex-direction:column;gap:10px;overflow:hidden;min-height:0}
 .stat-row{display:flex;flex-direction:column;gap:3px}
 .stat-label{font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.8px}
@@ -62,86 +64,75 @@ body.dragging{cursor:grabbing !important}
 
 /* ════════════════════════════════════════
    MOBILE PORTRAIT — fixed layout
-   Tab bar top, controls row, content fills
-   middle, power slider pinned bottom.
-   Uses position:fixed so iOS PWA viewport
-   quirks (100vh, dvh) cannot cause gaps.
+   Controls row top, content fills middle,
+   tab bar pinned bottom. position:fixed
+   so no iOS PWA viewport gap quirks.
    ════════════════════════════════════════ */
 body.mobile-portrait{overflow:hidden}
 body.mobile-portrait header{display:none!important}
 body.mobile-portrait .splitter{display:none!important}
-/* Hide desktop slider inside right-pane */
 body.mobile-portrait #power-row-desktop{display:none!important}
 
-/* ── Fixed chrome: tab bar top ── */
-body.mobile-portrait #tab-bar{
-  display:flex!important;
-  position:fixed;top:0;left:0;right:0;
-  height:52px;
-  background:var(--panel);
-  border-bottom:1px solid var(--border);
-  z-index:100;
-  /* Push below iOS status bar */
-  padding-top:env(safe-area-inset-top,0px);
-  height:calc(52px + env(safe-area-inset-top,0px));
-  align-items:flex-end; /* buttons sit at bottom of padded bar */
-}
-body.mobile-portrait .tab-btn{
-  flex:1;
-  height:52px;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
-  background:none;border:none;color:var(--dim);cursor:pointer;
-  font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:.5px;
-  text-transform:uppercase;
-  border-bottom:2px solid transparent;
-  -webkit-tap-highlight-color:transparent;
-}
-body.mobile-portrait .tab-btn svg{width:20px;height:20px;opacity:.55}
-body.mobile-portrait .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
-body.mobile-portrait .tab-btn.active svg{opacity:1}
-
-/* ── Fixed chrome: controls row (felt + ball) ── */
+/* ── Fixed: controls row TOP (felt left, slider middle, ball right) ── */
 body.mobile-portrait #mob-controls{
   display:flex!important;
-  position:fixed;
-  left:0;right:0;
-  height:36px;
+  position:fixed;top:0;left:0;right:0;
+  height:calc(40px + env(safe-area-inset-top,0px));
+  padding-top:env(safe-area-inset-top,0px);
+  padding-left:12px;padding-right:10px;
   background:var(--panel);
   border-bottom:1px solid var(--border);
   z-index:100;
   align-items:center;
-  justify-content:center;
-  gap:14px;
-  /* sits just below tab bar */
-  top:calc(52px + env(safe-area-inset-top,0px));
+  gap:10px;
 }
-/* Felt buttons in mob-controls need explicit colors */
-#mob-controls .felt-btn{width:20px;height:20px}
+#mob-controls .felt-group{display:flex;align-items:center;gap:10px;flex-shrink:0}
+#mob-controls .felt-btn{width:22px;height:22px}
 #mob-controls #mob-btn-green{background:#2d7a3a}
 #mob-controls #mob-btn-blue{background:#1a5c8a}
 #mob-controls #mob-btn-gray{background:#7a7a82}
+/* inline power slider — fills all space between felt and ball select */
+#mob-power-inline{flex:1;display:flex;align-items:center;min-width:0}
+#mob-power-inline input[type=range]{width:100%;accent-color:var(--accent);cursor:pointer;height:4px;margin:0}
+/* ball select */
+#mob-controls .right-group{flex-shrink:0}
+#mob-ball-select{
+  background:#1a2535;color:#c8d0da;
+  border:1px solid #1f2d3d;border-radius:5px;
+  padding:3px 6px;
+  font-family:'Share Tech Mono',monospace;font-size:10px;cursor:pointer;
+}
 
-/* ── Fixed chrome: power slider bottom ── */
-body.mobile-portrait #power-row-mobile{
+/* ── Fixed: tab bar BOTTOM ── */
+body.mobile-portrait #tab-bar{
   display:flex!important;
   position:fixed;bottom:0;left:0;right:0;
-  height:calc(42px + env(safe-area-inset-bottom,0px));
-  padding:0 14px;
+  height:calc(52px + env(safe-area-inset-bottom,0px));
   padding-bottom:env(safe-area-inset-bottom,0px);
   background:var(--panel);
   border-top:1px solid var(--border);
   z-index:100;
-  align-items:center;gap:8px;
+  align-items:flex-start;
 }
+body.mobile-portrait .tab-btn{
+  flex:1;height:52px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  background:none;border:none;color:var(--dim);cursor:pointer;
+  font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:.5px;
+  text-transform:uppercase;
+  border-top:2px solid transparent;
+  -webkit-tap-highlight-color:transparent;
+}
+body.mobile-portrait .tab-btn svg{width:20px;height:20px;opacity:.55}
+body.mobile-portrait .tab-btn.active{color:var(--accent);border-top-color:var(--accent)}
+body.mobile-portrait .tab-btn.active svg{opacity:1}
 
-/* ── Scrollable/fillable content area in the middle ── */
+/* ── Content area: between controls and tab bar ── */
 body.mobile-portrait .layout{
   position:fixed;
   left:0;right:0;
-  /* top = tab bar + controls row */
-  top:calc(88px + env(safe-area-inset-top,0px));
-  /* bottom = power slider */
-  bottom:calc(42px + env(safe-area-inset-bottom,0px));
+  top:calc(40px + env(safe-area-inset-top,0px));
+  bottom:calc(52px + env(safe-area-inset-bottom,0px));
   padding:4px;
   flex-direction:column;
   display:flex!important;
@@ -252,21 +243,22 @@ body.mobile-portrait #minimap-wrap{flex:1 1 0!important;min-height:0!important}
     Cam trên
   </button>
 </div>
-<!-- Mobile controls row: felt + ball select (fixed below tab bar) -->
+<!-- Mobile controls row (fixed top on mobile) -->
 <div id="mob-controls">
-  <div class="felt-btn active" id="mob-btn-green" title="Xanh lá" onclick="setFelt('green')"></div>
-  <div class="felt-btn" id="mob-btn-blue" title="Xanh dương" onclick="setFelt('blue')"></div>
-  <div class="felt-btn" id="mob-btn-gray" title="Xám" onclick="setFelt('gray')"></div>
-  <div style="width:1px;height:18px;background:var(--border)"></div>
-  <select id="mob-ball-select" onchange="setBallNum(this.value)" style="background:#1a2535;color:#c8d0da;border:1px solid #1f2d3d;border-radius:5px;padding:2px 6px;font-family:'Share Tech Mono',monospace;font-size:10px;cursor:pointer"></select>
+  <div class="felt-group">
+    <div class="felt-btn active" id="mob-btn-green" title="Xanh lá" onclick="setFelt('green')"></div>
+    <div class="felt-btn" id="mob-btn-blue" title="Xanh dương" onclick="setFelt('blue')"></div>
+    <div class="felt-btn" id="mob-btn-gray" title="Xám" onclick="setFelt('gray')"></div>
+  </div>
+  <div id="mob-power-inline">
+    <input type="range" id="power-slider-mob" min="0" max="100" value="0" oninput="setPower(this.value)">
+  </div>
+  <div class="right-group">
+    <select id="mob-ball-select" onchange="setBallNum(this.value)"></select>
+  </div>
 </div>
-<!-- Mobile power slider (shown below layout on mobile) -->
-<div id="power-row-mobile">
-  <span style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--dim);white-space:nowrap;min-width:32px">LỰC</span>
-  <input type="range" id="power-slider-mob" min="0" max="100" value="0"
-    style="flex:1;accent-color:var(--accent);cursor:pointer;height:4px">
-  <span id="power-val-mob" style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--accent);min-width:32px;text-align:right">0%</span>
-</div>
+<!-- Vertical power popup (kept for potential future use but unused now) -->
+<div id="mob-power-popup"></div>
 <script>
 let subgridVisible=true; // sub-grid toggle (click lỗ đang chọn để bật/tắt)
 
@@ -645,8 +637,9 @@ function mmPad(){
 }
 function resizeMinimap(){
   const wrap=document.getElementById('minimap-wrap');
-  const W=wrap.clientWidth-2;
-  const H=wrap.clientHeight-2;
+  const W=wrap.offsetWidth-2;
+  const H=wrap.offsetHeight-2;
+  if(W<10||H<10) return;
   mmC.width=W; mmC.height=H;
   drawMinimap();
 }
@@ -1463,8 +1456,8 @@ function loadPrefs(){
       cuePower=p.cuePower;
       document.getElementById('power-slider').value=cuePower;
       document.getElementById('power-val').textContent=cuePower+'%';
-      var _ms=document.getElementById('power-slider-mob');var _mv=document.getElementById('power-val-mob');
-      if(_ms)_ms.value=cuePower;if(_mv)_mv.textContent=cuePower+'%';
+      var _ms=document.getElementById('power-slider-mob');
+      if(_ms)_ms.value=cuePower;
     }
     if(p.pocket!==undefined) state.pocket=p.pocket;
     if(p.subgridVisible!==undefined) subgridVisible=p.subgridVisible;
@@ -1491,17 +1484,11 @@ function setPower(v){
   document.getElementById('power-slider').value=v;
   document.getElementById('power-val').textContent=v+'%';
   var ms=document.getElementById('power-slider-mob');
-  var mv=document.getElementById('power-val-mob');
   if(ms) ms.value=v;
-  if(mv) mv.textContent=v+'%';
   savePrefs();
   redraw();
 }
 document.getElementById('power-slider').addEventListener('input', function(){setPower(this.value);});
-(function(){
-  var ms=document.getElementById('power-slider-mob');
-  if(ms) ms.addEventListener('input',function(){setPower(this.value);});
-})();
 
 // ═══ REDRAW ═══
 function redraw(){drawMinimap();drawZoom();drawSide();updateStats();}
