@@ -55,26 +55,97 @@ canvas{display:block}
 body.col-resize{cursor:col-resize !important}
 body.dragging{cursor:grabbing !important}
 
-/* ── Mobile portrait tab layout ── */
+/* ── Mobile portrait: hidden by default ── */
 #tab-bar{display:none}
-/* Use 100dvh on modern browsers (excludes browser chrome correctly in PWA mode) */
-body{height:100vh;height:100dvh}
-html{height:100%;height:100dvh}
+#mob-controls{display:none}
+#power-row-mobile{display:none}
 
-/* ── MOBILE PORTRAIT ── */
-body.mobile-portrait{
-  overflow:hidden;
-  /* Respect iOS safe areas (notch top, home bar bottom) */
-  padding-top:env(safe-area-inset-top,0px);
-  padding-bottom:env(safe-area-inset-bottom,0px);
-}
-/* Hide desktop header entirely on mobile */
+/* ════════════════════════════════════════
+   MOBILE PORTRAIT — fixed layout
+   Tab bar top, controls row, content fills
+   middle, power slider pinned bottom.
+   Uses position:fixed so iOS PWA viewport
+   quirks (100vh, dvh) cannot cause gaps.
+   ════════════════════════════════════════ */
+body.mobile-portrait{overflow:hidden}
 body.mobile-portrait header{display:none!important}
 body.mobile-portrait .splitter{display:none!important}
+/* Hide desktop slider inside right-pane */
+body.mobile-portrait #power-row-desktop{display:none!important}
+
+/* ── Fixed chrome: tab bar top ── */
+body.mobile-portrait #tab-bar{
+  display:flex!important;
+  position:fixed;top:0;left:0;right:0;
+  height:52px;
+  background:var(--panel);
+  border-bottom:1px solid var(--border);
+  z-index:100;
+  /* Push below iOS status bar */
+  padding-top:env(safe-area-inset-top,0px);
+  height:calc(52px + env(safe-area-inset-top,0px));
+  align-items:flex-end; /* buttons sit at bottom of padded bar */
+}
+body.mobile-portrait .tab-btn{
+  flex:1;
+  height:52px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  background:none;border:none;color:var(--dim);cursor:pointer;
+  font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:.5px;
+  text-transform:uppercase;
+  border-bottom:2px solid transparent;
+  -webkit-tap-highlight-color:transparent;
+}
+body.mobile-portrait .tab-btn svg{width:20px;height:20px;opacity:.55}
+body.mobile-portrait .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
+body.mobile-portrait .tab-btn.active svg{opacity:1}
+
+/* ── Fixed chrome: controls row (felt + ball) ── */
+body.mobile-portrait #mob-controls{
+  display:flex!important;
+  position:fixed;
+  left:0;right:0;
+  height:36px;
+  background:var(--panel);
+  border-bottom:1px solid var(--border);
+  z-index:100;
+  align-items:center;
+  justify-content:center;
+  gap:14px;
+  /* sits just below tab bar */
+  top:calc(52px + env(safe-area-inset-top,0px));
+}
+/* Felt buttons in mob-controls need explicit colors */
+#mob-controls .felt-btn{width:20px;height:20px}
+#mob-controls #mob-btn-green{background:#2d7a3a}
+#mob-controls #mob-btn-blue{background:#1a5c8a}
+#mob-controls #mob-btn-gray{background:#7a7a82}
+
+/* ── Fixed chrome: power slider bottom ── */
+body.mobile-portrait #power-row-mobile{
+  display:flex!important;
+  position:fixed;bottom:0;left:0;right:0;
+  height:calc(42px + env(safe-area-inset-bottom,0px));
+  padding:0 14px;
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  background:var(--panel);
+  border-top:1px solid var(--border);
+  z-index:100;
+  align-items:center;gap:8px;
+}
+
+/* ── Scrollable/fillable content area in the middle ── */
 body.mobile-portrait .layout{
-  padding:4px 4px 4px;
-  flex-direction:column;flex:1;min-height:0;
-  order:2; /* content in the middle */
+  position:fixed;
+  left:0;right:0;
+  /* top = tab bar + controls row */
+  top:calc(88px + env(safe-area-inset-top,0px));
+  /* bottom = power slider */
+  bottom:calc(42px + env(safe-area-inset-bottom,0px));
+  padding:4px;
+  flex-direction:column;
+  display:flex!important;
+  overflow:hidden;
 }
 body.mobile-portrait .cam-col,
 body.mobile-portrait .mid-col,
@@ -87,42 +158,6 @@ body.mobile-portrait .cam-col.tab-active,
 body.mobile-portrait .mid-col.tab-active,
 body.mobile-portrait .left-col.tab-active{display:flex!important}
 body.mobile-portrait #minimap-wrap{flex:1 1 0!important;min-height:0!important}
-
-/* Tab bar — TOP on mobile */
-body.mobile-portrait #tab-bar{
-  display:flex!important;flex-shrink:0;
-  background:var(--panel);border-bottom:1px solid var(--border);
-  order:1; /* tab bar first = top */
-  align-items:stretch;
-}
-body.mobile-portrait .tab-btn{
-  flex:1;padding:10px 4px 8px;
-  display:flex;flex-direction:column;align-items:center;gap:3px;
-  background:none;border:none;color:var(--dim);cursor:pointer;
-  font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:.5px;
-  text-transform:uppercase;
-  border-bottom:2px solid transparent;
-  -webkit-tap-highlight-color:transparent;
-}
-body.mobile-portrait .tab-btn svg{width:20px;height:20px;opacity:.55}
-body.mobile-portrait .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
-body.mobile-portrait .tab-btn.active svg{opacity:1}
-
-body.mobile-portrait #power-row-desktop{display:none!important}
-body.mobile-portrait #mob-felt{
-  display:flex!important;align-items:center;justify-content:center;gap:10px;
-  padding:0 10px;border-left:1px solid var(--border);flex-shrink:0;
-}
-#mob-felt{display:none}
-
-/* Power slider row: shown below layout on mobile */
-body.mobile-portrait #power-row-mobile{
-  display:flex!important;flex-shrink:0;order:3;
-  padding:6px 12px 6px;
-  background:var(--panel);border-top:1px solid var(--border);
-  align-items:center;gap:8px;
-}
-#power-row-mobile{display:none}
 </style>
 </head>
 <body>
@@ -183,7 +218,7 @@ body.mobile-portrait #power-row-mobile{
     </div>
   </div>
 </div>
-<!-- Mobile tab bar (moves to top on mobile) -->
+<!-- Mobile tab bar (fixed top on mobile) -->
 <div id="tab-bar">
   <button class="tab-btn" id="tab-table" onclick="setTab('table')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -216,13 +251,14 @@ body.mobile-portrait #power-row-mobile{
     </svg>
     Cam trên
   </button>
-  <!-- Felt picker + ball select tucked at right of tab bar on mobile -->
-  <div id="mob-felt">
-    <div class="felt-btn active" id="mob-btn-green" title="Xanh lá" onclick="setFelt('green')"></div>
-    <div class="felt-btn" id="mob-btn-blue" title="Xanh dương" onclick="setFelt('blue')"></div>
-    <div class="felt-btn" id="mob-btn-gray" title="Xám" onclick="setFelt('gray')"></div>
-    <select id="mob-ball-select" onchange="setBallNum(this.value)" style="background:#1a2535;color:#c8d0da;border:1px solid #1f2d3d;border-radius:5px;padding:3px 5px;font-family:'Share Tech Mono',monospace;font-size:10px;cursor:pointer;max-width:90px"></select>
-  </div>
+</div>
+<!-- Mobile controls row: felt + ball select (fixed below tab bar) -->
+<div id="mob-controls">
+  <div class="felt-btn active" id="mob-btn-green" title="Xanh lá" onclick="setFelt('green')"></div>
+  <div class="felt-btn" id="mob-btn-blue" title="Xanh dương" onclick="setFelt('blue')"></div>
+  <div class="felt-btn" id="mob-btn-gray" title="Xám" onclick="setFelt('gray')"></div>
+  <div style="width:1px;height:18px;background:var(--border)"></div>
+  <select id="mob-ball-select" onchange="setBallNum(this.value)" style="background:#1a2535;color:#c8d0da;border:1px solid #1f2d3d;border-radius:5px;padding:2px 6px;font-family:'Share Tech Mono',monospace;font-size:10px;cursor:pointer"></select>
 </div>
 <!-- Mobile power slider (shown below layout on mobile) -->
 <div id="power-row-mobile">
@@ -246,7 +282,7 @@ function setFelt(k){
   document.querySelectorAll('.felt-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById('btn-'+k).classList.add('active');
   // sync mobile felt buttons
-  ['green','blue','gray'].forEach(c=>{
+  ['green','blue','gray'].forEach(function(c){
     var mb=document.getElementById('mob-btn-'+c);
     if(mb) mb.classList.toggle('active',c===k);
   });
