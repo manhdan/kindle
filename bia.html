@@ -2,7 +2,10 @@
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
 <title>Billiards</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&display=swap');
@@ -57,6 +60,8 @@ body.dragging{cursor:grabbing !important}
 /* iOS Safari: 100vh includes browser chrome, use fill-available fallback */
 body{height:100vh;height:-webkit-fill-available}
 html{height:-webkit-fill-available}
+/* Safe area padding for iOS home bar */
+body.mobile-portrait #tab-bar{padding-bottom:env(safe-area-inset-bottom,0px)}
 
 body.mobile-portrait{overflow:hidden}
 body.mobile-portrait header{padding:8px 12px}
@@ -81,15 +86,15 @@ body.mobile-portrait #tab-bar{
   background:var(--panel);border-top:1px solid var(--border);
 }
 body.mobile-portrait .tab-btn{
-  flex:1;padding:10px 4px 10px;
+  flex:1;padding:8px 4px 10px;
   display:flex;flex-direction:column;align-items:center;gap:3px;
   background:none;border:none;color:var(--dim);cursor:pointer;
   font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:.5px;
   text-transform:uppercase;
-  border-top:2px solid transparent;
+  border-bottom:2px solid transparent;
 }
 body.mobile-portrait .tab-btn svg{width:18px;height:18px;opacity:.55}
-body.mobile-portrait .tab-btn.active{color:var(--accent);border-top-color:var(--accent)}
+body.mobile-portrait .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
 body.mobile-portrait .tab-btn.active svg{opacity:1}
 </style>
 </head>
@@ -530,8 +535,9 @@ function mmPad(){
   const W=mmC.width, H=mmC.height;
   // rail width = 9.5% of table pixel width; we need to reserve space for it
   const railFrac=0.095;
-  // Available area with padding for rails so nothing is clipped
-  const padBase=14;
+  // On mobile portrait use minimal padding so table fills the cell
+  const isMob=isMobilePortrait();
+  const padBase=isMob?4:14;
   const padX=padBase, padTop=padBase, padBot=padBase;
   const availW=W-padX*2, availH=H-padTop-padBot;
   let tw, th;
@@ -1446,6 +1452,29 @@ const ro=new ResizeObserver(()=>{
 ro.observe(document.querySelector('.layout'));
 window.addEventListener('load',()=>{loadPrefs();initMobile();setTimeout(resizeAll,80);});
 window.addEventListener('orientationchange',()=>{setTimeout(()=>{initMobile();resizeAll();},200);});
+
+// ── iOS hide-chrome trick ──
+// Scrolling the page 1px and back hides the address bar on Safari
+(function(){
+  function hideChrome(){
+    if(isMobilePortrait()){
+      // Only works if page is not already filling screen
+      document.body.style.height=(window.innerHeight+1)+'px';
+      window.scrollTo(0,1);
+      setTimeout(function(){
+        document.body.style.height='';
+        window.scrollTo(0,0);
+      },50);
+    }
+  }
+  window.addEventListener('load', function(){setTimeout(hideChrome,300);});
+  window.addEventListener('orientationchange', function(){setTimeout(hideChrome,400);});
+  // Also hide on first touch (user interaction makes it more reliable)
+  var firstTouch=true;
+  document.addEventListener('touchstart', function(){
+    if(firstTouch && isMobilePortrait()){firstTouch=false;hideChrome();}
+  },{passive:true});
+})();
 </script>
 </body>
 </html>
