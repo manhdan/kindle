@@ -45,9 +45,11 @@ header .sub{font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--d
 canvas{display:block}
 #zoom-canvas{display:block;width:100%;height:100%}
 #minimap-wrap{flex:0 0 auto;position:relative}
-/* On mobile the wrap is flex:1, canvas must fill it absolutely */
-body.mobile-portrait #minimap-wrap{position:relative}
-body.mobile-portrait #minimap{position:absolute;top:0;left:0;width:100%!important;height:100%!important}
+#minimap{display:block;cursor:crosshair;user-select:none;width:100%}
+body.mobile-portrait #minimap{
+  position:fixed;z-index:1;cursor:crosshair;
+  /* top/left/width/height set by positionMobileCanvas() */
+}
 #stats-panel{flex:1;padding:14px;display:flex;flex-direction:column;gap:10px;overflow:hidden;min-height:0}
 .stat-row{display:flex;flex-direction:column;gap:3px}
 .stat-label{font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.8px}
@@ -63,38 +65,37 @@ body.dragging{cursor:grabbing !important}
 #power-row-mobile{display:none}
 
 /* ════════════════════════════════════════
-   MOBILE PORTRAIT — fixed layout
-   Controls row top, content fills middle,
-   tab bar pinned bottom. position:fixed
-   so no iOS PWA viewport gap quirks.
+   MOBILE PORTRAIT
+   Controls row fixed top, tab bar fixed
+   bottom. Canvas positioned by JS to fill
+   exact remaining space, centered.
    ════════════════════════════════════════ */
 body.mobile-portrait{overflow:hidden}
 body.mobile-portrait header{display:none!important}
 body.mobile-portrait .splitter{display:none!important}
 body.mobile-portrait #power-row-desktop{display:none!important}
+/* Hide everything in .layout — canvas is pulled out and positioned by JS */
+body.mobile-portrait .layout{display:none!important}
 
-/* ── Fixed: controls row TOP (felt left, slider middle, ball right) ── */
+/* ── Controls row: fixed top ── */
 body.mobile-portrait #mob-controls{
   display:flex!important;
   position:fixed;top:0;left:0;right:0;
-  height:calc(40px + env(safe-area-inset-top,0px));
-  padding-top:env(safe-area-inset-top,0px);
-  padding-left:12px;padding-right:10px;
+  height:40px;
+  margin-top:env(safe-area-inset-top,0px);
   background:var(--panel);
   border-bottom:1px solid var(--border);
   z-index:100;
   align-items:center;
-  gap:10px;
+  padding-left:12px;padding-right:10px;gap:10px;
 }
 #mob-controls .felt-group{display:flex;align-items:center;gap:10px;flex-shrink:0}
 #mob-controls .felt-btn{width:22px;height:22px}
 #mob-controls #mob-btn-green{background:#2d7a3a}
 #mob-controls #mob-btn-blue{background:#1a5c8a}
 #mob-controls #mob-btn-gray{background:#7a7a82}
-/* inline power slider — fills all space between felt and ball select */
 #mob-power-inline{flex:1;display:flex;align-items:center;min-width:0}
 #mob-power-inline input[type=range]{width:100%;accent-color:var(--accent);cursor:pointer;height:4px;margin:0}
-/* ball select */
 #mob-controls .right-group{flex-shrink:0}
 #mob-ball-select{
   background:#1a2535;color:#c8d0da;
@@ -103,16 +104,16 @@ body.mobile-portrait #mob-controls{
   font-family:'Share Tech Mono',monospace;font-size:10px;cursor:pointer;
 }
 
-/* ── Fixed: tab bar BOTTOM ── */
+/* ── Tab bar: fixed bottom ── */
 body.mobile-portrait #tab-bar{
   display:flex!important;
   position:fixed;bottom:0;left:0;right:0;
+  height:44px;
+  margin-bottom:env(safe-area-inset-bottom,0px);
   background:var(--panel);
   border-top:1px solid var(--border);
   z-index:100;
-  align-items:flex-start;
-  /* safe-area handled via padding-bottom so buttons stay 44px */
-  padding-bottom:env(safe-area-inset-bottom,0px);
+  align-items:center;
 }
 body.mobile-portrait .tab-btn{
   flex:1;height:44px;
@@ -127,32 +128,18 @@ body.mobile-portrait .tab-btn svg{width:20px;height:20px;opacity:.55}
 body.mobile-portrait .tab-btn.active{color:var(--accent);border-top-color:var(--accent)}
 body.mobile-portrait .tab-btn.active svg{opacity:1}
 
-/* ── Content area: between controls and tab bar ── */
-body.mobile-portrait .layout{
+/* ── Minimap canvas: positioned by JS when mobile ── */
+body.mobile-portrait #minimap{
   position:fixed;
-  left:0;right:0;
-  top:calc(40px + env(safe-area-inset-top,0px));
-  /* bottom accounts for tab buttons + safe-area home bar */
-  bottom:calc(44px + env(safe-area-inset-bottom,0px));
-  padding:4px;
-  flex-direction:column;
-  display:flex!important;
-  overflow:hidden;
+  z-index:1;
+  cursor:crosshair;
+  display:block;
 }
-body.mobile-portrait .cam-col,
-body.mobile-portrait .mid-col,
-body.mobile-portrait .left-col{
-  flex:1!important;min-width:0!important;min-height:0!important;
-  width:100%!important;flex-basis:auto!important;
-  display:none!important;
-}
-body.mobile-portrait .cam-col.tab-active,
-body.mobile-portrait .mid-col.tab-active,
-body.mobile-portrait .left-col.tab-active{display:flex!important}
-body.mobile-portrait #right-pane{gap:0!important}
 </style>
 </head>
 <body>
+<!-- Safe-area probe: offsetTop = inset-top, offsetHeight = inset-bottom -->
+<div id="_saProbe" style="position:fixed;top:env(safe-area-inset-top,0px);left:0;width:1px;height:env(safe-area-inset-bottom,0px);pointer-events:none;visibility:hidden;z-index:-1"></div>
 <header>
   <div class="dot"></div>
   <h1>BILLIARDS</h1>
@@ -198,7 +185,7 @@ body.mobile-portrait #right-pane{gap:0!important}
   <!-- RIGHT: Bàn bi a -->
   <div class="left-col" id="right-pane" style="display:flex;flex-direction:column;gap:6px">
     <div class="panel" id="minimap-wrap" style="flex:1">
-      <canvas id="minimap"></canvas>
+      <!-- canvas moved outside layout for mobile; kept here for desktop -->
     </div>
     <div id="power-row-desktop" style="padding:6px 10px 8px;background:var(--panel);border:1px solid var(--border);border-radius:var(--r);flex-shrink:0">
       <div style="display:flex;align-items:center;gap:8px">
@@ -210,6 +197,8 @@ body.mobile-portrait #right-pane{gap:0!important}
     </div>
   </div>
 </div>
+<!-- Minimap canvas: lives outside .layout so mobile display:none doesn't affect it -->
+<canvas id="minimap" style="cursor:crosshair;user-select:none;display:block"></canvas>
 <!-- Mobile tab bar (fixed top on mobile) -->
 <div id="tab-bar">
   <button class="tab-btn" id="tab-table" onclick="setTab('table')">
@@ -620,12 +609,16 @@ function mmPad(){
   const isMob=isMobilePortrait();
   let tw, th, ox, oy;
   if(isMob){
-    // Fit width exactly — rail touches canvas edge, no horizontal padding
+    // Fit to width first (zero horizontal padding)
     tw=W/(1+2*railFrac);
     th=tw*(TW/TH);
+    // Clamp to height if table is taller than canvas
+    const maxTH=H/(1+2*railFrac);
+    if(th>maxTH){ th=maxTH; tw=th*(TH/TW); }
     const rw=tw*railFrac;
-    ox=rw;                          // flush left
-    oy=rw+(H-th*(1+2*railFrac))/2; // center vertically
+    // True center: leftover space split equally on each side
+    ox=rw+(W-tw*(1+2*railFrac))/2;
+    oy=rw+(H-th*(1+2*railFrac))/2;
   } else {
     const pad=14;
     const availW=W-pad*2, availH=H-pad*2;
@@ -639,11 +632,46 @@ function mmPad(){
   }
   return{ox, oy, tw, th};
 }
+// ── Mobile: position canvas directly via JS ──
+function positionMobileCanvas(){
+  if(!isMobilePortrait()) return;
+  const safeTop = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sat')||'0')||0;
+  const safeBot = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sab')||'0')||0;
+  const CTRL_H = 40;   // controls row height
+  const TAB_H  = 44;   // tab bar height
+  // Get actual safe-area values via a probe element
+  const probe = document.getElementById('_saProbe');
+  let sat=0, sab=0;
+  if(probe){sat=probe.offsetTop; sab=probe.offsetHeight;}
+  const screenW = window.innerWidth;
+  const screenH = window.innerHeight;
+  const topEdge  = sat + CTRL_H;          // bottom of controls row
+  const botEdge  = screenH - sab - TAB_H; // top of tab bar
+  const available = botEdge - topEdge;    // vertical space for canvas
+  // Table aspect ratio: TW:TH = 254:127 = 2:1 (portrait: tall)
+  const tableAR = TW / TH; // = 2.0
+  // Fit to width first
+  let cW = screenW;
+  let cH = cW * tableAR;
+  // If too tall, fit to height
+  if(cH > available){ cH = available; cW = cH / tableAR; }
+  // Center horizontally and vertically in available zone
+  const cL = (screenW - cW) / 2;
+  const cT = topEdge + (available - cH) / 2;
+  const c = mmC;
+  c.style.left   = cL + 'px';
+  c.style.top    = cT + 'px';
+  c.style.width  = cW + 'px';
+  c.style.height = cH + 'px';
+  c.width  = Math.round(cW);
+  c.height = Math.round(cH);
+  drawMinimap();
+}
 function resizeMinimap(){
+  if(isMobilePortrait()){ positionMobileCanvas(); return; }
   const wrap=document.getElementById('minimap-wrap');
-  const r=wrap.getBoundingClientRect();
-  const W=Math.floor(r.width)-2;
-  const H=Math.floor(r.height)-2;
+  const W=wrap.clientWidth;
+  const H=wrap.clientHeight;
   if(W<10||H<10) return;
   mmC.width=W; mmC.height=H;
   drawMinimap();
@@ -1534,9 +1562,17 @@ function applyTab(){
 function initMobile(){
   var isMob=isMobilePortrait();
   document.body.classList.toggle('mobile-portrait',isMob);
-  if(!isMob) return;
-  try{var saved=localStorage.getItem('bia_tab');if(saved) activeTab=saved;}catch(e){}
-  applyTab();
+  var canvas=document.getElementById('minimap');
+  var wrap=document.getElementById('minimap-wrap');
+  if(isMob){
+    // Pull canvas out of wrap so layout display:none doesn't hide it
+    if(canvas.parentNode!==document.body) document.body.appendChild(canvas);
+    try{var saved=localStorage.getItem('bia_tab');if(saved) activeTab=saved;}catch(e){}
+    applyTab();
+  } else {
+    // Put canvas back into wrap for desktop layout
+    if(canvas.parentNode!==wrap) wrap.appendChild(canvas);
+  }
 }
 
 let _roTimer=null;
@@ -1545,15 +1581,9 @@ const ro=new ResizeObserver(()=>{
   _roTimer=setTimeout(()=>{initMobile();resizeAll();},30);
 });
 ro.observe(document.querySelector('.layout'));
-// Also observe minimap-wrap directly so canvas always matches its container
-const roMM=new ResizeObserver(()=>{
-  requestAnimationFrame(()=>{resizeMinimap();drawMinimap();});
-});
-roMM.observe(document.getElementById('minimap-wrap'));
 
 window.addEventListener('load',()=>{
   loadPrefs();initMobile();
-  // Double RAF ensures fixed-position layout has been painted before we measure
   requestAnimationFrame(()=>requestAnimationFrame(()=>resizeAll()));
 });
 window.addEventListener('orientationchange',()=>{setTimeout(()=>{initMobile();resizeAll();},200);});
