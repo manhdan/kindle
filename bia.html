@@ -616,25 +616,27 @@ const mmX=mmC.getContext('2d');
 
 function mmPad(){
   const W=mmC.width, H=mmC.height;
-  // rail width = 9.5% of table pixel width; we need to reserve space for it
   const railFrac=0.095;
-  // On mobile portrait use minimal padding so table fills the cell
   const isMob=isMobilePortrait();
-  const padBase=isMob?4:14;
-  const padX=padBase, padTop=padBase, padBot=padBase;
-  const availW=W-padX*2, availH=H-padTop-padBot;
-  let tw, th;
-  // Fit table felt area within available, then check rail fits too
-  // tw*(1+2*railFrac) <= availW  => tw <= availW/(1+2*railFrac)
-  const maxTW=availW/(1+2*railFrac);
-  const maxTH=availH/(1+2*railFrac);
-  tw=maxTW; th=tw*(TW/TH);
-  if(th>maxTH){th=maxTH; tw=th*(TH/TW);}
-  // Center table both horizontally and vertically
-  const rw=tw*railFrac;
-  const ox=padX+rw+(availW-tw*(1+2*railFrac))/2;
-  const oy=padTop+rw+(availH-th*(1+2*railFrac))/2;
-  if(isMobilePortrait()) console.log('[mmPad] canvas:',W,'x',H,' tw:',tw.toFixed(1),' th:',th.toFixed(1),' ox:',ox.toFixed(1),' oy:',oy.toFixed(1),' spaceBelow:',((H-padBot)-(oy-rw+th+rw)).toFixed(1));
+  let tw, th, ox, oy;
+  if(isMob){
+    // Fit width exactly — rail touches canvas edge, no horizontal padding
+    tw=W/(1+2*railFrac);
+    th=tw*(TW/TH);
+    const rw=tw*railFrac;
+    ox=rw;                          // flush left
+    oy=rw+(H-th*(1+2*railFrac))/2; // center vertically
+  } else {
+    const pad=14;
+    const availW=W-pad*2, availH=H-pad*2;
+    const maxTW=availW/(1+2*railFrac);
+    const maxTH=availH/(1+2*railFrac);
+    tw=maxTW; th=tw*(TW/TH);
+    if(th>maxTH){th=maxTH; tw=th*(TH/TW);}
+    const rw=tw*railFrac;
+    ox=pad+rw+(availW-tw*(1+2*railFrac))/2;
+    oy=pad+rw+(availH-th*(1+2*railFrac))/2;
+  }
   return{ox, oy, tw, th};
 }
 function resizeMinimap(){
@@ -643,7 +645,6 @@ function resizeMinimap(){
   const W=Math.floor(r.width)-2;
   const H=Math.floor(r.height)-2;
   if(W<10||H<10) return;
-  if(isMobilePortrait()) console.log('[minimap] wrap BRC:',r.width.toFixed(1),'x',r.height.toFixed(1),' canvas:',W,'x',H);
   mmC.width=W; mmC.height=H;
   drawMinimap();
 }
