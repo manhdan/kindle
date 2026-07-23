@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Chess Coach 5</title>
+<title>Chess Coach 6</title>
 <style>
 * { -webkit-box-sizing: border-box; box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; width: 100%; overflow: hidden; }
@@ -310,7 +310,27 @@ body {
   -webkit-flex-shrink: 0; flex-shrink: 0;
   padding: 4px 8px;
   background: #fafafa;
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
 }
+.lc-status .lc-status-left,
+.lc-status .lc-status-right {
+  -webkit-flex: 0 0 auto; flex: 0 0 auto;
+  font-size: 0.72rem; font-weight: bold; opacity: 0.9;
+  white-space: nowrap;
+}
+.lc-status .lc-status-left  { text-align: left; }
+.lc-status .lc-status-right { text-align: right; }
+.lc-status .lc-status-center {
+  -webkit-flex: 1; flex: 1;
+  text-align: center;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 0 4px;
+}
+.lc-status.gameover .lc-status-left,
+.lc-status.gameover .lc-status-right { color: #fff; }
+.lc-status.check .lc-status-left,
+.lc-status.check .lc-status-right { color: #fff; }
 .lc-status.check    { background: #666; color: #fff; }
 .lc-status.gameover { background: #000; color: #fff; }
 .lc-status.thinking { background: #ddd; }
@@ -760,7 +780,11 @@ body {
 <!-- ═══ CENTER col: board + evalbar ═══ -->
 <div class="center-col">
 <div class="center-status-wrap" id="center-status-wrap">
-  <div class="lc-status" id="status">Lượt của bạn &#8212; Trắng</div>
+  <div class="lc-status" id="status">
+    <span class="lc-status-left" id="status-left"></span>
+    <span class="lc-status-center" id="status-center">Lượt của bạn &#8212; Trắng</span>
+    <span class="lc-status-right" id="status-right"></span>
+  </div>
   <div class="review-best-hint" id="review-best-hint"></div>
 </div>
 <div class="board-and-eval">
@@ -1649,12 +1673,8 @@ function classifyMoveCore(data) {
 
   if ((brilliantBase || brilliantIndirect) && (bestGap === null || bestGap >= 100)) return "Brilliant";
 
-  /* isUniqueGoodMove — dùng cho Great Defense và Great Move
-     ĐÃ NỚI NGƯỠNG (thử nghiệm theo yêu cầu): bestGap 300→170, numGoodAlternatives 1→2.
-     Ngưỡng cũ (300cp) quá khắt khe khiến Great gần như không bao giờ trigger — nhiều
-     nước Great thực sự (phối hợp gọn, phòng thủ tốt, chiếu đúng lúc) chỉ hơn phương án
-     nhì 100-200cp, không tới 300cp. */
-  var isUniqueGoodMove = (bestGap !== null) && (bestGap >= 170 * strictness) && (numGoodAlternatives <= 2);
+  /* isUniqueGoodMove — dùng cho Great Defense và Great Move */
+  var isUniqueGoodMove = (bestGap !== null) && (bestGap >= 300 * strictness) && (numGoodAlternatives <= 1);
 
   /* 4. GREAT DEFENSE — Fix E: thêm isBest check */
   if (isBest &&
@@ -1783,35 +1803,6 @@ function _countGoodAlternatives(si){
     if (candidates[k] !== null && (best - candidates[k]) <= 50) count++;
   }
   return count;
-}
-
-/* ── Quyết định 1 nước đi có cần multipv=4 THẬT hay không ──
-   eval2ndBest/numGoodAlternatives chỉ ảnh hưởng nhánh Brilliant/Great Defense/
-   Great Move — tất cả đều đòi hỏi cpLoss <= 20*strictness. Nước nào không lọt
-   ngưỡng này thì multipv=4 không ảnh hưởng gì tới nhãn cuối → bỏ qua để tiết
-   kiệm thời gian (không phải chạy MultiPV=4 cho MỌI nước như trước). */
-function _needsMultiPVBackfill(prevIdx){
-  var si = gAnScores[prevIdx], sn = gAnScores[prevIdx+1];
-  if (!si || !sn) return false;
-  if (si.s2 !== null && si.s2 !== undefined) return false; /* đã có multipv rồi, khỏi backfill lại */
-
-  var best   = anCP(si.s1, si.m1);
-  var played = -anCP(sn.s1, sn.m1);
-  var evalBest = Math.max(best, played);
-  var cpLoss = Math.max(0, evalBest - played);
-
-  var elo = 1250;
-  var eloEl = document.getElementById('elo');
-  if (eloEl) { var _e = parseInt(eloEl.value, 10); if (!isNaN(_e)) elo = _e; }
-  var strictness = 1.0;
-  if (elo < 900)       strictness = 1.20;
-  else if (elo < 1400) strictness = 1.10;
-  else if (elo < 2000) strictness = 1.00;
-  else if (elo < 2400) strictness = 0.92;
-  else                 strictness = 0.85;
-
-  var gate = 20 * strictness;   /* khớp ngưỡng Brilliant/Great trong classifyMoveCore */
-  return cpLoss <= gate;
 }
 
 /* ── Adapter: map dữ liệu ChessCoach2 → schema input của classifyMoveCore() ── */
@@ -1947,17 +1938,6 @@ function classifyMove(i){
   var input = _buildClassifyInput(i);
   if (!input) return 'normal';
   var label = classifyMoveCore(input);
-  if(typeof window!=='undefined' && window.__DEBUG_CLASSIFY__){
-    var si=gAnScores[i];
-    console.log('[classify] i='+i+' move='+(gUciHist?gUciHist[i]:'?')+
-      ' si.s1='+(si?si.s1:'?')+' si.s2='+(si?si.s2:'?')+' si.s2nd='+(si?si.s2nd:'?')+
-      ' si.bestUci='+(si?si.bestUci:'?')+' isBest='+input.isBest+
-      ' eval2ndBest='+input.eval2ndBest+' evalBest='+input.evalBest+
-      ' bestGap='+(input.eval2ndBest!==null?(input.evalBest-input.eval2ndBest):null)+
-      ' cpLoss='+Math.max(0,input.evalBest-input.evalActual)+
-      ' numGoodAlt='+input.numGoodAlternatives+' givesCheck='+input.givesCheck+
-      ' => '+label);
-  }
   return CLASSIFY_LABEL_MAP[label] || 'normal';
 }
 
@@ -1997,18 +1977,14 @@ function startAnalysis(){
   gAnScores=[];
   gAnFens=gFenHistory.concat([boardToFen()]);
   gAnPhase='shallow';
-  gBackfillIdx=-1;
 
   var cb=document.getElementById('clr-toggle');
   if(cb){cb.disabled=false;cb.innerHTML='\u{1F4CA} \u0110ang ph\u00e2n t\u00edch 0/'+gAnFens.length+'...';}
 
-  /* Tắt gAnMode tạm, gửi stop + ucinewgame (1 lần cho cả ván — xem comment
-     trong analyzeNext() vì sao KHÔNG cần lặp lại mỗi vị trí nữa), rồi bật
-     lại sau 200ms để tránh bestmove phản hồi từ stop bị nhầm thành kết quả
-     phân tích. */
+  /* Tắt gAnMode tạm, gửi stop, rồi bật lại sau 200ms để
+     tránh bestmove phản hồi từ stop bị nhầm thành kết quả phân tích */
   gAnMode=false;
   lozzaPost('stop');
-  lozzaPost('ucinewgame');
   setTimeout(function(){
     gAnMode=true;
     _startAnalysisReplay();
@@ -2072,20 +2048,6 @@ function handleAnalysisMsg(msg){
     var bm=msg.split(/\s+/)[1]||'';
     var noMove=(bm==='(none)'||bm==='0000'||bm===''||bm==='NULL'||bm.toLowerCase()==='null');
 
-    if(gAnPhase==='mpv_backfill'){
-      /* multipv=4 THẬT vừa chạy xong cho vị trí gBackfillIdx — merge s2/s3/s4
-         vào entry đã có sẵn (s1 giữ nguyên từ Pass B multipv=1 trước đó). */
-      var _bfEntry = gAnScores[gBackfillIdx];
-      if(_bfEntry && !noMove){
-        _bfEntry.s2 = gAnCur.d2>0?gAnCur.s2:null; _bfEntry.m2 = gAnCur.m2;
-        _bfEntry.s3 = gAnCur.d3>0?gAnCur.s3:null; _bfEntry.m3 = gAnCur.m3;
-        _bfEntry.s4 = gAnCur.d4>0?gAnCur.s4:null; _bfEntry.m4 = gAnCur.m4;
-      }
-      gBackfillIdx = -1;
-      _advanceAfterPosition();
-      return;
-    }
-
     if(gAnPhase==='shallow'){
       /* Pass A xong. Neu noMove: vi tri chieu het, push ket qua, bo qua main pass */
       if(noMove){
@@ -2094,7 +2056,11 @@ function handleAnalysisMsg(msg){
         gAnScores.push({s1:-9999, m1:null, s2:null, m2:null, s3:null, m3:null, s4:null, m4:null,
           side:_sdN, bestUci:null, shallowS1:-9999, shallowM1:null});
         gAnIdx++;
-        _advanceAfterPosition();
+        var _totN=gAnFens.length;
+        var _cbxN=document.getElementById('clr-toggle');
+        if(_cbxN) _cbxN.innerHTML='📊 Đang phân tích '+gAnIdx+'/'+_totN+'...';
+        if(gAnIdx<_totN){ gAnPhase='shallow'; analyzeNext(); }
+        else finishAnalysis();
         return;
       }
       var _fenParts0=(gAnFens[gAnIdx]||'').split(' ');
@@ -2107,7 +2073,7 @@ function handleAnalysisMsg(msg){
       gAnCur={d1:0,s1:0,m1:null, d2:0,s2:null,m2:null, d3:0,s3:null,m3:null, d4:0,s4:null,m4:null};
       var _fenParts2=(gAnFens[gAnIdx]||'').split(' ');
       gAnCur.side=(_fenParts2[1]==='w')?W:B;
-      lozzaPost('setoption name MultiPV value 1');
+      lozzaPost('setoption name MultiPV value 4');
       lozzaPost('position fen '+gAnFens[gAnIdx]);
       lozzaPost('go depth '+ANALYSIS_DEPTH);
       return;
@@ -2165,51 +2131,19 @@ function handleAnalysisMsg(msg){
       gAnIdx++;
     }
 
-    _advanceAfterPosition();
-  }
-}
-
-/* ── Sau khi 1 vị trí vừa được đẩy vào gAnScores: kiểm tra có cần backfill
-   multipv=4 THẬT cho nước NGAY TRƯỚC đó (nếu là ứng viên Brilliant/Great)
-   trước khi tiếp tục sang vị trí kế — dùng chung cho Pass B thường lẫn khi
-   mpv_backfill vừa xong, tránh trùng lặp code advance 3-4 chỗ. */
-function _advanceAfterPosition(){
-  var total=gAnFens.length;
-  var cb=document.getElementById('clr-toggle');
-  if(cb) cb.innerHTML='\u{1F4CA} \u0110ang ph\u00e2n t\u00edch '+gAnIdx+'/'+total+'...';
-
-  var _prevIdx = gAnIdx - 2;
-
-  /* MultiPV backfill: nếu nước đi TRƯỚC (kết thúc tại gAnIdx-1) có khả năng
-     là ứng viên Brilliant/Great (cpLoss thấp), quay lại chạy multipv=4 THẬT
-     cho vị trí trước nước đó để lấy eval2ndBest/numGoodAlternatives chính
-     xác — chỉ áp dụng cho số ít nước "gần Best" nên không tốn multipv=4 cho
-     toàn bộ ván (xem _needsMultiPVBackfill). */
-  if(_prevIdx >= 0 && _needsMultiPVBackfill(_prevIdx)){
-    gBackfillIdx = _prevIdx;
-    gAnPhase = 'mpv_backfill';
-    analyzeNext();
-    return;
-  }
-
-  if(gAnIdx<total){
-    gAnPhase='shallow';
-    analyzeNext();
-  } else {
-    finishAnalysis();
+    var total=gAnFens.length;
+    var cb=document.getElementById('clr-toggle');
+    if(cb) cb.innerHTML='\u{1F4CA} \u0110ang ph\u00e2n t\u00edch '+gAnIdx+'/'+total+'...';
+    if(gAnIdx<total){
+      gAnPhase='shallow';
+      analyzeNext();
+    } else {
+      finishAnalysis();
+    }
   }
 }
 
 function analyzeNext(){
-  /* KHÔNG xoá TT ở mỗi vị trí nữa (đã thử, gây chậm rõ rệt vì mất hết lợi ích
-     transposition-hit giữa các vị trí). Nguồn nhiễm TT thật sự đã được vá
-     TẠI GỐC trong rootSearch() của engine Lozza — mọi ttPut() ở đó giờ có
-     guard "if (excludedRootMoves.length === 0)", nghĩa là các search loại
-     trừ (root-exclusion multipv cho PV2-4, xem mpv_backfill bên dưới) không
-     còn ghi đè kết quả bị bóp méo vào TT nữa. ucinewgame chỉ cần gọi 1 lần
-     duy nhất lúc bấm nút phân tích (xem startAnalysis()) để đảm bảo sạch
-     giữa các VÁN khác nhau. */
-
   if(gAnPhase==='shallow'){
     /* Pass A: shallow depth, MultiPV=1 — chỉ để lấy eval nông cho filter Brilliant/Great Defense */
     gAnShallowCur={d1:0,s1:0,m1:null};
@@ -2218,23 +2152,11 @@ function analyzeNext(){
     lozzaPost('go depth '+SHALLOW_DEPTH);
     return;
   }
-  if(gAnPhase==='mpv_backfill'){
-    /* Backfill multipv=4 THẬT cho 1 vị trí cụ thể (gBackfillIdx) — chỉ chạy
-       khi _needsMultiPVBackfill() xác định nước đi từ vị trí này có khả
-       năng Brilliant/Great (xem handleAnalysisMsg/_advanceAfterPosition). */
-    gAnCur={d1:0,s1:0,m1:null, d2:0,s2:null,m2:null, d3:0,s3:null,m3:null, d4:0,s4:null,m4:null};
-    lozzaPost('setoption name MultiPV value 4');
-    lozzaPost('position fen '+gAnFens[gBackfillIdx]);
-    lozzaPost('go depth '+ANALYSIS_DEPTH);
-    return;
-  }
-  /* Pass B: main depth, MultiPV=1 (nhanh) — s2-s4 chỉ lấy THẬT qua mpv_backfill
-     khi cần (nước gần Best), không chạy multipv=4 cho mọi nước như trước
-     (vốn vừa chậm vừa dễ lệch depth giữa PV1 và PV2-4). */
+  /* Pass B: main depth, MultiPV=4 */
   gAnCur={d1:0,s1:0,m1:null, d2:0,s2:null,m2:null, d3:0,s3:null,m3:null, d4:0,s4:null,m4:null};
   var _fenParts=(gAnFens[gAnIdx]||'').split(' ');
   gAnCur.side=(_fenParts[1]==='w')?W:B;
-  lozzaPost('setoption name MultiPV value 1');
+  lozzaPost('setoption name MultiPV value 4');
   lozzaPost('position fen '+gAnFens[gAnIdx]);
   lozzaPost('go depth '+ANALYSIS_DEPTH);
 }
@@ -2934,6 +2856,11 @@ var gReviewIdx = -1;  /* -1 = không đang xem lại */
 var gReviewJumpToken = 0;
 function reviewJumpTo(idx, noScroll, instant){
   if(!gAnFens||idx<0||idx>=gAnFens.length) return;
+  /* Nếu đang rẽ nhánh, dữ liệu phân tích (gAnFens/gAnScores) không còn khớp
+     index với mảng nước đi hiện tại (đã bị cắt+nối thêm nước nhánh) — phải
+     khôi phục lại ván gốc trước khi nhảy tới bất kỳ nước nào trong đó. */
+  if(gBranchActive && typeof exitBranch==='function') exitBranch();
+
   var myToken = ++gReviewJumpToken;
 
   if(idx>0 && !instant){
@@ -3113,11 +3040,10 @@ function _reviewJumpToCore(idx, noScroll){
     sqEl.appendChild(badge);
   })();
 
-  /* Hiện trạng thái */
-  var moveNum = Math.floor(idx/2)+1;
-  var side = (idx%2===0) ? 'Trắng' : 'Đen';
-  var statusEl = document.getElementById('status');
-  if(statusEl) statusEl.textContent = 'Xem lại: nước '+moveNum+' ('+side+')';
+  /* Hiện trạng thái — dùng chung setStatus() để có layout 3 cột (trái/giữa/phải)
+     nhất quán, tự động lấy Best move + cp từ gAnScores[gReviewIdx+1] vì gReviewIdx
+     đã được set ở trên và gB/gTurn đã phản ánh đúng thế cờ đang xem. */
+  if(typeof setStatus==='function') setStatus();
 
   /* Cập nhật evalbar theo vị trí SAU nước idx = evalPcts[idx+1] (luôn nhất quán) */
   if(typeof gAnEvalPcts !== 'undefined' && gAnEvalPcts.length > 0){
@@ -3269,8 +3195,7 @@ var gAnScores=[];      /* kết quả engine per position */
 var gAnCur={};         /* kết quả đang thu thập */
 var ANALYSIS_DEPTH=12;
 var SHALLOW_DEPTH=6;   /* depth nông cho shallow-eval (Brilliant/Great Defense filter) */
-var gAnPhase='main';   /* 'shallow' | 'main' | 'mpv_backfill' — pass đang chạy */
-var gBackfillIdx=-1;   /* index vị trí đang backfill multipv=4 THẬT (xem _needsMultiPVBackfill) */
+var gAnPhase='main';   /* 'shallow' | 'main' — pass đang chạy */
 var gAnReplayTimer=null;   /* timer cho highlight replay khi phân tích */
 var gAnReplayIdx=0;        /* vị trí replay hiện tại */
 var gAnShallowCur={};  /* kết quả shallow đang thu thập (trước khi chạy main pass) */
@@ -3292,6 +3217,8 @@ function newGame(){
   gReviewIdx=-1; gActive=true;
   gStateHistory=[]; gAnFens=[]; gAnScores=[]; gAnIdx=0;
   gAnPendingRerun=false;
+  gBranchActive=false; gBranchFromIdx=-1; gBranchSaved=null;
+  if(typeof updateBranchBtn==='function') updateBranchBtn();
   gPosCount={}; gPosCount[posKey()]=1; /* vị trí xuất phát đã xuất hiện 1 lần */
   document.getElementById('history').textContent=(typeof gAppTab!=='undefined' && gAppTab==='analysis')?'':'\u2014';
   var ap=document.getElementById('analysis-panel');
@@ -3524,43 +3451,84 @@ var _caf = (typeof cancelAnimationFrame==='function')
   : function(id){ clearTimeout(id); };
 
 
+function _padNum2(n){ n=Math.abs(n); return (n<10?'0':'')+n; }
+function _fmtCpInt(cp){ if(cp===null||cp===undefined) return '?'; var v=Math.round(cp); return (v>=0?'+':'')+v; }
+
+function _renderStatusBar(leftTxt, centerTxt, rightTxt, extraClass){
+  var el = document.getElementById('status');
+  if(!el) return;
+  el.className = 'lc-status' + (extraClass ? ' '+extraClass : '');
+  var l=document.getElementById('status-left'), c=document.getElementById('status-center'), r=document.getElementById('status-right');
+  if(l) l.textContent = leftTxt || '';
+  if(c) c.textContent = centerTxt || '';
+  if(r) r.textContent = rightTxt || '';
+}
+
+/* Lấy {san, cpWhite} của nước tốt nhất hiện tại từ nguồn dữ liệu có sẵn gần nhất:
+   - Ưu tiên đang xem 1 nước cụ thể trong ván đã phân tích (không rẽ nhánh) → dùng
+     thẳng gAnScores (đã tính sẵn, không cần gọi engine).
+   - Fallback: gợi ý coach "sống" (đang chơi tự do / đang rẽ nhánh / chưa phân tích). */
+function _currentBestInfo(){
+  if((typeof gBranchActive==='undefined' || !gBranchActive) && typeof gReviewIdx!=='undefined' && gReviewIdx >= 0
+     && typeof gAnScores!=='undefined' && gAnScores[gReviewIdx+1] && gAnScores[gReviewIdx+1].bestUci){
+    var sc = gAnScores[gReviewIdx+1];
+    var cpW = anCPwhite(sc);
+    var san = uci2san(sc.bestUci, gB, gTurn);
+    return { san: san, cpWhite: cpW };
+  }
+  if(typeof coachLastCands!=='undefined' && coachLastCands && coachLastCands[0]
+     && coachLastCands[0].cp !== null && coachLastCands[0].cp !== undefined){
+    var cand = coachLastCands[0];
+    var cpW2 = (gTurn===W) ? cand.cp : -cand.cp;
+    return { san: cand.san, cpWhite: cpW2 };
+  }
+  return null;
+}
+
 function setStatus(){
-  var el=document.getElementById('status');
-  el.className='lc-status';
   var mvs=legalMoves(gB,gTurn,gEP,gCas);
   var chk=inCheck(gB,gTurn);
   var tn=gTurn===W?'Tr\u1eafng':'\u0110en';
   var yours=gTurn===gPC || (typeof gAppTab!=='undefined' && gAppTab==='analysis');
+
+  var moveNum = Math.floor(gUciHist.length/2)+1;
+  var leftTxt = '#'+_padNum2(moveNum)+' '+tn;
+  var best = _currentBestInfo();
+  var centerTxt='', rightTxt='';
+  if(best){
+    rightTxt = _fmtCpInt(best.cpWhite)+'cp';
+    centerTxt = 'Best: '+best.san+' ('+_fmtCpInt(best.cpWhite)+'cp)';
+  }
+
   if(!mvs.length){
     gActive=false;
-    el.className='lc-status gameover';
-    el.textContent=chk?'\u265b Chi\u1ebfu h\u1ebft! '+(gTurn===W?'\u0110en':'Tr\u1eafng')+' th\u1eafng!'
-                      :'\u00bd H\u00f2a c\u1edd \u2014 Stalemate';
+    centerTxt=chk?'\u265b Chi\u1ebfu h\u1ebft! '+(gTurn===W?'\u0110en':'Tr\u1eafng')+' th\u1eafng!'
+                 :'\u00bd H\u00f2a c\u1edd \u2014 Stalemate';
+    _renderStatusBar(leftTxt, centerTxt, rightTxt, 'gameover');
     showAnalyzeBtn();
     return;
   }
   if(gHalf>=100){
     gActive=false;
-    el.className='lc-status gameover';
-    el.textContent='\u00bd H\u00f2a c\u1edd \u2014 Quy t\u1eafc 50 n\u01b0\u1edbc';
+    _renderStatusBar(leftTxt, '\u00bd H\u00f2a c\u1edd \u2014 Quy t\u1eafc 50 n\u01b0\u1edbc', rightTxt, 'gameover');
     showAnalyzeBtn();
     return;
   }
   if((gPosCount[posKey()]||0)>=3){
     gActive=false;
-    el.className='lc-status gameover';
-    el.textContent='\u00bd H\u00f2a c\u1edd \u2014 L\u1eb7p l\u1ea1i 3 l\u1ea7n';
+    _renderStatusBar(leftTxt, '\u00bd H\u00f2a c\u1edd \u2014 L\u1eb7p l\u1ea1i 3 l\u1ea7n', rightTxt, 'gameover');
     showAnalyzeBtn();
     return;
   }
   if(chk){
-    el.className='lc-status check';
-    el.textContent='\u26a0 '+tn+' \u0111ang b\u1ecb chi\u1ebfu!'+(yours?' H\u00e3y \u0111i!':'');
+    if(!best) centerTxt='\u26a0 '+tn+' \u0111ang b\u1ecb chi\u1ebfu!'+(yours?' H\u00e3y \u0111i!':'');
+    _renderStatusBar(leftTxt, centerTxt, rightTxt, 'check');
   } else if(yours){
-    el.textContent='L\u01b0\u1ee3t c\u1ee7a b\u1ea1n \u2014 '+tn;
+    if(!best) centerTxt='L\u01b0\u1ee3t c\u1ee7a b\u1ea1n \u2014 '+tn;
+    _renderStatusBar(leftTxt, centerTxt, rightTxt, '');
   } else {
-    el.className='lc-status thinking';
-    el.textContent='M\u00e1y \u0111ang suy ngh\u0129 ('+tn+')...';
+    centerTxt='M\u00e1y \u0111ang suy ngh\u0129 ('+tn+')...';
+    _renderStatusBar(leftTxt, centerTxt, rightTxt, 'thinking');
   }
 }
 
@@ -3609,6 +3577,8 @@ function onSqClick(e){
 }
 
 function execMove(mv){
+  if(typeof _maybeStartBranch==='function') _maybeStartBranch();
+
   /* Coach: lưu trạng thái trước khi đi (chỉ nước của người chơi) */
   var _coachWasPlayer = (gTurn === gPC) || (typeof gAppTab!=='undefined' && gAppTab==='analysis');
   var _coachFenBefore = boardToFen();
@@ -3846,7 +3816,8 @@ function applyAutoFlipForPgnNames(pgnNames){
 function updatePgnBtn() {
   var back = document.getElementById('btn-step-back');
   var fwd  = document.getElementById('btn-step-fwd');
-  var hasAn = (typeof gAnFens !== 'undefined' && gAnFens.length > 0 && typeof gMoveTexts !== 'undefined' && gMoveTexts.length > 0);
+  var hasAn = (typeof gAnFens !== 'undefined' && gAnFens.length > 0 && typeof gMoveTexts !== 'undefined' && gMoveTexts.length > 0)
+              && !gBranchActive;
   if (hasAn) {
     var cur = (gReviewIdx >= 0) ? gReviewIdx : (gMoveTexts.length - 1);
     if (back) back.disabled = (cur <= 0);
@@ -3859,12 +3830,15 @@ function updatePgnBtn() {
 }
 
 /* Tua từng nước (nút ◀/▶ và phím mũi tên):
-   - Nếu đã có dữ liệu phân tích (gAnFens) → tua qua lại giữa các thế cờ đã phân tích
-     (dùng chung cơ chế reviewJumpTo, có animation trượt quân).
-   - Nếu chưa phân tích gì (đang chơi tự do) → "lùi" (dir<0) sẽ Đi lại (undo) nước
+   - Nếu đã có dữ liệu phân tích (gAnFens) VÀ KHÔNG đang rẽ nhánh → tua qua lại
+     giữa các thế cờ đã phân tích (dùng chung cơ chế reviewJumpTo, có animation
+     trượt quân). Khi đang rẽ nhánh, dữ liệu phân tích cũ không còn khớp index
+     với các nước mới trong nhánh nên KHÔNG dùng cơ chế này nữa.
+   - Nếu chưa phân tích gì / đang rẽ nhánh → "lùi" (dir<0) sẽ Đi lại (undo) nước
      vừa đi; "tiến" (dir>0) không có gì để làm (chưa từng lùi) nên bỏ qua. */
 function stepReview(dir) {
-  var hasAn = (typeof gAnFens !== 'undefined' && gAnFens.length > 0 && typeof gMoveTexts !== 'undefined' && gMoveTexts.length > 0);
+  var hasAn = (typeof gAnFens !== 'undefined' && gAnFens.length > 0 && typeof gMoveTexts !== 'undefined' && gMoveTexts.length > 0)
+              && !gBranchActive;
   if (hasAn) {
     var cur = (gReviewIdx >= 0) ? gReviewIdx : (gMoveTexts.length - 1);
     var target = cur + dir;
@@ -3883,8 +3857,97 @@ function stepReview(dir) {
    ═══════════════════════════════════════════════════ */
 var gAppTab = 'analysis';
 
+/* ── Rẽ nhánh (play from position) — giống chế độ phân tích của lichess:
+   cho phép đi tiếp quân của CẢ 2 BÊN từ 1 thế cờ đang xem lại, tạo thành
+   1 nhánh mới tạm thời, không ghi đè lên ván đã phân tích. ── */
+var gBranchActive  = false;  /* đang ở trong 1 nhánh mới? */
+var gBranchFromIdx = -1;     /* rẽ nhánh từ sau nước thứ mấy của ván gốc (0-based) */
+var gBranchSaved   = null;   /* bản sao đầy đủ dữ liệu ván gốc để khôi phục khi "Quay lại" */
+
+/* Gọi ở ĐẦU execMove(): nếu đang ở tab Phân tích, có sẵn 1 ván đã nạp, và CHƯA
+   rẽ nhánh — thì nước đi sắp thực hiện chính là nước ĐẦU TIÊN của nhánh mới.
+   Cắt các mảng ghi nước đi về đúng điểm rẽ nhánh, lưu lại bản gốc đầy đủ. */
+function _maybeStartBranch(){
+  if(typeof gAppTab==='undefined' || gAppTab!=='analysis') return;
+  if(gBranchActive) return;
+  /* Chỉ coi là "rẽ nhánh" khi người dùng ĐANG chủ động xem lại 1 nước cụ thể
+     (gReviewIdx được set qua reviewJumpTo) — đây là tín hiệu RÕ RÀNG duy nhất
+     cho biết có nước đi "trong tương lai" của ván gốc sẽ bị ghi đè, cần lưu lại
+     để khôi phục. Nếu gReviewIdx < 0 (không đang xem lại gì cụ thể — kể cả lúc
+     đang bulk-replay 1 PGN qua vòng lặp execMove liên tiếp), nước đi chỉ đơn
+     giản NỐI DÀI ván hiện tại như bình thường, không có gì để "rẽ nhánh". */
+  if(typeof gReviewIdx==='undefined' || gReviewIdx < 0) return;
+  if(!gMoveTexts || !gMoveTexts.length) return; /* ván trống — chơi bình thường, không có gì để rẽ nhánh */
+
+  var fromIdx = gReviewIdx;
+
+  gBranchFromIdx = fromIdx;
+  gBranchSaved = {
+    gHist: gHist.slice(), gMoveTexts: gMoveTexts.slice(), gUciHist: gUciHist.slice(),
+    gFenHistory: gFenHistory.slice(), gMoveInfo: gMoveInfo.slice(),
+    gStateHistory: gStateHistory.slice(),
+    gReviewIdx: gReviewIdx,
+    gPosCount: JSON.parse(JSON.stringify(gPosCount))
+  };
+
+  /* Cắt các mảng ghi nước đi về đúng điểm rẽ nhánh — chỉ giữ nước 0..fromIdx */
+  gMoveTexts    = gMoveTexts.slice(0, fromIdx+1);
+  gUciHist      = gUciHist.slice(0, fromIdx+1);
+  gFenHistory   = gFenHistory.slice(0, fromIdx+1);
+  gMoveInfo     = gMoveInfo.slice(0, fromIdx+1);
+  gStateHistory = gStateHistory.slice(0, fromIdx+1);
+
+  /* Dựng lại gHist (dạng "1.e4 e5  2.Nf3 ...") từ gMoveTexts đã cắt */
+  gHist = [];
+  for(var i=0;i<gMoveTexts.length;i++){
+    if(i%2===0) gHist.push((Math.floor(i/2)+1)+'.'+gMoveTexts[i]);
+    else if(gHist.length) gHist[gHist.length-1]+=' '+gMoveTexts[i];
+    else gHist.push('...'+gMoveTexts[i]);
+  }
+
+  gBranchActive = true;
+  if(typeof updateBranchBtn==='function') updateBranchBtn();
+}
+
+/* Nút "Quay lại": khôi phục nguyên trạng ván gốc, quay về đúng thế cờ tại
+   điểm vừa rẽ nhánh. */
+function exitBranch(){
+  if(!gBranchActive || !gBranchSaved) return;
+  gHist         = gBranchSaved.gHist;
+  gMoveTexts    = gBranchSaved.gMoveTexts;
+  gUciHist      = gBranchSaved.gUciHist;
+  gFenHistory   = gBranchSaved.gFenHistory;
+  gMoveInfo     = gBranchSaved.gMoveInfo;
+  gStateHistory = gBranchSaved.gStateHistory;
+  gPosCount     = gBranchSaved.gPosCount;
+  var backToIdx = gBranchFromIdx;
+
+  gBranchActive  = false;
+  gBranchFromIdx = -1;
+  gBranchSaved   = null;
+
+  if(typeof updateBranchBtn==='function') updateBranchBtn();
+  if(typeof reviewJumpTo==='function') reviewJumpTo(backToIdx, false, true);
+  if(typeof updatePgnBtn==='function') updatePgnBtn();
+  if(typeof updateNavBtn==='function') updateNavBtn();
+}
+
+/* Nút dưới-trái đổi giữa "Phân tích" (mặc định) và "Quay lại" (khi đang rẽ nhánh) */
+function updateBranchBtn(){
+  var btn = document.getElementById('btn-pgn');
+  if(!btn) return;
+  if(gBranchActive){
+    btn.innerHTML = '\u21a9\ufe0f Quay l\u1ea1i';
+    btn.onclick = exitBranch;
+  } else {
+    btn.innerHTML = '\uD83D\uDCCB Ph\u00e2n t\u00edch';
+    btn.onclick = function(){ switchAppTab('analysis'); };
+  }
+}
+
 function switchAppTab(tab) {
   if (tab !== 'play' && tab !== 'analysis') return;
+  if (tab === 'play' && gBranchActive) exitBranch(); /* thoát nhánh gọn gàng trước khi rời tab Phân tích */
   gAppTab = tab;
 
   var eloSel  = document.getElementById('elo');
@@ -3951,6 +4014,7 @@ function switchAppTab(tab) {
   }
   if (typeof updateNavBtn === 'function') updateNavBtn();
   if (typeof updatePgnBtn === 'function') updatePgnBtn();
+  if (typeof updateBranchBtn === 'function') updateBranchBtn();
   if (typeof setStatus === 'function') setStatus();
 }
 
@@ -7830,12 +7894,28 @@ function go (maxPly) {
       }
       
       else {
-        // exact — đây LUÔN là PV1 (nước tốt nhất thật, single-PV search chuẩn).
-        // Không còn "track for MultiPV" giả ở đây nữa — PV2..N (nếu multiPV>1)
-        // được tìm bằng root-move-exclusion search THẬT sau khi vòng lặp
-        // iterative-deepening này kết thúc (xem bên dưới, sau vòng for ply).
+        // exact
 
-        if (Math.abs(score) > MINMATE) {
+        // track for MultiPV
+
+        if (statsBestMove) {
+          multiPVMoves = multiPVMoves.filter(function(m){ return m.move !== statsBestMove; });
+          multiPVMoves.unshift({
+            move:  statsBestMove,
+            score: score,
+            pv:    rootNode.pv.slice(0, rootNode.pvLen),
+            pvLen: rootNode.pvLen
+          });
+        }
+
+
+        if (multiPV > 1) {
+
+          reportMultiPV(depth);
+
+        }
+
+        else if (Math.abs(score) > MINMATE) {
 
           var mateScore = (MATE - Math.abs(score)) / 2 | 0;
           if (score < 0)
@@ -7863,60 +7943,6 @@ function go (maxPly) {
     if (statsTimeOut)
       break;
     
-  }
-
-  /* ── Root-move-exclusion MultiPV (PV2..N thật) ──────────────────────────
-     Chỉ chạy khi caller yêu cầu multiPV>1 (xem uci 'setoption name MultiPV').
-     PV1 đã có sẵn ở statsBestMove/statsBestScore/rootNode.pv từ vòng lặp
-     trên (tìm đủ tới maxPly). Với mỗi PV kế tiếp: loại các nước đã tìm ra
-     khỏi root rồi search lại CÙNG depth cuối (full window, không dùng
-     aspiration để đơn giản/an toàn) — đây là cách multipv chuẩn của các
-     engine UCI (Stockfish...), khác với suy đoán "đổi best-move giữa các
-     độ sâu" trước đây vốn gần như không bao giờ ra được PV2 thật. */
-  if (multiPV > 1 && !statsTimeOut && statsBestMove) {
-
-    multiPVMoves = [{
-      move:  statsBestMove,
-      score: statsBestScore,
-      pv:    rootNode.pv.slice(0, rootNode.pvLen),
-      pvLen: rootNode.pvLen
-    }];
-
-    excludedRootMoves = [statsBestMove];
-
-    for (var pvIdx = 2; pvIdx <= multiPV; pvIdx++) {
-
-      var mpScore = rootSearch(rootNode, depth, bdTurn, -INF, INF);
-
-      /* Lưu ý: rootSearch() cũng set statsTimeOut=1 khi vị trí (sau khi loại
-         trừ) chỉ còn ĐÚNG 1 nước hợp lệ ("only one legal move so don't waste
-         any more time") — đây KHÔNG phải timeout thật, statsBestMove vẫn
-         hoàn toàn hợp lệ trong trường hợp đó. Phải lưu kết quả TRƯỚC khi
-         kiểm tra statsTimeOut, nếu không sẽ mất oan PV cuối cùng (rất hay
-         xảy ra ở các thế cờ chiến thuật ít lựa chọn — đúng lúc cần multipv
-         chính xác nhất). */
-      if (!statsBestMove) break;
-
-      multiPVMoves.push({
-        move:  statsBestMove,
-        score: mpScore,
-        pv:    rootNode.pv.slice(0, rootNode.pvLen),
-        pvLen: rootNode.pvLen
-      });
-
-      excludedRootMoves.push(statsBestMove);
-
-      if (statsTimeOut) break;
-    }
-
-    excludedRootMoves = [];
-
-    reportMultiPV(depth);
-
-    /* Các search loại trừ ở trên đã ghi đè statsBestMove/statsBestScore —
-       khôi phục lại PV1 (nước thật sự tốt nhất) trước khi báo bestmove. */
-    statsBestMove  = multiPVMoves[0].move;
-    statsBestScore = multiPVMoves[0].score;
   }
 
   bestMoveStr = formatMove(statsBestMove);
@@ -7971,9 +7997,6 @@ function rootSearch (node, depth, turn, alpha, beta) {
   genMoves(node, turn);
 
   while ((move = getNextMove(node)) !== 0) {
-
-    if (excludedRootMoves.length !== 0 && excludedRootMoves.indexOf(move) !== -1)
-      continue;
 
     makeMoveA(node, move);
 
@@ -8054,14 +8077,7 @@ function rootSearch (node, depth, turn, alpha, beta) {
           addKiller(node, bestScore, bestMove);
           if ((move & MOVE_NOISY_MASK) === 0)
             addHistory(Math.imul(Math.imul(depth, depth), depth), bestMove);
-          /* KHÔNG ghi TT khi đang search loại trừ (excludedRootMoves != rỗng) —
-             kết quả này chỉ đúng "với điều kiện đã loại 1 số nước ở root", ghi vào
-             TT sẽ làm hỏng entry cho các lần tra cứu BÌNH THƯỜNG sau này của
-             CHÍNH vị trí này (vd multipv backfill/mate_verify của 1 nước khác,
-             hoặc transposition từ nước đi khác dẫn tới cùng vị trí) — đây chính
-             là nguyên nhân gây điểm số/nước đi gợi ý vô lý phát hiện được. */
-          if (excludedRootMoves.length === 0)
-            ttPut(TT_BETA, depth, bestScore, bestMove, node.ply, alpha, beta, INF);
+          ttPut(TT_BETA, depth, bestScore, bestMove, node.ply, alpha, beta, INF);
           return bestScore;
         }
 
@@ -8090,13 +8106,11 @@ function rootSearch (node, depth, turn, alpha, beta) {
   }
   
   if (bestScore > oAlpha) {
-    if (excludedRootMoves.length === 0)
-      ttPut(TT_EXACT, depth, bestScore, bestMove, node.ply, alpha, beta, node.ev);
+    ttPut(TT_EXACT, depth, bestScore, bestMove, node.ply, alpha, beta, node.ev);
     return bestScore;
   }
   else {
-    if (excludedRootMoves.length === 0)
-      ttPut(TT_ALPHA, depth, bestScore, bestMove, node.ply, alpha, beta, node.ev);
+    ttPut(TT_ALPHA, depth, bestScore, bestMove, node.ply, alpha, beta, node.ev);
     return bestScore;
   }
   
@@ -10957,11 +10971,6 @@ var statsBestScore = 0;
 
 var multiPV      = 1;
 var multiPVMoves = [];
-/* Root-move-exclusion multipv: khi khác rỗng, rootSearch() bỏ qua các nước
-   trong danh sách này ngay tại root — dùng để tìm PV2/PV3/PV4 THẬT sau khi
-   đã có PV1, thay vì suy đoán multipv từ các lần đổi best-move giữa các độ
-   sâu (cách cũ không đáng tin cậy). */
-var excludedRootMoves = [];
 
 // initStats
 
