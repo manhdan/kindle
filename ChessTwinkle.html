@@ -1,9 +1,9 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="vi">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-<title>ChessTwinkle</title>
+<title>ChessTwinkle3</title>
 <style>
 html { font-size: 16px; }
 * { -webkit-box-sizing: border-box; box-sizing: border-box; margin: 0; padding: 0; }
@@ -352,17 +352,348 @@ var SYM=[null,
    useTime=true: searchTime(t) — iterative deepening tới hết giờ
    useTime=false: search(d) — exact depth, nhanh hơn */
 var ELO_CFG=[
-  {d:2, t:500,  useTime:true},   /* Cấp 1  */
-  {d:2, t:1000, useTime:true},   /* Cấp 2  */
-  {d:3, t:1500, useTime:true},   /* Cấp 3  */
-  {d:3, t:2000, useTime:true},   /* Cấp 4  */
-  {d:4, t:2500, useTime:true},   /* Cấp 5  */
-  {d:4, t:3000, useTime:true},   /* Cấp 6  */
-  {d:4, t:3500, useTime:true},   /* Cấp 7  */
-  {d:5, t:4000, useTime:true},   /* Cấp 8  */
-  {d:5, t:5000, useTime:true},   /* Cấp 9  */
-  {d:6, t:5500, useTime:true}    /* Cấp 10 */
+  {d:2, t:100,  useTime:true},   /* Cấp 1  */
+  {d:2, t:200, useTime:true},   /* Cấp 2  */
+  {d:3, t:300, useTime:true},   /* Cấp 3  */
+  {d:3, t:500, useTime:true},   /* Cấp 4  */
+  {d:4, t:1000, useTime:true},   /* Cấp 5  */
+  {d:4, t:1500, useTime:true},   /* Cấp 6  */
+  {d:4, t:2000, useTime:true},   /* Cấp 7  */
+  {d:5, t:2500, useTime:true},   /* Cấp 8  */
+  {d:5, t:3000, useTime:true},   /* Cấp 9  */
+  {d:6, t:4000, useTime:true}    /* Cấp 10 */
 ];
+
+/* ═══════════════════════════════════════════════════════════════════
+   AI PERSONA & PLAYSTYLE — chỉ áp dụng Cấp 1-5 (gRank 0-4).
+   Mục tiêu: mô phỏng cảm giác "chơi với người 800 ELO" thay vì 1 engine
+   sạch luôn chọn best move — xem 3 mục:
+
+   [Mục 1] AI_MOVE_NOISE_CFG — "nhiễu" khi CHỌN nước, không đụng eval.
+     Dùng lại danh sách best4rootmoves (đã có sẵn cho eval2ndBest, không
+     tốn thêm Worker call) — với 1 xác suất mỗi lượt (chance), chọn ngẫu
+     nhiên có trọng số trong các nước có cpLoss ≤ noiseCp so với best,
+     thay vì luôn lấy nước #1. Cấp càng thấp, noiseCp/chance càng lớn.
+     Cấp 6+ không có entry → không áp dụng gì (giữ nguyên hành vi cũ).
+   [Mục 2] AI_PERSONA_LIST — khai cuộc "đóng đinh" theo persona thay vì
+     random mỗi ván (xem openingBookMove()). Mỗi ván mới roll 1 persona
+     (ensureAiPersona()), giữ cố định suốt ván — mô phỏng người chơi có
+     1 repertoire quen thuộc chứ không đổi gu mỗi ván.
+   [Mục 3] style trong mỗi persona — thiên vị nhẹ khi chọn giữa các ứng
+     viên "gần điểm nhau" ở Mục 1 (xem styleWeight()), KHÔNG sửa eval
+     function của tomitankChess — an toàn hơn, không phá search đã tune.
+
+   Phạm vi persona.bookBias: chỉ pin các nhánh CÓ TRỌNG SỐ (%) mà persona
+   thực sự đi qua, dựa theo BOOK_MAP hiện có (đã rà thủ công, không phải
+   suy diễn) — các entry đơn trị (không có "|") trong bảng gốc đã tự
+   nhất quán sẵn nên không cần pin thêm. Nếu muốn mở rộng khai cuộc SÂU
+   HƠN 8 ply (giới hạn cứng của openingBookMove) thì cần thêm DATA vào
+   BOOK_MAP, không phải sửa cơ chế persona này. */
+var AI_MOVE_NOISE_CFG = [
+  {noiseCp:150, chance:0.70},  /* Cấp 1 */
+  {noiseCp:120, chance:0.60},  /* Cấp 2 */
+  {noiseCp:90,  chance:0.50},  /* Cấp 3 */
+  {noiseCp:60,  chance:0.35},  /* Cấp 4 */
+  {noiseCp:40,  chance:0.20}   /* Cấp 5 */
+];
+
+/* PIECE_CHAR_MAP: dùng cho persona.plan — {piece:'N', to:'f3'} nghĩa là
+   "đi 1 quân MÃ tới ô f3", khớp theo LOẠI QUÂN + Ô ĐÍCH (không quan tâm
+   quân đó xuất phát từ đâu, có ăn quân hay không) — nhờ vậy plan không
+   phụ thuộc thứ tự nước đi của đối phương, tự nhiên "mềm" trước mọi cách
+   chuyển vị (transposition). 'K' tới g1/c1/g8/c8 tự động khớp cả nhập
+   thành vì nước nhập thành trong engine này ĐƯỢC MÃ HOÁ như 1 nước Vua
+   di chuyển 2 ô (vd e1g1), xem newCasBit()/legalMoves(). */
+var PIECE_CHAR_MAP = {P:1,N:2,B:3,R:4,Q:5,K:6};
+
+/* AI_PERSONA_LIST: mỗi persona gồm:
+   - bookBias: pin CHÍNH XÁC theo lịch sử (như trước) cho các nhánh CÓ
+     TRỌNG SỐ đã rà trong BOOK_MAP — chỉ có giá trị trong phạm vi 8 ply
+     mà BOOK_MAP phủ, và chỉ khi lịch sử KHỚP Y HỆT.
+   - plan: chuỗi "hình thái mục tiêu" (piece+to) — cơ chế MỀM, kích hoạt
+     khi openingBookMove() trả null (hết bảng HOẶC lịch sử không khớp do
+     đối phương đi lệch) — xem findPersonaPlanMove()/personaMoveIsSafe()
+     và nhánh gọi trong aiMoveCore(). Cố gắng đi tiếp ĐÚNG bước kế hoạch
+     kế tiếp nếu hợp lệ VÀ không phải blunder rõ ràng (hi sinh quân free);
+     nếu bước đó bất khả thi/không an toàn → thoát kế hoạch, quay về
+     search bình thường cho PHẦN CÒN LẠI của ván (không thử lại kế hoạch).
+   - style: xem styleWeight() — trade/queenEarly/openAggr/castleFast/
+     flankPawns, mỗi trường -1|0|1 hoặc bool, càng nhiều persona thì càng
+     nên đa dạng hoá tổ hợp để cảm giác "mỗi ván 1 đối thủ khác nhau". */
+var AI_PERSONA_LIST = [
+  /* ---------- TRẮNG ---------- */
+  { id:'london_white', label:'London (tr\u1eafng)', color:W,
+    bookBias:{ '':'d2d4', 'd2d4 d7d5':'c1f4', 'd2d4 g8f6':'g1f3',
+      'd2d4 f7f5':'g1f3', 'd2d4 b8c6':'d4d5',
+      'd2d4 g8f6 g1f3 d7d5':'c1f4', 'd2d4 g8f6 g1f3 e7e6':'c1f4',
+      'd2d4 g8f6 g1f3 g7g6':'c1f4' },
+    plan:[{piece:'P',to:'d4'},{piece:'N',to:'f3'},{piece:'B',to:'f4'},
+          {piece:'P',to:'e3'},{piece:'B',to:'d3'},{piece:'N',to:'d2'},
+          {piece:'K',to:'g1'},{piece:'P',to:'c3'}],
+    style:{ trade:0, queenEarly:false, openAggr:-1, castleFast:true,  flankPawns:0 } },
+  { id:'colle_white', label:'Colle System (tr\u1eafng)', color:W,
+    bookBias:{ '':'d2d4' },
+    plan:[{piece:'P',to:'d4'},{piece:'N',to:'f3'},{piece:'P',to:'e3'},
+          {piece:'B',to:'d3'},{piece:'K',to:'g1'},{piece:'N',to:'d2'},
+          {piece:'P',to:'c3'},{piece:'R',to:'e1'}],
+    style:{ trade:-1, queenEarly:false, openAggr:-1, castleFast:true,  flankPawns:-1 } },
+  { id:'italian_white', label:'Italian (tr\u1eafng)', color:W,
+    bookBias:{ '':'e2e4', 'e2e4 e7e5':'g1f3', 'e2e4 e7e5 g1f3 b8c6':'f1c4' },
+    plan:[{piece:'P',to:'e4'},{piece:'N',to:'f3'},{piece:'B',to:'c4'},
+          {piece:'K',to:'g1'},{piece:'P',to:'c3'},{piece:'P',to:'d3'},
+          {piece:'R',to:'e1'}],
+    style:{ trade:-1, queenEarly:false, openAggr:1,  castleFast:true,  flankPawns:0 } },
+  { id:'ruylopez_white', label:'Ruy Lopez (tr\u1eafng)', color:W,
+    bookBias:{ '':'e2e4', 'e2e4 e7e5':'g1f3' },
+    plan:[{piece:'P',to:'e4'},{piece:'N',to:'f3'},{piece:'B',to:'b5'},
+          {piece:'K',to:'g1'},{piece:'R',to:'e1'},{piece:'P',to:'c3'},
+          {piece:'P',to:'d4'}],
+    style:{ trade:0, queenEarly:false, openAggr:1,  castleFast:true,  flankPawns:0 } },
+  { id:'vienna_white', label:'Vienna (tr\u1eafng)', color:W,
+    bookBias:{ '':'e2e4' },
+    plan:[{piece:'P',to:'e4'},{piece:'N',to:'c3'},{piece:'B',to:'c4'},
+          {piece:'N',to:'f3'},{piece:'P',to:'d3'},{piece:'K',to:'g1'}],
+    style:{ trade:1, queenEarly:false, openAggr:1,  castleFast:false, flankPawns:0 } },
+  { id:'english_white', label:'English (tr\u1eafng)', color:W,
+    bookBias:{ '':'c2c4' },
+    plan:[{piece:'P',to:'c4'},{piece:'N',to:'c3'},{piece:'P',to:'g3'},
+          {piece:'B',to:'g2'},{piece:'N',to:'f3'},{piece:'K',to:'g1'},
+          {piece:'P',to:'d3'}],
+    style:{ trade:0, queenEarly:false, openAggr:-1, castleFast:false, flankPawns:1 } },
+  { id:'reti_white', label:'R\u00e9ti (tr\u1eafng)', color:W,
+    bookBias:{ '':'g1f3' },
+    plan:[{piece:'N',to:'f3'},{piece:'P',to:'c4'},{piece:'P',to:'g3'},
+          {piece:'B',to:'g2'},{piece:'K',to:'g1'},{piece:'P',to:'d4'}],
+    style:{ trade:0, queenEarly:false, openAggr:-1, castleFast:true,  flankPawns:0 } },
+  { id:'kia_white', label:'King\u2019s Indian Attack (tr\u1eafng)', color:W,
+    bookBias:{ '':'g1f3' },
+    plan:[{piece:'N',to:'f3'},{piece:'P',to:'g3'},{piece:'B',to:'g2'},
+          {piece:'K',to:'g1'},{piece:'P',to:'d3'},{piece:'N',to:'d2'},
+          {piece:'P',to:'e4'},{piece:'R',to:'e1'}],
+    style:{ trade:-1, queenEarly:false, openAggr:1,  castleFast:true,  flankPawns:0 } },
+  { id:'queensgambit_white', label:'Queen\u2019s Gambit (tr\u1eafng)', color:W,
+    bookBias:{ '':'d2d4', 'd2d4 d7d5':'c2c4' },
+    plan:[{piece:'P',to:'d4'},{piece:'P',to:'c4'},{piece:'N',to:'c3'},
+          {piece:'N',to:'f3'},{piece:'B',to:'g5'},{piece:'P',to:'e3'}],
+    style:{ trade:1, queenEarly:false, openAggr:0,  castleFast:false, flankPawns:0 } },
+
+  /* ---------- ĐEN ---------- */
+  { id:'sicilian_black', label:'Sicilian (\u0111en)', color:B,
+    bookBias:{ 'e2e4':'c7c5', 'c2c4':'c7c5', 'g1f3':'c7c5',
+      'e2e4 c7c5 g1f3':'d7d6' },
+    plan:[{piece:'P',to:'c5'},{piece:'N',to:'c6'},{piece:'P',to:'d6'},
+          {piece:'N',to:'f6'},{piece:'P',to:'e6'},{piece:'B',to:'e7'},
+          {piece:'K',to:'g8'}],
+    style:{ trade:0, queenEarly:false, openAggr:1,  castleFast:true,  flankPawns:0 } },
+  { id:'kid_black', label:'King\u2019s Indian (\u0111en)', color:B,
+    bookBias:{ 'd2d4':'g8f6', 'c2c4':'g8f6', 'g1f3':'g8f6', 'e2e4':'g7g6',
+      'd2d4 g8f6 c2c4':'g7g6', 'd2d4 g8f6 g1f3':'g7g6',
+      'd2d4 g8f6 c1g5':'g7g6', 'd2d4 g8f6 c2c4 g7g6 b1c3':'f8g7' },
+    plan:[{piece:'N',to:'f6'},{piece:'P',to:'g6'},{piece:'B',to:'g7'},
+          {piece:'P',to:'d6'},{piece:'K',to:'g8'},{piece:'P',to:'e5'}],
+    style:{ trade:-1, queenEarly:false, openAggr:-1, castleFast:true,  flankPawns:0 } },
+  { id:'grunfeld_black', label:'Gr\u00fcnfeld (\u0111en)', color:B,
+    bookBias:{ 'd2d4':'g8f6', 'c2c4':'g8f6', 'g1f3':'g8f6' },
+    plan:[{piece:'N',to:'f6'},{piece:'P',to:'g6'},{piece:'P',to:'d5'},
+          {piece:'B',to:'g7'},{piece:'K',to:'g8'},{piece:'P',to:'c5'}],
+    style:{ trade:1, queenEarly:false, openAggr:1,  castleFast:true,  flankPawns:0 } },
+  { id:'nimzo_black', label:'Nimzo/QID (\u0111en)', color:B,
+    bookBias:{ 'd2d4':'g8f6', 'c2c4':'g8f6', 'g1f3':'g8f6' },
+    plan:[{piece:'N',to:'f6'},{piece:'P',to:'e6'},{piece:'B',to:'b4'},
+          {piece:'K',to:'g8'},{piece:'P',to:'d5'},{piece:'P',to:'c5'}],
+    style:{ trade:0, queenEarly:false, openAggr:0,  castleFast:true,  flankPawns:0 } },
+  { id:'slav_black', label:'Slav (\u0111en)', color:B,
+    bookBias:{ 'd2d4':'d7d5', 'c2c4':'d7d5', 'g1f3':'d7d5' },
+    plan:[{piece:'P',to:'d5'},{piece:'P',to:'c6'},{piece:'N',to:'f6'},
+          {piece:'B',to:'f5'},{piece:'P',to:'e6'},{piece:'N',to:'d7'}],
+    style:{ trade:-1, queenEarly:false, openAggr:-1, castleFast:false, flankPawns:0 } },
+  { id:'french_black', label:'French (\u0111en)', color:B,
+    bookBias:{ 'e2e4':'e7e6' },
+    plan:[{piece:'P',to:'e6'},{piece:'P',to:'d5'},{piece:'N',to:'f6'},
+          {piece:'B',to:'e7'},{piece:'K',to:'g8'},{piece:'P',to:'c5'},
+          {piece:'N',to:'c6'}],
+    style:{ trade:-1, queenEarly:false, openAggr:-1, castleFast:true,  flankPawns:0 } },
+  { id:'carokann_black', label:'Caro-Kann (\u0111en)', color:B,
+    bookBias:{ 'e2e4':'c7c6' },
+    plan:[{piece:'P',to:'c6'},{piece:'P',to:'d5'},{piece:'B',to:'f5'},
+          {piece:'N',to:'d7'},{piece:'N',to:'f6'},{piece:'P',to:'e6'},
+          {piece:'B',to:'e7'},{piece:'K',to:'g8'}],
+    style:{ trade:1, queenEarly:false, openAggr:-1, castleFast:true,  flankPawns:0 } },
+  { id:'pirc_black', label:'Pirc (\u0111en)', color:B,
+    bookBias:{ 'e2e4':'d7d6' },
+    plan:[{piece:'P',to:'d6'},{piece:'N',to:'f6'},{piece:'P',to:'g6'},
+          {piece:'B',to:'g7'},{piece:'K',to:'g8'},{piece:'P',to:'c6'}],
+    style:{ trade:0, queenEarly:false, openAggr:-1, castleFast:true,  flankPawns:0 } },
+  { id:'scandinavian_black', label:'Scandinavian (\u0111en)', color:B,
+    bookBias:{ 'e2e4':'d7d5' },
+    plan:[{piece:'P',to:'d5'},{piece:'Q',to:'d5'},{piece:'N',to:'f6'},
+          {piece:'P',to:'c6'},{piece:'B',to:'f5'},{piece:'P',to:'e6'}],
+    style:{ trade:0, queenEarly:true,  openAggr:0,  castleFast:false, flankPawns:0 } },
+  { id:'petrov_black', label:'Petrov (\u0111en)', color:B,
+    bookBias:{ 'e2e4':'e7e5', 'e2e4 e7e5 g1f3':'g8f6' },
+    plan:[{piece:'P',to:'e5'},{piece:'N',to:'f6'},{piece:'N',to:'e4'},
+          {piece:'P',to:'d5'},{piece:'B',to:'d6'},{piece:'K',to:'g8'}],
+    style:{ trade:1, queenEarly:false, openAggr:0,  castleFast:true,  flankPawns:0 } }
+];
+
+var gAiPersona=null, gAiPersonaToken=-1;
+var gPersonaPlanIdx=0, gPersonaPlanExhausted=false;
+
+/* ensureAiPersona: roll 1 lần/ván (khoá theo gGameToken), giữ cố định
+   suốt ván. Chỉ chọn trong các persona CÙNG MÀU với AI (màu đối nghịch
+   gPC) — vì bookBias/plan của persona chỉ có ý nghĩa cho quân AI đang
+   cầm. Reset lại tiến trình plan mỗi khi persona được roll lại (ván mới). */
+function ensureAiPersona(){
+  if(gAiPersonaToken===gGameToken) return;
+  gAiPersonaToken=gGameToken;
+  gAiPersona=null;
+  gPersonaPlanIdx=0;
+  gPersonaPlanExhausted=false;
+  if(gRank>4) return;  /* Cấp 6+ chơi chuẩn, không persona/noise/style */
+  var aiColor=-gPC;
+  var pool=[];
+  for(var i=0;i<AI_PERSONA_LIST.length;i++){
+    if(AI_PERSONA_LIST[i].color===aiColor) pool.push(AI_PERSONA_LIST[i]);
+  }
+  if(pool.length) gAiPersona=pool[Math.floor(Math.random()*pool.length)];
+}
+
+/* sqFromAlg('d4') -> index 0-63. moveToUciStr(mv) -> "d2d4"/"e7e8q". */
+function sqFromAlg(s){ return ((s.charCodeAt(1)-49)<<3) | (s.charCodeAt(0)-97); }
+function sqToAlg(sqv){ return String.fromCharCode(97+(sqv&7)) + String.fromCharCode(49+(sqv>>3)); }
+function moveToUciStr(mv){
+  var s = sqToAlg(mv[0]) + sqToAlg(mv[1]);
+  if(mv[3]){
+    var t=typ(mv[3]);
+    s += (t===5)?'q':(t===4)?'r':(t===3)?'b':(t===2)?'n':'';
+  }
+  return s;
+}
+
+/* findPersonaPlanMove: tìm nước hợp lệ HIỆN TẠI khớp bước kế hoạch
+   plan[idx] (đúng LOẠI QUÂN + Ô ĐÍCH). Trả {mv, uci} hoặc null nếu
+   không có nước hợp lệ nào khớp (ô đích bị chặn bởi quân mình, quân đó
+   đã bị đổi/mất, hoặc idx đã hết plan). */
+function findPersonaPlanMove(plan, idx){
+  if(!plan || idx>=plan.length) return null;
+  var step=plan[idx];
+  var wantTo=sqFromAlg(step.to), wantType=PIECE_CHAR_MAP[step.piece];
+  if(!wantType) return null;
+  var legal=legalMoves(gB,gTurn,gEP,gCasB);
+  for(var i=0;i<legal.length;i++){
+    var mv=legal[i];
+    if(mv[1]===wantTo && typ(gB[mv[0]])===wantType){
+      return {mv:mv, uci:moveToUciStr(mv)};
+    }
+  }
+  return null;
+}
+
+/* personaMoveIsSafe: [an toàn cho cơ chế "mềm"] chỉ chặn khi nước kế
+   hoạch là BLUNDER RÕ RÀNG (hi sinh quân free, giá trị > 1 Tốt) — thiệt
+   hại nhỏ (vd để hờ 1 Tốt có bù đắp) vẫn cho đi tiếp, đúng yêu cầu "cố
+   gắng đi hết khai cuộc trừ khi gây thiệt hại rõ rệt". Tái dùng nguyên
+   hàm SEE đã có cho player (playerPieceHangsAfterMove/
+   findHangingPieceValueExcept) — chỉ đổi playerCol thành màu AI (gTurn). */
+function personaMoveIsSafe(mv){
+  var futureBoard=applyMv(gB, mv);
+  if(playerPieceHangsAfterMove(futureBoard, mv, gTurn)){
+    var ownVal=PVAL[typ(gB[mv[0]])];
+    if(ownVal>150) return false;  /* treo quân > Tốt -> blunder thật */
+  }
+  var indirectHang=findHangingPieceValueExcept(futureBoard, gTurn, mv[1]);
+  if(indirectHang>150) return false;
+  return true;
+}
+
+/* pickAiCandidateMove: [Mục 1+3] chọn nước thật sự AI sẽ đi, có thể khác
+   bestUci nếu roll trúng "nhiễu" và có ứng viên đủ gần điểm trong
+   best4rootmoves. gB/gTurn/gEP/gCasB ở đây là board TRƯỚC khi AI đi (đúng
+   thời điểm gọi trong aiMoveCore, applyMv() chưa chạy). infoScoreAI cùng
+   perspective với best4[i].score (AI-to-move, dương=AI lợi). */
+function pickAiCandidateMove(bestUci, infoScoreAI, persona){
+  if(gRank>4) return bestUci;
+  var noiseCfg=AI_MOVE_NOISE_CFG[gRank];
+  if(!noiseCfg) return bestUci;
+  if(Math.random()>=noiseCfg.chance) return bestUci; /* roll trượt -> giữ best như cũ */
+
+  var best4=_tomiLastBest4;
+  if(!best4||best4.length<2) return bestUci;
+
+  /* Lọc ứng viên trong biên độ nhiễu cho phép. Lưu ý (xem comment gốc ở
+     _tomiExtractEval2nd): điểm các nước KHÁC bestmove trong best4rootmoves
+     thường là CẬN TRÊN (fail-low), tức cpLoss tính ra ở đây nhiều khả
+     năng bị THỔI PHỒNG (đánh giá kém hơn thực tế), không bao giờ đánh giá
+     TỐT hơn thực tế — an toàn theo hướng không lỡ chọn nhầm 1 nước thực
+     ra tệ hại hơn vẻ ngoài. */
+  var cands=[], i, e, cpLoss;
+  for(i=0;i<best4.length;i++){
+    e=best4[i];
+    if(!e||!e.move) continue;
+    cpLoss=infoScoreAI-e.score;
+    if(cpLoss<0) cpLoss=0;
+    if(cpLoss<=noiseCfg.noiseCp) cands.push({move:e.move, cpLoss:cpLoss});
+  }
+  if(cands.length<2) return bestUci;
+
+  var weights=[], total=0, w;
+  for(i=0;i<cands.length;i++){
+    w = 1 - (cands[i].cpLoss/(noiseCfg.noiseCp+1))*0.8;  /* giảm dần theo cpLoss */
+    if(w<0.1) w=0.1;
+    w *= styleWeight(cands[i].move, persona);
+    weights.push(w); total+=w;
+  }
+  var r=Math.random()*total, cum=0;
+  for(i=0;i<cands.length;i++){
+    cum+=weights[i];
+    if(r<cum) return cands[i].move;
+  }
+  return bestUci;
+}
+
+/* styleWeight: [Mục 3] hệ số nhân trọng số chọn nước theo phong cách
+   persona — KHÔNG đụng eval engine, chỉ thiên vị giữa các ứng viên đã
+   qua lọc cpLoss ở pickAiCandidateMove(). Dùng gB/gTurn hiện tại (trước
+   khi AI đi). typ()===1 là Tốt, typ()===5 là Hậu, typ()===6 là Vua.
+   5 chiều style: trade / queenEarly / openAggr / castleFast / flankPawns
+   — mỗi persona chỉ cần set các trường liên quan, phần còn lại (0/false)
+   coi như trung tính (không thiên vị). */
+function styleWeight(uci, persona){
+  if(!persona||!persona.style) return 1;
+  var mv=uciToMove(uci,gB,gTurn,gEP,gCasB);
+  if(!mv) return 1;
+  var st=persona.style, w=1;
+  var pieceT=typ(gB[mv[0]]);
+  var isCapture=!!mv[2];
+
+  if(isCapture && st.trade){
+    var capVal=PVAL[typ(mv[2])], moveVal=PVAL[pieceT];
+    var roughlyEqual=Math.abs(capVal-moveVal)<=150;
+    if(roughlyEqual) w *= (st.trade>0) ? 1.6 : 0.6;
+  }
+  if(pieceT===5 && gMoveNum<10){  /* 5 = Hậu */
+    w *= st.queenEarly ? 1.6 : 0.6;
+  }
+  if(st.openAggr){
+    var toFile=mv[1]&7;
+    var isCentralPawnPush2=(pieceT===1)&&(toFile>=2&&toFile<=5)&&
+      (Math.abs((mv[1]>>3)-(mv[0]>>3))===2);
+    var opensLine=isCapture || isCentralPawnPush2;
+    w *= opensLine ? ((st.openAggr>0)?1.4:0.75) : ((st.openAggr>0)?0.85:1.2);
+  }
+  if(st.castleFast && pieceT===6){  /* 6 = Vua: ưu tiên nước nhập thành */
+    var isCastle = Math.abs(mv[1]-mv[0])===2;
+    if(isCastle) w *= 1.8;
+  }
+  if(st.flankPawns && pieceT===1){  /* Tốt cánh a/b/g/h */
+    var fFile=mv[1]&7;
+    var isFlank=(fFile<=1||fFile>=6);
+    if(isFlank) w *= (st.flankPawns>0) ? 1.5 : 0.7;
+  }
+  if(w<0.15) w=0.15;
+  return w;
+
+}
 
 var CLASSIFY_TIME = 1200;  /* giam 1500->1200ms: PPW3 evalPlayer hay chay ~2.8s, giam bot */
 var OPENING_MOVES = 6;
@@ -390,7 +721,14 @@ var BOOK_DELAY_RATIO = 0.30;
    toàn khi tankyworker bật (xem comment ở tomiEnsure). Giá trị này CẦN đo
    thực tế trên PPW3 rồi tinh chỉnh: quá ngắn thì shallow eval kém tin cậy
    (chỉ depth 1-2), quá dài thì cộng dồn vào tổng thời gian classify. */
-var SHALLOW_EVAL_TIME = 200;
+var SHALLOW_EVAL_TIME = 50;  /* [FIX] giam 200->100->50: 200ms da dat depth 4-5
+  tren PPW3 (khong con "nong" nhu ten goi nua), khien cpLossShallow do duoc
+  qua sat voi cpLoss chinh (deep) → gan nhu luon loai cac ung vien Brilliant/
+  Great Defense (dieu kien can cpLossShallow >=80-100). 100ms van chua chac
+  chan "nong" o moi vi tri (xem thao luan cpLossShallow/TT-warm-start) — 50ms
+  giu dung y nghia "shallow" that su hon nua. CAN test lai depth thuc te tren
+  PPW3 bang cach ep _needShallow=true tam thoi (xem ChessTwinkle-test) truoc
+  khi coi la xong han. */
 /* pendingBest diagnostic + migration path
    PENDING_EVAL_MODE kiểm soát cách lấy gPendingBest / gPendingEval:
      'pending' : workerPending(PENDING_TIME) — hành vi gốc, không đổi gì
@@ -544,7 +882,7 @@ function _fmtLog(turnNum, raw) {
     /pendingBest\((\d+)ms\)\.\[pBe=([^|]+)\|d=(\d+)\|n=(\d+)\|cp=(-?\d+)\|mode=eval\]/g,
     function(_, ms, pv1, d, n, cp) { return 'e[' + ms + 'ms|pv1=' + pv1 + '|d' + d + '|n' + n + '|cp' + cp + ']'; }
   );
-  /* . giữa các chunk -> , */
+  /* . giữa các cụm log -> , */
   body = body.replace(/\]\./g, '],');
   /* bestMove[...],e[ -> bestMove[...]  e[ (2 spaces) */
   body = body.replace(/(bestMove\[[^\]]+\]),e\[/g, '$1  e[');
@@ -865,7 +1203,7 @@ function uciToMove(uci, board, turn, ep, casB){
    Uses tomitankChess 7.0 (ES5) running in a Web Worker via Blob.
    Protocol: plain UCI text (position/go/bestmove/info), not JSON.
    tomitank co dinh 1 lenh tai 1 thoi diem (khong co tag native) nen dung
-   hang doi noi bo (_tomiQueue) de serialize search/eval/evalDepth/pending -
+   hang doi noi bo (_tomiQueue) de serialize search/eval/pending -
    giu dung tinh chat "khong cho 2 lenh chay chong".
    ════════════════════════════════════════════════════════════════════════ */
 var tomiWorker=null, tomiReady=false, tomiThinking=false;
@@ -895,30 +1233,22 @@ function tomiEnsure(){
     setEngineError('Trinh duyet khong ho tro Web Worker. Vui long thu tren may tinh.');
     return false;
   }
-  /* [PPW3-FIX] Worker tao THANG tu toan bo engine source (giong het cach
-     ban PC lam: 1 buoc `new Worker(url)`), khong qua eval()/bootstrap/giao
-     thuc nao ca. Da xac nhan bang test that tren PPW3: 2 nguyen nhan treo
-     watchdog "unresponsive script" thuc su la (a) self.setTimeout bi gan de
-     global (xem _tomiDeferredSetTimeout ben duoi) va (b) vong lap sinh
-     magic bitboard cham luc runtime (nay dung bang tinh san offline,
-     PRECOMPUTED_MAGIC_*) — CA HAI deu khong lien quan gi den viec eval 1
-     hay nhieu manh. Sau khi sua ca 2, eval dong bo toan bo ~400KB engine
-     chay du nhanh, khong can chia nho.
-
-     Cac fix rieng cho thiet bi (giu nguyen doc lap voi cach nap script):
-     polyfill Float64Array (dau chunk-0), magic bitboard tinh san offline,
-     khong gan de self.setTimeout global, Hash 16MB (xem duoi). */
+  /* Worker được tạo TRỰC TIẾP từ toàn bộ engine source bằng 1 lệnh
+     `new Worker(url)` duy nhất — không qua eval()/bootstrap/giao thức nào
+     cả. Engine source (~400KB) nằm trong 1 thẻ <script id="tomitankChess"
+     type="text/plain"> (xem cuối file), đọc thẳng textContent rồi eval đồng
+     bộ 1 lần trong Worker — không có bước nạp/chạy tách rời theo từng phần.
+     Các fix riêng cho thiết bị: polyfill Float64Array, magic bitboard tính
+     sẵn offline (PRECOMPUTED_MAGIC_*), không gán đè self.setTimeout global,
+     Hash 16MB (xem dưới). */
   var engineSrc='';
-  var ci=0;
-  while(true){
-    var el=document.getElementById('tomi-chunk-'+ci);
-    if(!el||!el.textContent) break;
+  var el=document.getElementById('tomitankChess');
+  if(el&&el.textContent){
     /* [PPW3-FIX] Thay moi loi goi setTimeout( trong engine bang ham rieng
        _tomiDeferredSetTimeout(, KHONG dung self.setTimeout global nua (nghi
        phạm gay crash im lang tren WebKit co cua PPW3 - da xac nhan that qua
        test tren thiet bi). */
-    engineSrc+=el.textContent.replace(/\bsetTimeout\s*\(/g,'_tomiDeferredSetTimeout(')+'\n';
-    ci++;
+    engineSrc=el.textContent.replace(/\bsetTimeout\s*\(/g,'_tomiDeferredSetTimeout(');
   }
   if(!engineSrc){
     setEngineError('Khong tim thay ma nguon engine.');
@@ -936,15 +1266,10 @@ function tomiEnsure(){
       }
       return urlApi.createObjectURL(blob);
     }
-    /* [PPW3-FIX] _tomiDeferredSetTimeout: chi la passthrough sang setTimeout
-       goc (KHONG con hang doi/deferred-queue nhu ban co chunking, vi ly do
-       ton tai hang doi do — trach premature firing giua luc cac chunk dang
-       nap dan — khong con ap dung khi chi con 1 script dong bo duy nhat: bat
-       ky setTimeout(fn,0) nao goi trong luc top-level dang chay chi thuc su
-       fire SAU KHI toan bo top-level da chay xong, dung theo ngu nghia JS
-       event loop chuan). Dinh nghia truoc engine source 1 dong duy nhat, chi
-       de tranh phai sua lai moi cho goi setTimeout( rai rac trong ~9600
-       dong engine (van giu nguyen co che text-replace o tren). */
+    /* _tomiDeferredSetTimeout: chỉ là passthrough sang setTimeout gốc. Định
+       nghĩa 1 dòng trước engine source, để khỏi phải sửa lại từng chỗ gọi
+       setTimeout( rải rác trong ~9600 dòng engine (giữ cơ chế text-replace
+       ở trên). */
     var fullSrc = "function _tomiDeferredSetTimeout(fn,delay){ return setTimeout(fn,delay); }\n" + engineSrc;
     var workerUrl=makeBlobUrl(fullSrc);
     _tomiErrorStreak = 0;
@@ -1007,7 +1332,7 @@ function tomiPost(cmd){
 }
 
 /* Hang doi noi bo: moi phan tu {kind, fen, timeMs, callback}.
-   kind: 'search' | 'eval' | 'evalDepth' | 'pending'
+   kind: 'search' | 'eval' | 'pending'
    CHI dung movetime (khong con nhanh depth-based) — xem ly do o tomiEnsure(). */
 var _tomiQueue = [];
 var _tomiBusy = false;
@@ -1037,7 +1362,7 @@ function _tomiRecoverStuckWorker(){
   if(req && req.callback){
     try{
       if(req.kind==='search') req.callback(null,'',null);
-      else req.callback({score:0,depth:0,nodes:0,eval2ndBest:null});
+      else req.callback({score:0,depth:0,nodes:0,eval2ndBest:null,mateN:null});
     }catch(ce){}
   }
   _tomiProcessNext();
@@ -1086,13 +1411,10 @@ function onTomiMessage(e){
     tomiReady=true;
     return;
   }
-  /* [PPW3-DIAG] Chi con 1 loai message 'info string diag ...' co the toi day:
-     EXCEPTION in SearchPosition (tu try/catch bao quanh SearchPosition() -
-     xem gia tri #15 trong bang thay doi PPW3, khong lien quan chunking, van
-     giu nguyen vi la safety-net chung cho loi runtime that trong search) -
-     ghi vao system log rieng (tMarkSys) de khong lan vao log dien bien van
-     co. (EVAL-ERROR/DEFERRED-TIMER-ERROR cua ban co chunking khong con kha
-     nang xay ra nua vi da bo han eval()/hang doi timer rieng.) */
+  /* Chỉ còn 1 loại message 'info string diag ...' có thể tới đây: EXCEPTION
+     trong SearchPosition (từ try/catch bao quanh SearchPosition() — safety-net
+     chung cho lỗi runtime thật trong search) — ghi vào system log riêng
+     (tMarkSys) để không lẫn vào log diễn biến ván cờ. */
   if(msg.indexOf('info string diag')===0){
     tMarkSys(msg.slice('info string diag '.length));
     return;
@@ -1143,10 +1465,10 @@ function onTomiMessage(e){
     if(req){
       if(req.kind==='search'){
         req.callback(uci, _tomiLastInfo, eval2nd);
-      } else if(req.kind==='eval' || req.kind==='evalDepth'){
-        req.callback({ score: info.score, depth: info.depth, nodes: info.nodes, eval2ndBest: eval2nd });
+      } else if(req.kind==='eval'){
+        req.callback({ score: info.score, depth: info.depth, nodes: info.nodes, eval2ndBest: eval2nd, mateN: info.mateN });
       } else if(req.kind==='pending'){
-        req.callback({ uci: uci, score: info.score, depth: info.depth, nodes: info.nodes, eval2ndBest: eval2nd });
+        req.callback({ uci: uci, score: info.score, depth: info.depth, nodes: info.nodes, eval2ndBest: eval2nd, mateN: info.mateN });
       }
     }
     _tomiProcessNext();
@@ -1170,7 +1492,7 @@ function _tomiExtractEval2nd(best4, bestUci){
 }
 
 function _parseInfo(infoStr) {
-  var r = { score: 0, depth: 0, nodes: 0 };
+  var r = { score: 0, depth: 0, nodes: 0, mateN: null };
   if (!infoStr) return r;
   var dm = infoStr.match(/depth (\d+)/);
   var nm = infoStr.match(/nodes (\d+)/);
@@ -1179,7 +1501,11 @@ function _parseInfo(infoStr) {
   if (dm) r.depth = parseInt(dm[1]);
   if (nm) r.nodes = parseInt(nm[1]);
   if (sm) r.score = parseInt(sm[1]);
-  if (mm) r.score = (parseInt(mm[1]) > 0 ? 1 : -1) * 9999;
+  /* [FIX mate-vs-mate] giu lai N thuc (co dau, tinh theo ply cua ben tim
+     kiem tai node goc) thay vi chi map thanh +-9999 nhu truoc — can de so
+     sanh "mate xa bao nhieu" giua truoc/sau nuoc di, tranh phep tru cp tho
+     tren thang diem ±9999 (vo nghia o do lon nay). */
+  if (mm) { r.mateN = parseInt(mm[1]); r.score = (r.mateN > 0 ? 1 : -1) * 9999; }
   return r;
 }
 
@@ -1204,18 +1530,6 @@ function workerEval(fen, timeMs, tag, callback) {
     kind: 'eval',
     fen: fen,
     timeMs: timeMs,
-    callback: callback
-  });
-}
-
-/* workerEvalDepth: shallow eval — DUNG MOVETIME NGAN (khong con depth cung),
-   xem SHALLOW_EVAL_TIME. Giu nguyen ten ham/chu ky goi (fen, _depthIgnored,
-   tag, callback) de khong phai sua 2 call site hien co. */
-function workerEvalDepth(fen, _depthIgnored, tag, callback) {
-  _tomiEnqueue({
-    kind: 'evalDepth',
-    fen: fen,
-    timeMs: SHALLOW_EVAL_TIME,
     callback: callback
   });
 }
@@ -2348,12 +2662,19 @@ var BOOK_MAP = {
 };
 
 /* -------------------------------------------------------
-   openingBookMove(uciHist) -> UCI string | null
+   openingBookMove(uciHist, persona) -> UCI string | null
    Max 8 ply. O(1) lookup. ES5.
-------------------------------------------------------- */
-function openingBookMove(uciHist) {
+   [Mục 2] persona (tuỳ chọn, xem AI_PERSONA_LIST): nếu persona.bookBias
+   có override cho đúng lịch sử hiện tại, dùng LUÔN override đó — đóng
+   đinh khai cuộc theo persona thay vì random theo trọng số bảng gốc.
+   Không có persona hoặc không match key nào → hành vi y hệt cũ. */
+function openingBookMove(uciHist, persona) {
   if (!uciHist || uciHist.length >= 8) return null;
-  var val = BOOK_MAP[uciHist.join(" ")];
+  var key = uciHist.join(" ");
+  if (persona && persona.bookBias && persona.bookBias.hasOwnProperty(key)) {
+    return persona.bookBias[key];
+  }
+  var val = BOOK_MAP[key];
   if (!val) return null;
   if (val.indexOf("|") < 0) return val.split(":")[0];
   var parts = val.split("|");
@@ -2415,10 +2736,16 @@ var gPendingEval = 0;
    giong _evalBest trong classifyMove). null neu khong co du lieu MultiPV
    (Worker chua tankyworker kip, hoac JSON loi) — noi dung phai fallback. */
 var gPendingEval2nd = null;
+/* gPendingMateN: mate-in-N co dau (duong=AI/ben tim kiem thang, am=thua),
+   raw tu engine tai vi tri futureFen (truoc nuoc player). null neu khong
+   phai mate score. Dung cho fix mate-vs-mate cpLoss trong classifyMove(). */
+var gPendingMateN = null;
 var gPendingEvalComplete = false;
-/* shallow eval tại futureFen, player-perspective (dương = player có lợi).
-   Lấy trong pendingBest callback khi Worker vừa idle, TT còn ấm → ~50–120ms.
-   Chạy trong thời gian AI đang thực thi nước đi — overhead 0 từ góc nhìn user. */
+/* [Cách 3] KHÔNG còn dùng làm cache toàn cục — shallowBest giờ chỉ chạy
+   có điều kiện, ngay trong closure của classify (execMove, nhánh
+   !isBestMove) khi thực sự cần, xem workerEval(fenBefore, SHALLOW_EVAL_TIME,
+   'shB', ...) ở đó. Giữ lại biến để không phá vỡ tham chiếu ở nơi khác
+   (comment sign-convention), nhưng không còn ai ghi/đọc giá trị này nữa. */
 var gPendingShallowEval = null;
 var gBestMoveScore = 0;      /* infoScore từ bestMove search (AI side-to-move, dương=AI thắng) */
 var gPlayerMoveCount = 0;
@@ -2700,6 +3027,29 @@ function playerPieceHangsAfterMove(boardAfter, playerMv, playerCol) {
   return seeScore > 20;
 }
 
+/* [FIX brilliantIndirect — hoc tu ChessCoach] Quet TOAN BO quan cua player
+   tren ban co (tru quan vua di toSq, tru Vua, tru Tot) xem co quan nao
+   dang bi treo THAT (SEE duong cho doi phuong) hay khong — bat dung dang
+   "hy sinh gian tiep": nuoc di khong tu ban than no dat quan vao o nguy
+   hiem, ma de lo 1 quan KHAC (thuong la quan da dung yen tu truoc) thanh
+   muc tieu an duoc, doi lai lay loi the o cho khac (vd 11.axb4!! trong
+   ván Peruvian Immortal — bo ngo Xe a1 cho 11...Qxa1+, isSacrifice/
+   playerPieceHangsAfterMove (chi xet dung o toSq=b4) khong bat duoc vi
+   b4 chi la 1 nuoc doi tot-lay-tuong binh thuong). Tra ve gia tri quan
+   lon nhat dang treo kieu nay, hoac 0 neu khong co. */
+function findHangingPieceValueExcept(board, playerCol, exceptSq) {
+  var maxVal = 0;
+  for (var sq = 0; sq < 64; sq++) {
+    if (sq === exceptSq) continue;
+    var p = board[sq];
+    if (!p || col(p) !== playerCol || typ(p) < 2 || typ(p) === 6) continue;
+    if (!attacked(board, sq, -playerCol)) continue;
+    var seeScore = seeFull(board, sq, PVAL[typ(p)], -playerCol);
+    if (seeScore > 20 && PVAL[typ(p)] > maxVal) maxVal = PVAL[typ(p)];
+  }
+  return maxVal;
+}
+
 
 /* ═══════════════════════════════════════════════════════════════════
    SECTION 6 — GAME STATE & LIFECYCLE
@@ -2971,7 +3321,7 @@ function maybeOfferDraw(evalForAI){
 
 function resetStats(){
   gMoveStats={brilliant:0,great:0,best:0,greatDef:0,missedWin:0,missedMate:0,mistake:0,blunder:0};
-  gPendingBest=null; gPendingEval=0; gPendingEval2nd=null; gBestMoveScore=0;
+  gPendingBest=null; gPendingEval=0; gPendingEval2nd=null; gPendingMateN=null; gBestMoveScore=0;
   gPendingEvalComplete=false;
   gPlayerMoveCount=0; gTiltMoves=0; gBlunderRecovery=false;
   gMoveGateT0=0; gMoveGateMs=0;   /* [FIX] */
@@ -3429,17 +3779,20 @@ function onSqClick(e,fromTouch){
    Sign convention:
      savedEval           → AI-perspective   (dương = AI có lợi = player đang thua)
      gPendingEval        → player-persp     (= -savedEval, đã đổi khi lưu)
-     gPendingShallowEval → player-persp     (đổi dấu ngay trong shB callback)
      evalPlayer2         → player-persp     (đổi dấu từ Worker score ep2)
-     shallowActual       → player-persp     (đổi dấu từ Worker score shA)
+     _shBest/_shActualVal→ player-persp     (đổi dấu từ Worker score shB, tính
+                                             tại chỗ trong closure khi cần —
+                                             không còn cache toàn cục)
      → Mọi eval truyền vào classifyMove() đều là player-perspective.
 
    Timing (PPW3):
      UI_REPAINT_DELAY (250ms) : chờ e-ink repaint trước classify
-     shallowBest  (~80ms)     : ẩn trong AI turn, overhead = 0 vs người dùng
-     shallowActual (~80ms)    : chạy trước evalPlayer, +80ms thực tế
      evalPlayer   (1200ms)    : giữ nguyên CF9
-     Net: −300ms/lượt classify, −500ms/lượt noClfy
+     shallowBest  (~50ms)    : [Cách 3] KHÔNG còn chạy sẵn ẩn trong AI turn.
+       Chỉ chạy SAU evalPlayer, CHỈ khi có khả năng Brilliant/Great Defense
+       (điều kiện _needShallow) — nối đuôi evalPlayer nên +200ms *thấy được*
+       nhưng chỉ ở đúng những lượt hiếm gặp đó. Đổi lại né hẳn 200ms Worker
+       (FIFO 1 luồng) ở tuyệt đại đa số các lượt AI không rơi vào 2 nhãn này.
    ══════════════════════════════════════════════════════════════════════════════ */
 
 /* ── classifyMove() v2.6 ES5 ────────────────────────────────────────────────
@@ -3475,17 +3828,42 @@ function classifyMove(data) {
   var cpLoss        = Math.max(0, evalBest - evalActual);
   var cpLossShallow = Math.max(0, shallowBest - shallowActual);
 
+  /* [FIX mate-vs-mate] Khi CA truoc va sau nuoc di deu dang bi mate
+     (mateBest<0 && mateActual<0 — chi kha thi tu khi co mate-in-N THAT qua
+     gPendingMateN/epr2.mateN; truoc day _mateBest/_mateActual chi la 1/null
+     nen truong hop nay chua bao gio xay ra), phep tru cp tho o thang bao
+     hoa ±9999 vo nghia (khong phan anh dung muc do te hon). Thay bang so
+     sanh truc tiep do-sau-mate: mate toi GAN hon (it nuoc hon) = te hon.
+     Quy doi ~200cp/1 ply rut ngan, dong bo don vi voi mistakeLimit ben
+     duoi de van roi dung tier Mistake/Blunder. */
+  if (mateBest !== null && mateActual !== null && mateBest < 0 && mateActual < 0) {
+    var mateWorsenPly = Math.abs(mateActual) - Math.abs(mateBest); // am = mate den nhanh hon
+    if (mateWorsenPly < 0) cpLoss = Math.max(cpLoss, Math.abs(mateWorsenPly) * 200);
+  }
+
   /* isUnique: uu tien bestGap THAT (tu best4rootmoves cua tomitank) khi co.
      bestGap = evalBest - eval2ndBest. Diem eval2ndBest thuong la CAN TREN
      (null-window fail-low), tuc bestGap tinh duoc co the THAP hon that —
      an toan mot chieu (co the bo lot Brilliant/Great that su hiem, khong
      bao gio gan sai nhan cho nuoc khong xung dang). Khi khong co du lieu
-     (eval2ndBest=null) -> fallback numGoodAlt nhu truoc day. */
+     (eval2ndBest=null) -> fallback numGoodAlt nhu truoc day.
+     [CALIBRATION v2] Nguong 250 cu doi dong nhat voi UNIQUE_GAP_CP=100 dung
+     trong _classifyBestLabel() (nhanh isBestMove) - 2 ham cung khai niem
+     "doc nhat" nhung truoc do lech nguong nhau do CALIBRATION v2 chi sua 1
+     trong 2 cho. Ly do giam (search thuc te chi ~1-1.2s, bestGap do duoc
+     tu best4rootmoves thuong nho hon nhieu so voi phan tich sau offline)
+     ap dung nhu nhau cho ca 2 ham. */
   var bestGap  = (eval2ndBest !== null) ? (evalBest - eval2ndBest) : null;
-  var isUnique = (bestGap !== null) ? (bestGap >= 250 * strictness) : (numGoodAlt <= 1);
+  var isUnique = (bestGap !== null) ? (bestGap >= 100 * strictness) : (numGoodAlt <= 1);
 
-  /* 1. Missed Mate */
-  if (mateBest !== null && mateBest > 0 && (mateActual === null || mateActual <= 0)) return 'Missed Mate';
+  /* 1. Missed Mate — chi bao khi that su co nuoc khac tot hon ro ret (cpLoss
+     dang ke). Neu cpLoss gan 0 (nuoc nay van la toi uu/gan toi uu theo
+     cp-eval) thi KHONG che Great/Brilliant chi vi tin hieu mate (kem on
+     dinh o search nong tren PPW3) chua kip xac nhan lai o vi tri sau —
+     tranh gan nham "Missed Mate" cho dung nuoc dau tien cua 1 chuoi mate
+     ma chi la mate-depth chua duoc engine "nhin thay lai" kip. */
+  if (mateBest !== null && mateBest > 0 && (mateActual === null || mateActual <= 0)
+      && cpLoss > 20 * strictness) return 'Missed Mate';
   if (mateActual !== null && mateActual > 0) return 'Best';
 
   /* 2. Missed Win — band logic tránh false positive ở thế cân bằng */
@@ -3517,6 +3895,16 @@ function classifyMove(data) {
 
   /* 5. Great Move (isUnique=false ở nhánh !isBestMove — không trigger) */
   if (Math.abs(evalBefore) < 800 && cpLoss <= 20 * strictness && isUnique) return 'Great';
+
+  /* 5b. [FIX — hoc tu ChessCoach] Luoi an toan cho vi tri DANG THUA bi TE
+     THEM ro ret: neu evalBefore da am (duoi -100) va sau nuoc di roi xuong
+     duoi -250 voi cpLoss >=60, ep toi thieu Blunder bat ke tier goc —
+     tranh truong hop mistakeLimit noi rong o |evalBefore| lon (250) khien
+     1 nuoc thuc su lam sup do vi tri (nhung chua du 250cp tho de vao tier
+     Blunder binh thuong) bi bao cao nhe hon thuc te (vd Peruvian
+     10...O-O-O??). Chi ap dung o nhanh !isBestMove (classifyMove luon o
+     nhanh nay). */
+  if (evalBefore < -100 && cpLoss >= 60 && evalActual < -250) return 'Blunder';
 
   /* 6. Dynamic thresholds — thế cân bằng dùng ngưỡng chặt hơn */
   var absEval = Math.abs(evalBefore);
@@ -3580,9 +3968,39 @@ function _classifyBestLabel(mv, savedPlayerLegalCount, savedEval, playerGivesChe
     : null;
   var realUnique = (realBestGap !== null && realBestGap >= UNIQUE_GAP_CP);
 
-  /* [CALIBRATION v2] Nuoc chieu dan toi/xac nhan mate ep buoc — vuot qua
-     moi cua so eval centipawn thong thuong, coi la 'brilliant' truc tiep. */
-  if(playerGivesCheck && Math.abs(savedEval) >= MATE_EVAL_ABS) return 'brilliant';
+  /* [CALIBRATION v3] Nuoc chieu dan toi/xac nhan mate ep buoc — vuot qua
+     moi cua so eval centipawn thong thuong, NHUNG chi tinh 'brilliant' khi
+     quan vua di THAT SU "phoi ra" (o dich bi doi phuong tan cong), du doi
+     phuong an that (vd 22...Kxh7) hay khong dam an vi an vao la mate nhanh
+     hon (vd 26.Be2+). Neu o dich hoan toan an toan (vd 23.Neg4+, 24.h4+ —
+     chi la nuoc chieu ep buoc binh thuong trong 1 chuoi mate da dinh san,
+     khong co yeu to rui ro/hy sinh nao) thi KHONG cho brilliant o day nua —
+     de roi xuong 'great' qua cac nhanh ben duoi (captureGreat/genuineEscape/
+     realUniqueQuiet), tranh brilliant tran lan cho moi nuoc chieu trong
+     chuoi King hunt dai (Lasker, Samackhat...). Dung attacked() thuan
+     board-based (khong SEE) — re, khong ton engine call, dung dinh nghia
+     "co the bi an" ma khong can biet doi phuong co an that hay khong. */
+  if(playerGivesCheck && Math.abs(savedEval) >= MATE_EVAL_ABS &&
+     attacked(gB, mv[1], -gPC)) return 'brilliant';
+
+  /* [FIX brilliantIndirect — hoc tu ChessCoach, xem findHangingPieceValueExcept]
+     Nuoc tot nhat cua engine (dang o nhanh isBestMove) nhung DE HO 1 quan
+     KHAC (khong phai quan vua di) dang treo that — kieu "hy sinh gian tiep"
+     ma sacPiece/playerPieceHangsAfterMove (chi xet dung o mv[1]) khong bat
+     duoc, vi quan bi mat nam o 1 o hoan toan khac (vd 11.axb4!! bo ngo Xe
+     a1 cho 11...Qxa1+, trong khi mv[1]=b4 chi la o tot vua doi tuong binh
+     thuong). Dieu kien: quan treo do phai dang ke (>=250, tuong minor tro
+     len) VA AI van danh gia vi tri nay khong qua te cho player (dung lai
+     cua so GREAT_EVAL_FLOOR/CEIL da thiet lap cho captureGreat) — tranh gan
+     brilliant cho nuoc chi don gian la thi quan mat trang ma khong co gi
+     bu lai. LUU Y: day CHI hoat dong khi engine (o do sau thuc te dat duoc)
+     da tu tin day la nuoc tot nhat (isBestMove=true) — neu do sau chua du
+     de engine uu tien nuoc nay ngay tu dau (vd axb4 tren PPW3 depth 5-6
+     thuc te, xem thao luan truoc), nuoc se khong bao gio roi vao nhanh nay
+     ca, va fix nay khong the cuu duoc — day la gioi han ve do sau search,
+     khong phai gioi han cua nhanh nhan dien nay. */
+  var _hangElsewhere = findHangingPieceValueExcept(gB, gPC, mv[1]);
+  if(_hangElsewhere >= 250 && savedEval > GREAT_EVAL_FLOOR && savedEval <= GREAT_EVAL_CEIL) return 'brilliant';
 
   /* CF5: greatDef chỉ có ý nghĩa khi AI đang thắng vừa phải (300..600).
      Nếu AI thắng > 600 thì player đang thua nặng — "great defense" vô nghĩa,
@@ -3700,7 +4118,14 @@ function execMove(mv){
   if(!gGameStarted){gGameStarted=true;rankDisplay();showCapturedBar();}
   updateCaptured();
   var t=typ(gB[mv[0]]);
-  if(isPlayerMove) mv._boardBefore=gB.slice();
+  if(isPlayerMove){
+    mv._boardBefore=gB.slice();
+    /* [Cách 3] Lưu thêm EP/casB "trước nước player" (= đúng futureFen mà
+       pendingBest đã search) để có thể dựng lại FEN chính xác khi cần chạy
+       shallowBest muộn trong classify — xem nhánh !isBestMove bên dưới. */
+    mv._epBefore=gEP;
+    mv._casBefore=gCasB;
+  }
   var oldCasB=gCasB, oldEP=gEP;
   gCasB=newCasBit(gCasB,gB,mv,gTurn);
   gB=applyMv(gB,mv);
@@ -3808,15 +4233,18 @@ function execMove(mv){
           return;
         }
 
-        /* ── Nhánh !isBestMove: evalPlayer → classifyMove() v2.6 ──────────── Bỏ shallowActual Worker call.
-           Dùng -gPendingShallowEval làm shallowActual:
-             gPendingShallowEval = shallow eval tại futureFen (player-persp,
-             trước nước player). shallowActual lý tưởng là eval sau nước player
-             (1 nước khác). Xấp xỉ: đổi dấu vì góc nhìn đảo chiều sau 1 nước.
-             Sai số nhỏ (~±50–150cp) chấp nhận được — chỉ dùng để phát hiện
-             "nước trông xấu theo shallow", không quyết định nhãn cuối cùng.
-           Loại bỏ hoàn toàn 1 Worker call → queue còn 2 call (shB + evalPlayer)
-           thay vì 3, giảm lag 430–6230ms/lượt. */
+        /* ── Nhánh !isBestMove: evalPlayer → classifyMove() v2.6 ────────────
+           [Cách 3] shallowBest KHÔNG còn chạy sẵn (ẩn) mỗi lượt AI nữa.
+           Chỉ chạy — SAU khi có evalPlayer — nếu thỏa điều kiện có khả năng
+           là Brilliant/Great Defense (2 nhãn duy nhất cần cpLossShallow).
+           Các nhãn khác (Best/ok/Mistake/Blunder/Missed Win/Missed Mate) chỉ
+           dùng cpLoss (từ evalPlayer), không đụng shallowBest — timing giữ
+           nguyên như cũ.
+           Đánh đổi: khi rơi đúng trường hợp hiếm (hi sinh quân hoặc lội
+           ngược dòng), banner Brilliant/Great Defense sẽ hiện trễ thêm
+           ~SHALLOW_EVAL_TIME (~50ms) do phải chạy nối đuôi evalPlayer thay
+           vì đã có sẵn từ trước — đổi lại né được 1 lần gọi Worker 200ms ở
+           tuyệt đại đa số các lượt không rơi vào 2 trường hợp này. */
         if(evalReliable&&Math.abs(gBestMoveScore)>80){
           var _classifyFen=boardToFenFromState(gB,gTurn,gEP,gCasB,0,1);
 
@@ -3830,48 +4258,110 @@ function execMove(mv){
             gEvalPlayerCount++;
             tMark('evalP='+evalPlayer2+'|d='+(epr2?epr2.depth:0)+'|n='+(epr2?epr2.nodes:0));
 
-            /* shallowActual = -gPendingShallowEval (player-persp).
-               gPendingShallowEval đã đổi dấu khi lưu (trong shB callback):
-               gPendingShallowEval = -(shr.score) tại futureFen.
-               Đổi dấu lần nữa → AI-perspective tại futureFen → xấp xỉ
-               player-perspective tại afterPlayerFen (sau 1 nước). */
-            var _shActualVal = (gPendingShallowEval !== null)
-              ? -gPendingShallowEval   /* đổi dấu: futureFen → afterPlayerFen persp */
-              : evalPlayer2;           /* fallback nếu shB chưa về */
-
             var _evalBefore  = -savedEval;
             var _evalBest    = -savedEval;
             var _evalActual  = evalPlayer2;
-            var _shBest      = (gPendingShallowEval !== null) ? gPendingShallowEval : _evalBest;
-            var _mateBest    = (_evalBefore >= 9000) ? 1 : null;
-            var _mateActual  = (_evalActual >= 9000) ? 1 : null;
+            /* [FIX mate-vs-mate] uu tien mate-in-N co dau THAT (gPendingMateN
+               tai vi tri truoc nuoc player — da la player-persp vi search o
+               futureFen voi player sap di; epr2.mateN tai _classifyFen la
+               AI-persp (AI sap di) nen phai doi dau) khi co, thay vi chi co
+               +-1 nhu truoc. Fallback ve +-1 (cu) neu khong co du lieu N. */
+            var _mateBest    = (typeof gPendingMateN === 'number') ? gPendingMateN
+                                : ((_evalBefore >= 9000) ? 1 : null);
+            var _mateActual  = (epr2 && typeof epr2.mateN === 'number') ? -epr2.mateN
+                                : ((_evalActual >= 9000) ? 1 : null);
+            var _cpLossPre   = Math.max(0, _evalBest - _evalActual);
 
-            /* eval2ndBest thật (từ best4rootmoves, xem savedEval2nd ở đầu
-               execMove) — nếu có, classifyMove() tự tính bestGap thật để
-               xét Brilliant/Great/GreatDefense. Nếu null (Worker chưa kịp
-               trả best4rootmoves) → fallback numGoodAlt:2 như cũ (tắt hẳn
-               3 nhãn đó ở nhánh này, giữ hành vi an toàn trước đây). */
-            var clfy = classifyMove({
-              evalBefore:    _evalBefore,
-              evalBest:      _evalBest,
-              evalActual:    _evalActual,
-              eval2ndBest:   (savedEval2nd!==null) ? savedEval2nd : undefined,
-              mateBest:      _mateBest,
-              mateActual:    _mateActual,
-              shallowBest:   _shBest,
-              shallowActual: _shActualVal,
-              isSacrifice:   false,
-              materialLost:  0,
-              numGoodAlt:    (savedEval2nd!==null) ? 1 : 2,
-              rating:        1500
-            });
+            /* [FIX Bug 2] isSacrifice/materialLost thuc: dung lai dung logic
+               seeNegative() da dung o nhanh isBestMove (dong ~3791) — quan
+               vua di khong phai capture, khong dang bi chieu (khong phai
+               nuoc bat buoc), va SEE cho thay doi phuong thang lai chuoi an
+               (nghia la quan nay THAT SU bi hy sinh). Truoc day 2 gia tri
+               nay bi hard-code false/0 nen nhanh Brilliant-do-hy-sinh trong
+               classifyMove() (dong ~3517) khong bao gio kich hoat duoc (vd
+               Samackhat 15...Nc5 — hy sinh ma dan toi Qd4+ fork). */
+            var _wasInCheckNB = mvSnap._boardBefore && inCheck(mvSnap._boardBefore, gPC);
+            var _sacVal = (!mvSnap[2] && !_wasInCheckNB && seeNegative(gB, mvSnap[1], gPC))
+              ? (PVAL[typ(gB[mvSnap[1]])] || 0) : 0;
 
-            var _lbl2 = null;
-            if      (clfy === 'Missed Win') _lbl2 = 'missedWin';
-            else if (clfy === 'Blunder')    _lbl2 = 'blunder';
-            else if (clfy === 'Mistake')    _lbl2 = 'mistake';
-            var _cpLoss = Math.max(0, _evalBest - _evalActual);
-            _classifyFinish(_lbl2, _cpLoss, _clfyTok, _clfyT0, isBestMove);
+            /* [Cách 3] Gate: điều kiện CẦN (chưa đủ, còn thiếu isUnique bên
+               trong classifyMove) cho Brilliant/Great Defense — sao chép từ
+               classifyMove() dòng ~3523/3527. rating cố định 1500 →
+               strictness luôn 1.00 (xem classifyMove) — nếu sau này rating
+               hết cố định, phải đồng bộ lại số này. Chỉ cần "đủ để không bỏ
+               sót", không cần chính xác tuyệt đối — nếu gate sai dương
+               (chạy thừa shallowBest) thì chỉ tốn thêm 200ms ở đúng lượt đó,
+               không sai nhãn; nếu classifyMove sau đó vẫn không ra Brilliant/
+               Great Defense (do isUnique=false) thì cpLossShallow tính ra
+               chỉ đơn giản không được dùng tới, vô hại. */
+            var _STRICT = 1.0;
+            var _needShallow =
+              (_sacVal>=250 && Math.abs(_evalBefore)<400 && _cpLossPre<=20*_STRICT) ||
+              (_evalBefore<=-400 && _evalActual>=_evalBefore+150 && _cpLossPre<=20*_STRICT);
+
+            var _finishClassify = function(_shBest,_shActualVal){
+              var clfy = classifyMove({
+                evalBefore:    _evalBefore,
+                evalBest:      _evalBest,
+                evalActual:    _evalActual,
+                eval2ndBest:   (savedEval2nd!==null) ? savedEval2nd : undefined,
+                mateBest:      _mateBest,
+                mateActual:    _mateActual,
+                shallowBest:   _shBest,
+                shallowActual: _shActualVal,
+                isSacrifice:   _sacVal >= 250,
+                materialLost:  _sacVal,
+                numGoodAlt:    (savedEval2nd!==null) ? 1 : 2,
+                rating:        1500
+              });
+
+              /* [FIX Bug 1] classifyMove() co the tra ve them 'Great',
+                 'Great Defense', 'Brilliant', 'Missed Mate' (xem dinh nghia
+                 dong ~3454) nhung truoc day _lbl2 chi map 3 case Missed Win/
+                 Blunder/Mistake — cac nhan con lai bi bo qua (null), nghia
+                 la nguoi choi khong bao gio thay duoc 'Great' cho cac nuoc
+                 tot nhung KHONG trung dung bestmove cua engine (vd Opera
+                 10.Nxb5!, 13.Rxd7!). Bo sung day du map o day. */
+              var _lbl2 = null;
+              if      (clfy === 'Missed Win')     _lbl2 = 'missedWin';
+              else if (clfy === 'Missed Mate')    _lbl2 = 'missedMate';
+              else if (clfy === 'Blunder')        _lbl2 = 'blunder';
+              else if (clfy === 'Mistake')        _lbl2 = 'mistake';
+              else if (clfy === 'Brilliant')      _lbl2 = 'brilliant';
+              else if (clfy === 'Great Defense')  _lbl2 = 'greatDef';
+              else if (clfy === 'Great')          _lbl2 = 'great';
+              var _cpLoss = Math.max(0, _evalBest - _evalActual);
+              _classifyFinish(_lbl2, _cpLoss, _clfyTok, _clfyT0, isBestMove);
+            };
+
+            if(_needShallow && mvSnap._boardBefore){
+              /* Dựng lại đúng futureFen (vị trí TRƯỚC nước player, SAU nước
+                 AI) từ snapshot đã lưu ở execMove (_boardBefore/_epBefore/
+                 _casBefore) — đây chính là vị trí mà pendingBest đã search
+                 trước đó (savedEval/_evalBest lấy từ đó), nên shallowBest
+                 phải search ĐÚNG vị trí này để cpLossShallow so sánh đồng
+                 nhất với cpLoss. */
+              var _fenBefore = boardToFenFromState(
+                mvSnap._boardBefore, gPC, mvSnap._epBefore, mvSnap._casBefore, 0, 1);
+              workerEval(_fenBefore, SHALLOW_EVAL_TIME, 'shB', function(shr){
+                if(_clfyTok!==gGameToken) return;
+                /* Worker tại futureFen (player-to-move) → đổi dấu → player-persp,
+                   cùng convention với _evalBest (=-savedEval). */
+                var _shBest = shr ? -(shr.score) : _evalBest;
+                /* shallowActual xấp xỉ bằng double-negation (giữ nguyên logic
+                   cũ) — không tốn thêm 1 Worker call thứ 2 cho vị trí sau nước
+                   player. Sai số nhỏ (~±50–150cp) chấp nhận được, chỉ dùng để
+                   phát hiện "nước trông xấu theo shallow". */
+                var _shActualVal = -_shBest;
+                tMark('shB='+_shBest+'|d='+(shr?shr.depth:0));
+                _finishClassify(_shBest,_shActualVal);
+              });
+            } else {
+              /* Không cần shallowBest: truyền shallowBest=shallowActual=_evalBest/_evalActual
+                 → cpLossShallow=0, nhưng vô hại vì Brilliant/Great Defense đã
+                 chắc chắn bị chặn bởi chính điều kiện _needShallow ở trên rồi. */
+              _finishClassify(_evalBest,_evalActual);
+            }
           });
           return;
         }
@@ -3929,10 +4419,31 @@ function aiMoveCore(){
   }
   gBlunderRecovery=false;
 
+  ensureAiPersona();  /* [Mục 2] roll 1 lần/ván, giữ cố định — no-op nếu gRank>4 */
+
   var fen=boardToFen();
 
   /* ── OPENING BOOK (synchronous, no Worker needed) ── */
-  var bookUci=openingBookMove(gUciHist);
+  var bookUci=openingBookMove(gUciHist, gAiPersona);
+
+  /* [Mục 2 - cơ chế mềm] BOOK_MAP/bookBias miss (hết 8 ply HOẶC đối
+     phương đi lệch khỏi lịch sử đã curate) → thử ĐI TIẾP theo hình thái
+     mục tiêu của persona (persona.plan) thay vì cắt thẳng sang search.
+     Chỉ dừng hẳn (gPersonaPlanExhausted=true, không thử lại lần nào nữa
+     trong ván này) khi bước kế hoạch kế tiếp KHÔNG hợp lệ ở vị trí hiện
+     tại, hoặc là blunder rõ ràng (personaMoveIsSafe() = false). */
+  if(!bookUci && gAiPersona && gAiPersona.plan && !gPersonaPlanExhausted){
+    var _planStep=findPersonaPlanMove(gAiPersona.plan, gPersonaPlanIdx);
+    if(_planStep && personaMoveIsSafe(_planStep.mv)){
+      bookUci=_planStep.uci;
+      gPersonaPlanIdx++;
+      tMark('plan='+bookUci+'|idx='+gPersonaPlanIdx+'|persona='+gAiPersona.id);
+    } else {
+      gPersonaPlanExhausted=true;
+      tMark('planExhausted|idx='+gPersonaPlanIdx+'|persona='+gAiPersona.id);
+    }
+  }
+
   if(bookUci){
     tMark('book='+bookUci+'|hist='+gUciHist.length);
     if(gUciHist.length>gBookHistMax) gBookHistMax=gUciHist.length;
@@ -3950,7 +4461,7 @@ function aiMoveCore(){
       var futureTurn_bk=-gTurn;
       var futureEP_bk=bookMv[6];
       var futureCas_bk=newCasBit(gCasB,gB,bookMv,gTurn);
-      gPendingBest=null; gPendingEval=0; gPendingEval2nd=null;
+      gPendingBest=null; gPendingEval=0; gPendingEval2nd=null; gPendingMateN=null;
       gPendingEvalComplete=false; gBestMoveScore=0;
 
       /* [BOOK-DELAY] Tăng streak và tính delay tối thiểu tỉ lệ cfg.t.
@@ -3991,16 +4502,14 @@ function aiMoveCore(){
             gPendingBest=null;
             gPendingEval=evr?-evr.score:0;
             gPendingEval2nd=evr?evr.eval2ndBest:null;  /* [FIX regression] raw, player-persp — bi mat khi don dep debug traces, xem _evalBest o classifyMove */
+            gPendingMateN=evr?evr.mateN:null;
             gPendingEvalComplete=!!(evr);
             tMark('pBe|d='+(evr?evr.depth:0)+'|n='+(evr?evr.nodes:0)+'|cp='+(evr?-evr.score:0)+'|mode=eval');
-            /* [FIX-shB] shallowBest giống off-book — gPendingShallowEval cho classify lượt tiếp */
-            gPendingShallowEval=null;
-            workerEvalDepth(_bkFen, SHALLOW_EVAL_TIME, 'shB', function(shr){
-              if(_bkTok!==gGameToken) return;
-              gPendingShallowEval=shr?-(shr.score):null;
-              tMark('shB='+(gPendingShallowEval!==null?gPendingShallowEval:'null')+'|d='+(shr?shr.depth:0));
-              _doBookExec();
-            });
+            /* [Cách 3] shallowBest KHÔNG còn chạy sẵn mỗi lượt AI nữa — chỉ
+               chạy khi classify() của lượt player kế tiếp thực sự cần (xem
+               execMove, nhánh !isBestMove). gPendingShallowEval không còn ý
+               nghĩa cache-trước nên để null, dọn hẳn khỏi luồng book. */
+            _doBookExec();
           });
         } else {
           var _bkPdT0=Date.now();
@@ -4010,6 +4519,7 @@ function aiMoveCore(){
             gPendingBest=pbr?pbr.uci:null;
             gPendingEval=pbr?-pbr.score:0;
             gPendingEval2nd=pbr?pbr.eval2ndBest:null;  /* raw, player-persp — xem _evalBest o classifyMove */
+        gPendingMateN=pbr?pbr.mateN:null;
             gPendingEvalComplete=!!(pbr);
             tMark('pB='+(gPendingBest||'null')+'|d='+(pbr?pbr.depth:0)+'|n='+(pbr?pbr.nodes:0)+'|cp='+gPendingEval);
             _doBookExec();
@@ -4073,6 +4583,15 @@ function aiMoveCore(){
     }
     if(gBadEvalStreak>=RESIGN_STREAK){tFlush('resign');aiResign();return;}
 
+    /* [Mục 1+3] Có thể đổi uciMove sang 1 ứng viên khác trong best4rootmoves
+       (nếu roll trúng nhiễu + có ứng viên đủ gần điểm), thiên vị nhẹ theo
+       phong cách persona. No-op nếu gRank>4 (giữ nguyên bestMove chuẩn). */
+    var _pickedUci = pickAiCandidateMove(uciMove, infoScore, gAiPersona);
+    if(_pickedUci!==uciMove){
+      tMark('noise='+_pickedUci+'(best='+uciMove+')');
+      uciMove=_pickedUci;
+    }
+
     var mv=uciToMove(uciMove,gB,gTurn,gEP,gCasB);
     if(!mv){
       var legal=legalMoves(gB,gTurn,gEP,gCasB);
@@ -4087,7 +4606,7 @@ function aiMoveCore(){
     var futureFen=boardToFenFromState(futureBoard,futureTurn,futureEP,futureCasB,0,1);
 
     gPendingEvalComplete=false;
-    gPendingBest=null; gPendingEval=0; gPendingEval2nd=null;
+    gPendingBest=null; gPendingEval=0; gPendingEval2nd=null; gPendingMateN=null;
 
     if(gPlayerMoveCount>=OPENING_MOVES){
       /* ── CF5f: pendingBest — 3 mode: 'pending' | 'shadow' | 'eval' ──
@@ -4111,23 +4630,25 @@ function aiMoveCore(){
           gPendingBest=_pvP||null;
           gPendingEval=evr?-evr.score:0;
           gPendingEval2nd=evr?evr.eval2ndBest:null;  /* [FIX regression] raw, player-persp — bi mat khi don dep debug traces, xem _evalBest o classifyMove */
+            gPendingMateN=evr?evr.mateN:null;
           gPendingEvalComplete=!!(evr);
           tMark('pBe='+(_pvP||'null')+'|d='+(evr?evr.depth:0)+'|n='+(evr?evr.nodes:0)+'|cp='+(evr?-evr.score:0)+'|mode=eval');
 
-          /* shallowBest: eval depth cố định tại futureFen (vị trí player sắp đi).
-             Chạy ngay sau pendingBest — Worker vừa idle, TT còn ấm → ~50–120ms.
-             Toàn bộ thời gian này nằm trong lúc AI đang thực thi nước đi + render
-             board, player chưa tương tác → overhead = 0 từ góc nhìn người dùng.
-             Worker tại futureFen trả score theo AI-to-move-perspective. futureFen
-             là vị trí player to move → đổi dấu để có player-perspective, cùng
-             convention gPendingEval. Reset về null trước để tránh giá trị cũ. */
-          gPendingShallowEval = null;
-          workerEvalDepth(futureFen, SHALLOW_EVAL_TIME, 'shB', function(shr){
-            if(_s3tok!==gGameToken) return;
-            gPendingShallowEval = shr ? -(shr.score) : null;
-            tMark('shB='+(gPendingShallowEval!==null?gPendingShallowEval:'null')+'|d='+(shr?shr.depth:0));
-            _doExecAiMove(mv, infoScore, snapToken);
-          });
+          /* [Cách 3] shallowBest KHÔNG còn chạy sẵn ở đây nữa. Lý do: chỉ có
+             ích cho Brilliant/Great Defense (2/9 nhãn), mà 2 nhãn đó chỉ có
+             thể xảy ra khi player KHÔNG đi đúng bestMove (!isBestMove) VÀ
+             thỏa điều kiện hi sinh quân/lội ngược dòng — điều này chỉ biết
+             được SAU khi player đã đi và evalPlayer() đã chạy xong, không
+             phải lúc này (AI vừa đi xong). Trước đây shallowBest chạy "ẩn"
+             ở mọi lượt AI (kể cả khi sau này không dùng tới) — tốn ~50ms
+             Worker (FIFO, 1 luồng) một cách lãng phí ở phần lớn số lượt.
+             Giờ dời việc search này sang đúng lúc cần trong execMove (nhánh
+             !isBestMove) — xem workerEval(fenBefore, SHALLOW_EVAL_TIME,'shB',...)
+             ở đó. Đánh đổi: Brilliant/Great Defense hiện banner trễ thêm
+             ~50ms (search nối đuôi evalPlayer) CHỈ ở đúng những lượt hiếm
+             gặp thỏa điều kiện — đổi lại né được ~50ms Worker cho tuyệt đại
+             đa số lượt còn lại. */
+          _doExecAiMove(mv, infoScore, snapToken);
         });
         return;
       }
@@ -4143,6 +4664,7 @@ function aiMoveCore(){
         gPendingBest=pbUci;
         gPendingEval=pbCp;
         gPendingEval2nd=pbr?pbr.eval2ndBest:null;  /* raw, player-persp — xem _evalBest o classifyMove */
+        gPendingMateN=pbr?pbr.mateN:null;
         gPendingEvalComplete=!!(pbr);
         tMark('pB='+(pbUci||'null')+'|d='+(pbr?pbr.depth:0)+'|n='+(pbr?pbr.nodes:0)+'|cp='+pbCp+'|pv1='+_pvP+'|match='+(pbUci===_pvP?'Y':'N'));
 
@@ -5224,7 +5746,7 @@ if(document.readyState==='loading'||document.readyState==='uninitialized'){
 </script>
 
 <!-- tomitankChess 7.0 ES5 engine (Worker source) -->
-<script id="tomi-chunk-0" type="text/plain">
+<script id="tomitankChess" type="text/plain">
 // --- [PPW3-FIX v7] Polyfill Float64Array ---
 // Log tren PPW3 cho thay "Can't find variable: Float64Array" trong khi
 // Int8Array/Int16Array/Int32Array/Uint32Array van dung binh thuong - tuc la
@@ -5738,8 +6260,8 @@ var CHESS_BOARD = new Int8Array([
 
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-</script>
-<script id="tomi-chunk-1" type="text/plain">	function BinaryString(nMask) {
+/* ===== tomitankChess ENGINE PART 1 ===== */
+	function BinaryString(nMask) {
 		for (var nFlag = 0, nShifted = nMask, sMask = ''; nFlag < 32;
 			nFlag++, sMask += String(nShifted >>> 31), nShifted <<= 1);
 		return sMask;
@@ -6240,8 +6762,8 @@ var CHESS_BOARD = new Int8Array([
 
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-</script>
-<script id="tomi-chunk-2" type="text/plain">	function ProbeHash() { // Hash kiolvasas
+/* ===== tomitankChess ENGINE PART 2 ===== */
+	function ProbeHash() { // Hash kiolvasas
 
 		var index = brd_hashKeyLow & HASH_MASK;
 
@@ -6743,8 +7265,8 @@ var CHESS_BOARD = new Int8Array([
 
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-</script>
-<script id="tomi-chunk-3" type="text/plain">	function isLegal(move) {
+/* ===== tomitankChess ENGINE PART 3 ===== */
+	function isLegal(move) {
 
 		var from = (move & 0x3F);
 		var to = (move >> 6) & 0x3F;
@@ -7389,8 +7911,8 @@ var CHESS_BOARD = new Int8Array([
 
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-</script>
-<script id="tomi-chunk-4" type="text/plain">	function GetDrawMul(winSide, defSide, winForce, defForce) {
+/* ===== tomitankChess ENGINE PART 4 ===== */
+	function GetDrawMul(winSide, defSide, winForce, defForce) {
 		if (winForce <= 3) { // few pieces..
 			var winPawns = brd_pieceCount[winSide|PAWN];
 			var defPawns = brd_pieceCount[defSide|PAWN];
@@ -7931,8 +8453,8 @@ var CHESS_BOARD = new Int8Array([
 
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-</script>
-<script id="tomi-chunk-5" type="text/plain">	function GenerateEvasions() {
+/* ===== tomitankChess ENGINE PART 5 ===== */
+	function GenerateEvasions() {
 
 		var bb     = 0; // BitBoard
 		var next   = 0; // Ahova lepunk
@@ -8589,8 +9111,8 @@ var CHESS_BOARD = new Int8Array([
 
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-</script>
-<script id="tomi-chunk-6" type="text/plain">	function HistoryGood(move) {
+/* ===== tomitankChess ENGINE PART 6 ===== */
+	function HistoryGood(move) {
 		var idx = (CHESS_BOARD[(move & 0x3F)] << 6) | ((move >> 6) & 0x3F);
 		HistoryTable[idx] += (2048 - HistoryTable[idx]) >> 5;
 	}
@@ -9072,8 +9594,8 @@ var CHESS_BOARD = new Int8Array([
 		);
 	}
 
-</script>
-<script id="tomi-chunk-7" type="text/plain">	function Interpolation(mg, eg, phase) {
+/* ===== tomitankChess ENGINE PART 7 ===== */
+	function Interpolation(mg, eg, phase) {
 		if (phase < 0) phase = 0;
 		return (mg * (24 - phase) + eg * phase) / 24 | 0;
 	}
@@ -9615,8 +10137,8 @@ var CHESS_BOARD = new Int8Array([
 
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-</script>
-<script id="tomi-chunk-8" type="text/plain">	function CHESS_NN_IDX(piece, sq, side) {
+/* ===== tomitankChess ENGINE PART 8 ===== */
+	function CHESS_NN_IDX(piece, sq, side) {
 		return sq + 64 * (piece - 1) + 384 * (side === BLACK);
 	}
 
