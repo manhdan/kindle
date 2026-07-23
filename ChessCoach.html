@@ -125,19 +125,19 @@ body {
   line-height:1.8; word-wrap:break-word;
   max-height:120px; overflow-y:auto;
 }
-.an-br  { color:#26C2A3; font-weight:bold }
-.an-gr  { color:#749BBF; font-weight:bold }
+.an-br  { color:#27c0a2; font-weight:bold }
+.an-gr  { color:#689bc4; font-weight:bold }
 .an-gd  { color:#b05500; font-weight:bold }
-.an-bst { color:#2e7d32; font-weight:bold }
+.an-bst { color:#81b64c; font-weight:bold }
 .an-exc { color:#388e3c }
 .an-ok  { color:#555 }
 .an-ina { color:#e65100 }
-.an-mst { color:#FFA459 }
-.an-bln { color:#FA412D; font-weight:bold }
+.an-mst { color:#ffa049 }
+.an-bln { color:#ff2316; font-weight:bold }
 .an-mw  { color:#880000; font-weight:bold }
 .an-mm  { color:#660000; font-weight:bold }
 .an-frc { color:#1565c0 }
-.an-bk  { color:#D5A47D }
+.an-bk  { color:#dea173 }
 
 /* ── 3A: Move review enhancements ── */
 .an-accuracy-row {
@@ -489,11 +489,20 @@ body {
   text-shadow: 0 0 2px rgba(255,255,255,0.8);
 }
 .sq-badge.hang::after  { content: '✕'; }
-.sq-badge.weak {
-  color: rgba(200,100,0,0.88);
+/* Dot ● dùng cho quân kém linh hoạt / bị kẹt — 3 mức độ theo màu đậm dần */
+.sq-badge.trap1 {
+  color: rgba(230,180,0,0.90);   /* vàng: linh hoạt vừa (hơi hạn chế) */
   text-shadow: 0 0 2px rgba(255,255,255,0.8);
 }
-.sq-badge.weak::after  { content: '●'; font-size: 110%; }
+.sq-badge.trap2 {
+  color: rgba(220,120,0,0.90);   /* cam: linh hoạt kém */
+  text-shadow: 0 0 2px rgba(255,255,255,0.8);
+}
+.sq-badge.trap3 {
+  color: rgba(190,50,10,0.92);   /* cam đỏ: rất kém / gần như bị kẹt cứng */
+  text-shadow: 0 0 2px rgba(255,255,255,0.8);
+}
+.sq-badge.trap1::after, .sq-badge.trap2::after, .sq-badge.trap3::after { content: '●'; font-size: 110%; }
 .sq-review-badge {
   position: absolute; top: 3%; right: 3%;
   width: 30%; height: 30%;
@@ -505,14 +514,14 @@ body {
   pointer-events: none; z-index: 12;
   box-shadow: 0 1px 4px rgba(0,0,0,0.4);
 }
-.rb-brilliant  { background: #26C2A3; color: #fff; }
-.rb-great      { background: #749BBF; color: #fff; }
-.rb-best       { background: #388e3c; color: #fff; font-size: 24%; }
-.rb-blunder    { background: #FA412D; color: #fff; }
-.rb-mistake    { background: #FFA459; color: #fff; }
+.rb-brilliant  { background: #27c0a2; color: #fff; }
+.rb-great      { background: #689bc4; color: #fff; }
+.rb-best       { background: #81b64c; color: #fff; font-size: 24%; }
+.rb-blunder    { background: #ff2316; color: #fff; }
+.rb-mistake    { background: #ffa049; color: #fff; }
 .rb-inaccuracy { background: #f9a825; color: #333; }
 .rb-missed     { background: #6a0000; color: #fff; }
-.sq.king-danger { background: rgba(190,0,0,0.16) !important; }
+.sq.king-safe-sq { background: rgba(0,150,136,0.22) !important; }
 
 /* ═══════════════ COACH PANEL ═══════════════ */
 .coach-panel {
@@ -1640,8 +1649,12 @@ function classifyMoveCore(data) {
 
   if ((brilliantBase || brilliantIndirect) && (bestGap === null || bestGap >= 100)) return "Brilliant";
 
-  /* isUniqueGoodMove — dùng cho Great Defense và Great Move */
-  var isUniqueGoodMove = (bestGap !== null) && (bestGap >= 300 * strictness) && (numGoodAlternatives <= 1);
+  /* isUniqueGoodMove — dùng cho Great Defense và Great Move
+     ĐÃ NỚI NGƯỠNG (thử nghiệm theo yêu cầu): bestGap 300→170, numGoodAlternatives 1→2.
+     Ngưỡng cũ (300cp) quá khắt khe khiến Great gần như không bao giờ trigger — nhiều
+     nước Great thực sự (phối hợp gọn, phòng thủ tốt, chiếu đúng lúc) chỉ hơn phương án
+     nhì 100-200cp, không tới 300cp. */
+  var isUniqueGoodMove = (bestGap !== null) && (bestGap >= 170 * strictness) && (numGoodAlternatives <= 2);
 
   /* 4. GREAT DEFENSE — Fix E: thêm isBest check */
   if (isBest &&
@@ -1770,6 +1783,35 @@ function _countGoodAlternatives(si){
     if (candidates[k] !== null && (best - candidates[k]) <= 50) count++;
   }
   return count;
+}
+
+/* ── Quyết định 1 nước đi có cần multipv=4 THẬT hay không ──
+   eval2ndBest/numGoodAlternatives chỉ ảnh hưởng nhánh Brilliant/Great Defense/
+   Great Move — tất cả đều đòi hỏi cpLoss <= 20*strictness. Nước nào không lọt
+   ngưỡng này thì multipv=4 không ảnh hưởng gì tới nhãn cuối → bỏ qua để tiết
+   kiệm thời gian (không phải chạy MultiPV=4 cho MỌI nước như trước). */
+function _needsMultiPVBackfill(prevIdx){
+  var si = gAnScores[prevIdx], sn = gAnScores[prevIdx+1];
+  if (!si || !sn) return false;
+  if (si.s2 !== null && si.s2 !== undefined) return false; /* đã có multipv rồi, khỏi backfill lại */
+
+  var best   = anCP(si.s1, si.m1);
+  var played = -anCP(sn.s1, sn.m1);
+  var evalBest = Math.max(best, played);
+  var cpLoss = Math.max(0, evalBest - played);
+
+  var elo = 1250;
+  var eloEl = document.getElementById('elo');
+  if (eloEl) { var _e = parseInt(eloEl.value, 10); if (!isNaN(_e)) elo = _e; }
+  var strictness = 1.0;
+  if (elo < 900)       strictness = 1.20;
+  else if (elo < 1400) strictness = 1.10;
+  else if (elo < 2000) strictness = 1.00;
+  else if (elo < 2400) strictness = 0.92;
+  else                 strictness = 0.85;
+
+  var gate = 20 * strictness;   /* khớp ngưỡng Brilliant/Great trong classifyMoveCore */
+  return cpLoss <= gate;
 }
 
 /* ── Adapter: map dữ liệu ChessCoach2 → schema input của classifyMoveCore() ── */
@@ -1905,6 +1947,17 @@ function classifyMove(i){
   var input = _buildClassifyInput(i);
   if (!input) return 'normal';
   var label = classifyMoveCore(input);
+  if(typeof window!=='undefined' && window.__DEBUG_CLASSIFY__){
+    var si=gAnScores[i];
+    console.log('[classify] i='+i+' move='+(gUciHist?gUciHist[i]:'?')+
+      ' si.s1='+(si?si.s1:'?')+' si.s2='+(si?si.s2:'?')+' si.s2nd='+(si?si.s2nd:'?')+
+      ' si.bestUci='+(si?si.bestUci:'?')+' isBest='+input.isBest+
+      ' eval2ndBest='+input.eval2ndBest+' evalBest='+input.evalBest+
+      ' bestGap='+(input.eval2ndBest!==null?(input.evalBest-input.eval2ndBest):null)+
+      ' cpLoss='+Math.max(0,input.evalBest-input.evalActual)+
+      ' numGoodAlt='+input.numGoodAlternatives+' givesCheck='+input.givesCheck+
+      ' => '+label);
+  }
   return CLASSIFY_LABEL_MAP[label] || 'normal';
 }
 
@@ -1944,14 +1997,18 @@ function startAnalysis(){
   gAnScores=[];
   gAnFens=gFenHistory.concat([boardToFen()]);
   gAnPhase='shallow';
+  gBackfillIdx=-1;
 
   var cb=document.getElementById('clr-toggle');
   if(cb){cb.disabled=false;cb.innerHTML='\u{1F4CA} \u0110ang ph\u00e2n t\u00edch 0/'+gAnFens.length+'...';}
 
-  /* Tắt gAnMode tạm, gửi stop, rồi bật lại sau 200ms để
-     tránh bestmove phản hồi từ stop bị nhầm thành kết quả phân tích */
+  /* Tắt gAnMode tạm, gửi stop + ucinewgame (1 lần cho cả ván — xem comment
+     trong analyzeNext() vì sao KHÔNG cần lặp lại mỗi vị trí nữa), rồi bật
+     lại sau 200ms để tránh bestmove phản hồi từ stop bị nhầm thành kết quả
+     phân tích. */
   gAnMode=false;
   lozzaPost('stop');
+  lozzaPost('ucinewgame');
   setTimeout(function(){
     gAnMode=true;
     _startAnalysisReplay();
@@ -2015,6 +2072,20 @@ function handleAnalysisMsg(msg){
     var bm=msg.split(/\s+/)[1]||'';
     var noMove=(bm==='(none)'||bm==='0000'||bm===''||bm==='NULL'||bm.toLowerCase()==='null');
 
+    if(gAnPhase==='mpv_backfill'){
+      /* multipv=4 THẬT vừa chạy xong cho vị trí gBackfillIdx — merge s2/s3/s4
+         vào entry đã có sẵn (s1 giữ nguyên từ Pass B multipv=1 trước đó). */
+      var _bfEntry = gAnScores[gBackfillIdx];
+      if(_bfEntry && !noMove){
+        _bfEntry.s2 = gAnCur.d2>0?gAnCur.s2:null; _bfEntry.m2 = gAnCur.m2;
+        _bfEntry.s3 = gAnCur.d3>0?gAnCur.s3:null; _bfEntry.m3 = gAnCur.m3;
+        _bfEntry.s4 = gAnCur.d4>0?gAnCur.s4:null; _bfEntry.m4 = gAnCur.m4;
+      }
+      gBackfillIdx = -1;
+      _advanceAfterPosition();
+      return;
+    }
+
     if(gAnPhase==='shallow'){
       /* Pass A xong. Neu noMove: vi tri chieu het, push ket qua, bo qua main pass */
       if(noMove){
@@ -2023,11 +2094,7 @@ function handleAnalysisMsg(msg){
         gAnScores.push({s1:-9999, m1:null, s2:null, m2:null, s3:null, m3:null, s4:null, m4:null,
           side:_sdN, bestUci:null, shallowS1:-9999, shallowM1:null});
         gAnIdx++;
-        var _totN=gAnFens.length;
-        var _cbxN=document.getElementById('clr-toggle');
-        if(_cbxN) _cbxN.innerHTML='📊 Đang phân tích '+gAnIdx+'/'+_totN+'...';
-        if(gAnIdx<_totN){ gAnPhase='shallow'; analyzeNext(); }
-        else finishAnalysis();
+        _advanceAfterPosition();
         return;
       }
       var _fenParts0=(gAnFens[gAnIdx]||'').split(' ');
@@ -2040,7 +2107,7 @@ function handleAnalysisMsg(msg){
       gAnCur={d1:0,s1:0,m1:null, d2:0,s2:null,m2:null, d3:0,s3:null,m3:null, d4:0,s4:null,m4:null};
       var _fenParts2=(gAnFens[gAnIdx]||'').split(' ');
       gAnCur.side=(_fenParts2[1]==='w')?W:B;
-      lozzaPost('setoption name MultiPV value 4');
+      lozzaPost('setoption name MultiPV value 1');
       lozzaPost('position fen '+gAnFens[gAnIdx]);
       lozzaPost('go depth '+ANALYSIS_DEPTH);
       return;
@@ -2098,19 +2165,51 @@ function handleAnalysisMsg(msg){
       gAnIdx++;
     }
 
-    var total=gAnFens.length;
-    var cb=document.getElementById('clr-toggle');
-    if(cb) cb.innerHTML='\u{1F4CA} \u0110ang ph\u00e2n t\u00edch '+gAnIdx+'/'+total+'...';
-    if(gAnIdx<total){
-      gAnPhase='shallow';
-      analyzeNext();
-    } else {
-      finishAnalysis();
-    }
+    _advanceAfterPosition();
+  }
+}
+
+/* ── Sau khi 1 vị trí vừa được đẩy vào gAnScores: kiểm tra có cần backfill
+   multipv=4 THẬT cho nước NGAY TRƯỚC đó (nếu là ứng viên Brilliant/Great)
+   trước khi tiếp tục sang vị trí kế — dùng chung cho Pass B thường lẫn khi
+   mpv_backfill vừa xong, tránh trùng lặp code advance 3-4 chỗ. */
+function _advanceAfterPosition(){
+  var total=gAnFens.length;
+  var cb=document.getElementById('clr-toggle');
+  if(cb) cb.innerHTML='\u{1F4CA} \u0110ang ph\u00e2n t\u00edch '+gAnIdx+'/'+total+'...';
+
+  var _prevIdx = gAnIdx - 2;
+
+  /* MultiPV backfill: nếu nước đi TRƯỚC (kết thúc tại gAnIdx-1) có khả năng
+     là ứng viên Brilliant/Great (cpLoss thấp), quay lại chạy multipv=4 THẬT
+     cho vị trí trước nước đó để lấy eval2ndBest/numGoodAlternatives chính
+     xác — chỉ áp dụng cho số ít nước "gần Best" nên không tốn multipv=4 cho
+     toàn bộ ván (xem _needsMultiPVBackfill). */
+  if(_prevIdx >= 0 && _needsMultiPVBackfill(_prevIdx)){
+    gBackfillIdx = _prevIdx;
+    gAnPhase = 'mpv_backfill';
+    analyzeNext();
+    return;
+  }
+
+  if(gAnIdx<total){
+    gAnPhase='shallow';
+    analyzeNext();
+  } else {
+    finishAnalysis();
   }
 }
 
 function analyzeNext(){
+  /* KHÔNG xoá TT ở mỗi vị trí nữa (đã thử, gây chậm rõ rệt vì mất hết lợi ích
+     transposition-hit giữa các vị trí). Nguồn nhiễm TT thật sự đã được vá
+     TẠI GỐC trong rootSearch() của engine Lozza — mọi ttPut() ở đó giờ có
+     guard "if (excludedRootMoves.length === 0)", nghĩa là các search loại
+     trừ (root-exclusion multipv cho PV2-4, xem mpv_backfill bên dưới) không
+     còn ghi đè kết quả bị bóp méo vào TT nữa. ucinewgame chỉ cần gọi 1 lần
+     duy nhất lúc bấm nút phân tích (xem startAnalysis()) để đảm bảo sạch
+     giữa các VÁN khác nhau. */
+
   if(gAnPhase==='shallow'){
     /* Pass A: shallow depth, MultiPV=1 — chỉ để lấy eval nông cho filter Brilliant/Great Defense */
     gAnShallowCur={d1:0,s1:0,m1:null};
@@ -2119,11 +2218,23 @@ function analyzeNext(){
     lozzaPost('go depth '+SHALLOW_DEPTH);
     return;
   }
-  /* Pass B: main depth, MultiPV=4 */
+  if(gAnPhase==='mpv_backfill'){
+    /* Backfill multipv=4 THẬT cho 1 vị trí cụ thể (gBackfillIdx) — chỉ chạy
+       khi _needsMultiPVBackfill() xác định nước đi từ vị trí này có khả
+       năng Brilliant/Great (xem handleAnalysisMsg/_advanceAfterPosition). */
+    gAnCur={d1:0,s1:0,m1:null, d2:0,s2:null,m2:null, d3:0,s3:null,m3:null, d4:0,s4:null,m4:null};
+    lozzaPost('setoption name MultiPV value 4');
+    lozzaPost('position fen '+gAnFens[gBackfillIdx]);
+    lozzaPost('go depth '+ANALYSIS_DEPTH);
+    return;
+  }
+  /* Pass B: main depth, MultiPV=1 (nhanh) — s2-s4 chỉ lấy THẬT qua mpv_backfill
+     khi cần (nước gần Best), không chạy multipv=4 cho mọi nước như trước
+     (vốn vừa chậm vừa dễ lệch depth giữa PV1 và PV2-4). */
   gAnCur={d1:0,s1:0,m1:null, d2:0,s2:null,m2:null, d3:0,s3:null,m3:null, d4:0,s4:null,m4:null};
   var _fenParts=(gAnFens[gAnIdx]||'').split(' ');
   gAnCur.side=(_fenParts[1]==='w')?W:B;
-  lozzaPost('setoption name MultiPV value 4');
+  lozzaPost('setoption name MultiPV value 1');
   lozzaPost('position fen '+gAnFens[gAnIdx]);
   lozzaPost('go depth '+ANALYSIS_DEPTH);
 }
@@ -2251,8 +2362,8 @@ function buildMoveReport(cls, cpLosses, evalPcts) {
           + '<td style="padding:3px 4px"><b>' + phaseLabelMap[ph] + '</b></td>'
           + '<td style="padding:3px 4px;text-align:center">' + d.ok + '</td>'
           + '<td style="padding:3px 4px;text-align:center">' + d.inaccuracy + '</td>'
-          + '<td style="padding:3px 4px;text-align:center;color:#FFA459">' + d.mistake + '</td>'
-          + '<td style="padding:3px 4px;text-align:center;color:#FA412D;font-weight:bold">' + d.blunder + '</td>'
+          + '<td style="padding:3px 4px;text-align:center;color:#ffa049">' + d.mistake + '</td>'
+          + '<td style="padding:3px 4px;text-align:center;color:#ff2316;font-weight:bold">' + d.blunder + '</td>'
           + '<td style="padding:3px 4px;text-align:center">' + pct + '</td></tr>';
   });
   html += '</tbody></table>';
@@ -2338,7 +2449,7 @@ function buildMoveReport(cls, cpLosses, evalPcts) {
       var moveLbl = m.moveNum + (m.side==='black' ? '…' : '.');
       var tactLbl = m.tacticalType === 'tactical' ? '⚔ tactic' : '~ positional';
       var tactColor = m.tacticalType === 'tactical' ? '#b71c1c' : '#1565c0';
-      var lossColor = m.cpLoss > 300 ? '#FA412D' : '#FFA459';
+      var lossColor = m.cpLoss > 300 ? '#ff2316' : '#ffa049';
       topHtml += '<tr style="border-bottom:1px solid #eee">'
             + '<td style="padding:2px 4px">' + moveLbl + '</td>'
             + '<td style="padding:2px 4px">' + sideLbl + '</td>'
@@ -2529,10 +2640,10 @@ function _finishAnalysisRender(){
   }
 
   /* ── Accuracy bar ── */
-  var segC={brilliant:'#26C2A3',great:'#749BBF',great_defense:'#388e3c',
-    best:'#4caf50',excellent:'#81c784',good:'#aed581',book:'#D5A47D',
+  var segC={brilliant:'#27c0a2',great:'#689bc4',great_defense:'#388e3c',
+    best:'#81b64c',excellent:'#81c784',good:'#aed581',book:'#dea173',
     forced:'#bdbdbd',normal:'#e0e0e0',
-    inaccuracy:'#ffa726',mistake:'#FFA459',blunder:'#FA412D',
+    inaccuracy:'#ffa726',mistake:'#ffa049',blunder:'#ff2316',
     missed_win:'#880000',missed_mate:'#4a0000'};
   var barRow=document.getElementById('an-bar-row');
   if(barRow&&cls.length){
@@ -2898,6 +3009,16 @@ function _reviewJumpToCore(idx, noScroll){
      không đổi qua lại giữa "trước/sau" nữa (đó là nguồn gây rối loạn trước đây). */
   var fenToShow = (gAnFens[idx+1] !== undefined) ? gAnFens[idx+1] : gAnFens[idx];
   boardFromFen(fenToShow);
+
+  /* Tính lại badge quân treo/yếu + độ linh hoạt + vùng nguy hiểm quanh vua
+     (kể cả vua bị kìm kẹp) cho ĐÚNG thế cờ đang xem — nếu không làm bước này,
+     tô màu sẽ không bao giờ xuất hiện khi xem lại/phân tích (cache đã được
+     dọn sạch ở đầu hàm nhưng chưa có gì tính lại để hiển thị). */
+  if(typeof coachBuildBadgeData==='function' && typeof coachSetBadgeCache==='function'){
+    coachBuildBadgeData(gB, gTurn);
+    coachSetBadgeCache(coachLastThreatened, coachLastMobility, coachLastDangerSqs);
+  }
+
   gMoveSeq++;
   renderBoard();
 
@@ -3148,7 +3269,8 @@ var gAnScores=[];      /* kết quả engine per position */
 var gAnCur={};         /* kết quả đang thu thập */
 var ANALYSIS_DEPTH=12;
 var SHALLOW_DEPTH=6;   /* depth nông cho shallow-eval (Brilliant/Great Defense filter) */
-var gAnPhase='main';   /* 'shallow' | 'main' — pass đang chạy */
+var gAnPhase='main';   /* 'shallow' | 'main' | 'mpv_backfill' — pass đang chạy */
+var gBackfillIdx=-1;   /* index vị trí đang backfill multipv=4 THẬT (xem _needsMultiPVBackfill) */
 var gAnReplayTimer=null;   /* timer cho highlight replay khi phân tích */
 var gAnReplayIdx=0;        /* vị trí replay hiện tại */
 var gAnShallowCur={};  /* kết quả shallow đang thu thập (trước khi chạy main pass) */
@@ -5468,32 +5590,36 @@ function coachScanPos(board, turn) {
     if (board[i] === turn*6) { result.kingSq = i; break; }
   }
 
-  /* Attack count by byCol on square s */
-  function atkCnt(s, byCol) {
-    var cnt = 0, r = rk(s), f = fl(s), nr, nf, pp, i2;
+  /* Attack info by byCol on square s: đếm số quân tấn công + giá trị quân RẺ
+     NHẤT trong số đó (để so sánh xem đối phương có đáng ăn quân hay không). */
+  function atkInfo(s, byCol) {
+    var cnt = 0, minVal = 1e9, r = rk(s), f = fl(s), nr, nf, pp, i2;
+    function hit(val){ cnt++; if (val < minVal) minVal = val; }
     /* pawn */
     for (var df = -1; df <= 1; df += 2) {
       var pr = r - byCol, pf = f + df;
-      if (ob(pr,pf) && board[sq(pr,pf)] === byCol) cnt++;
+      if (ob(pr,pf) && board[sq(pr,pf)] === byCol) hit(PVAL[1]);
     }
     /* knight */
     var kd=[[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
-    for (i2=0;i2<kd.length;i2++){nr=r+kd[i2][0];nf=f+kd[i2][1];if(ob(nr,nf)&&board[sq(nr,nf)]===byCol*2)cnt++;}
+    for (i2=0;i2<kd.length;i2++){nr=r+kd[i2][0];nf=f+kd[i2][1];if(ob(nr,nf)&&board[sq(nr,nf)]===byCol*2)hit(PVAL[2]);}
     /* diag bishop/queen */
     var dd=[[-1,-1],[-1,1],[1,-1],[1,1]];
     for (i2=0;i2<dd.length;i2++){nr=r+dd[i2][0];nf=f+dd[i2][1];
-      while(ob(nr,nf)){pp=board[sq(nr,nf)];if(pp){if(pp===byCol*3||pp===byCol*5)cnt++;break;}nr+=dd[i2][0];nf+=dd[i2][1];}
+      while(ob(nr,nf)){pp=board[sq(nr,nf)];if(pp){if(pp===byCol*3)hit(PVAL[3]);else if(pp===byCol*5)hit(PVAL[5]);break;}nr+=dd[i2][0];nf+=dd[i2][1];}
     }
     /* straight rook/queen */
     var sd=[[-1,0],[1,0],[0,-1],[0,1]];
     for (i2=0;i2<sd.length;i2++){nr=r+sd[i2][0];nf=f+sd[i2][1];
-      while(ob(nr,nf)){pp=board[sq(nr,nf)];if(pp){if(pp===byCol*4||pp===byCol*5)cnt++;break;}nr+=sd[i2][0];nf+=sd[i2][1];}
+      while(ob(nr,nf)){pp=board[sq(nr,nf)];if(pp){if(pp===byCol*4)hit(PVAL[4]);else if(pp===byCol*5)hit(PVAL[5]);break;}nr+=sd[i2][0];nf+=sd[i2][1];}
     }
     /* king */
     var gd=[[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
-    for (i2=0;i2<gd.length;i2++){nr=r+gd[i2][0];nf=f+gd[i2][1];if(ob(nr,nf)&&board[sq(nr,nf)]===byCol*6)cnt++;}
-    return cnt;
+    for (i2=0;i2<gd.length;i2++){nr=r+gd[i2][0];nf=f+gd[i2][1];if(ob(nr,nf)&&board[sq(nr,nf)]===byCol*6)hit(PVAL[6]);}
+    return { cnt: cnt, minVal: (cnt===0 ? 0 : minVal) };
   }
+  /* Giữ atkCnt (chỉ đếm số lượng) cho các đoạn code khác trong hàm này dùng lại */
+  function atkCnt(s, byCol) { return atkInfo(s, byCol).cnt; }
 
   /* Scan our pieces */
   for (var s = 0; s < 64; s++) {
@@ -5501,50 +5627,126 @@ function coachScanPos(board, turn) {
     if (!p || col(p) !== turn) continue;
     var pt = typ(p);
     if (pt === 6) continue;
-    var atk = atkCnt(s, opp);
+    var atkI = atkInfo(s, opp);
+    var atk = atkI.cnt;
     var def = atkCnt(s, turn);
     if (atk > 0) {
       if (def === 0) {
         result.hanging.push({sq:s, pt:pt});
       } else if (atk > def) {
-        result.weak.push({sq:s, pt:pt, atk:atk, def:def});
+        /* Chỉ tính là "yếu" nếu quân tấn công RẺ NHẤT của đối phương không đắt
+           hơn quân của mình quá 100cp — quân nặng sẽ không dại ăn 1 Tốt để đổi
+           quân lỗ vốn, nên trường hợp đó không phải mối đe doạ thực sự. */
+        var myVal = PVAL[pt];
+        if (atkI.minVal - myVal <= 100) {
+          result.weak.push({sq:s, pt:pt, atk:atk, def:def});
+        }
       }
     }
   }
 
-  /* King danger: count attacks on king + adjacent squares, CỘNG THÊM xét độ
-     kìm kẹp — vua chỉ còn tối đa 3 ô trống có thể lui (kể cả khi các ô đó
-     chưa bị tấn công trực tiếp) cũng là tình huống đáng chú ý, hay gặp khi
-     vua bị dồn vào góc/cạnh bàn cờ hoặc bị chính quân mình chắn hết đường. */
+  /* King mobility: đếm số ô vua có thể AN TOÀN đi tới (không bị quân mình chặn,
+     KHÔNG bị đối phương kiểm soát/tấn công) — đây mới đúng là "ô vua có thể đi".
+     result.kingerSqs CHỈ chứa các ô AN TOÀN này. Điều kiện hiện hay không (theo
+     giai đoạn ván đấu + số ô) được quyết định ở coachBuildBadgeData, không phải
+     ở đây, để coachScanPos vẫn trả về dữ liệu thô, tái sử dụng được. */
   if (result.kingSq >= 0) {
     var kr = rk(result.kingSq), kf2 = fl(result.kingSq);
     var dangerTotal = 0;
-    var freeSqs = [];
+    var safeSqs = [];
     var adj = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,0],[0,1],[1,-1],[1,0],[1,1]];
     for (var ai = 0; ai < adj.length; ai++) {
       var ar = kr+adj[ai][0], af = kf2+adj[ai][1];
       if (!ob(ar,af)) continue;
       var as2 = sq(ar,af);
       var isOwnSq = (adj[ai][0]===0 && adj[ai][1]===0);
+      var da = atkCnt(as2, opp);
+      if (da > 0) dangerTotal += da;
       if (!isOwnSq) {
         var occ2 = board[as2];
-        if (!(occ2 && col(occ2) === turn)) freeSqs.push(as2); /* không bị quân mình chặn */
+        var blockedByOwn = (occ2 && col(occ2) === turn);
+        if (!blockedByOwn && da === 0) safeSqs.push(as2); /* không bị chặn, không bị đối phương khống chế */
       }
-      var da = atkCnt(as2, opp);
-      if (da > 0) { dangerTotal += da; result.kingerSqs.push(as2); }
     }
     result.kingDanger = dangerTotal;
     result.threatened = attacked(board, result.kingSq, opp);
-    result.kingMobility = freeSqs.length;
-    result.kingCramped = freeSqs.length <= 3;
-    if (result.kingCramped) {
-      for (var fi = 0; fi < freeSqs.length; fi++) {
-        if (result.kingerSqs.indexOf(freeSqs[fi]) === -1) result.kingerSqs.push(freeSqs[fi]);
-      }
-    }
+    result.kingMobility = safeSqs.length;
+    result.kingCramped = safeSqs.length < 3;
+    result.kingerSqs = safeSqs;
   }
 
   return result;
+}
+
+/* ── Mobility scanner: phát hiện quân kém linh hoạt / bị kẹt (Xe, Mã, Tượng, Hậu) ──
+   Đếm số ô pseudo-legal mỗi quân có thể đi tới (kể cả ô ăn quân), so với số ô
+   "lý tưởng" tối đa theo từng loại quân để ra tỉ lệ linh hoạt. Không xét Tốt/Vua. */
+function coachScanMobility(board, turn) {
+  var result = [];
+  var MAXMOB = {2:8, 3:13, 4:14, 5:27}; /* knight, bishop, rook, queen */
+  var KD=[[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
+  var DD=[[-1,-1],[-1,1],[1,-1],[1,1]];
+  var SD=[[-1,0],[1,0],[0,-1],[0,1]];
+  for (var s = 0; s < 64; s++) {
+    var p = board[s];
+    if (!p || col(p) !== turn) continue;
+    var pt = typ(p);
+    if (pt === 1 || pt === 6) continue; /* bỏ qua Tốt và Vua */
+    var cnt = 0, r = rk(s), f = fl(s), nr, nf, pp, i2;
+    if (pt === 2) {
+      for (i2 = 0; i2 < KD.length; i2++) {
+        nr = r+KD[i2][0]; nf = f+KD[i2][1];
+        if (ob(nr,nf)) { pp = board[sq(nr,nf)]; if (!pp || col(pp) !== turn) cnt++; }
+      }
+    } else {
+      var dirs = [];
+      if (pt === 3 || pt === 5) dirs = dirs.concat(DD);
+      if (pt === 4 || pt === 5) dirs = dirs.concat(SD);
+      for (i2 = 0; i2 < dirs.length; i2++) {
+        nr = r+dirs[i2][0]; nf = f+dirs[i2][1];
+        while (ob(nr,nf)) {
+          pp = board[sq(nr,nf)];
+          if (pp) { if (col(pp) !== turn) cnt++; break; }
+          cnt++; nr += dirs[i2][0]; nf += dirs[i2][1];
+        }
+      }
+    }
+    var max = MAXMOB[pt] || 14;
+    var ratio = cnt / max;
+    var tier = 0;
+    if (ratio < 0.05) tier = 3;       /* rất kém */
+    else if (ratio < 0.10) tier = 2;  /* kém */
+    else if (ratio < 0.20) tier = 1;  /* vừa */
+    if (tier > 0) result.push({sq:s, pt:pt, cnt:cnt, tier:tier});
+  }
+  return result;
+}
+
+/* ── Gộp dữ liệu badge dùng chung cho cả Luyện tập và Phân tích ──
+   Quét CẢ 2 BÊN: quân treo + quân yếu (atk>def, đã lọc theo giá trị) của cả 2
+   màu → gộp chung 1 loại badge ✕ đỏ (coachLastThreatened).
+   Quân kém linh hoạt/kẹt: CHỈ xét khi đã qua khai cuộc (materialPct < 0.75) —
+   dot ● 3 màu theo tier (coachLastMobility).
+   King-safe-sq (vua bị kìm kẹp): CHỈ xét khi materialPct < 0.65, và số ô an
+   toàn vua có thể đi tới < 3 (0-2 ô). */
+var coachLastThreatened = [];
+var coachLastMobility   = [];
+var coachLastDangerSqs  = [];
+function coachBuildBadgeData(board, turn) {
+  var scanSelf = coachScanPos(board, turn);
+  var scanOpp  = coachScanPos(board, -turn);
+  coachLastThreatened = scanSelf.hanging.concat(scanSelf.weak)
+                          .concat(scanOpp.hanging).concat(scanOpp.weak);
+
+  var pct = (typeof boardMaterialPct === 'function') ? boardMaterialPct(board) : 1;
+
+  coachLastMobility = (pct < 0.75)
+    ? coachScanMobility(board, turn).concat(coachScanMobility(board, -turn))
+    : [];
+
+  coachLastDangerSqs = (pct < 0.65 && scanSelf.kingCramped) ? scanSelf.kingerSqs : [];
+
+  return scanSelf;
 }
 
 /* ── UCI → SAN (lightweight) ── */
@@ -5606,10 +5808,10 @@ var PSYM  = ['','','♞','♝','♜','♛','♚'];
 var gBadgeCache = [];   /* [{sq, type}] */
 var gDangerCache = [];  /* [sq] */
 
-function coachSetBadgeCache(hanging, weak, dangerSqs) {
+function coachSetBadgeCache(threatened, trapped, dangerSqs) {
   gBadgeCache = [];
-  for (var i = 0; i < hanging.length; i++) gBadgeCache.push({sq: hanging[i].sq, type: 'hang'});
-  for (var i = 0; i < weak.length;    i++) gBadgeCache.push({sq: weak[i].sq,    type: 'weak'});
+  for (var i = 0; i < threatened.length; i++) gBadgeCache.push({sq: threatened[i].sq, type: 'hang'});
+  for (var i = 0; i < trapped.length;    i++) gBadgeCache.push({sq: trapped[i].sq,    type: 'trap'+trapped[i].tier});
   gDangerCache = dangerSqs ? dangerSqs.slice() : [];
 }
 
@@ -5617,12 +5819,12 @@ function coachRedrawBadges() {
   /* Remove stale badges/classes first (fast DOM walk) */
   var old = document.querySelectorAll('.sq-badge');
   for (var i = 0; i < old.length; i++) old[i].parentNode.removeChild(old[i]);
-  var danger = document.querySelectorAll('.sq.king-danger');
+  var danger = document.querySelectorAll('.sq.king-safe-sq');
   for (var i = 0; i < danger.length; i++)
-    danger[i].className = danger[i].className.replace(/\s*king-danger/g,'');
+    danger[i].className = danger[i].className.replace(/\s*king-safe-sq/g,'');
   /* Redraw from cache */
   for (var i = 0; i < gBadgeCache.length; i++) addBadge(gBadgeCache[i].sq, gBadgeCache[i].type);
-  for (var i = 0; i < gDangerCache.length; i++) addSqClass(gDangerCache[i], 'king-danger');
+  for (var i = 0; i < gDangerCache.length; i++) addSqClass(gDangerCache[i], 'king-safe-sq');
 }
 
 function coachClearOverlay() {
@@ -5940,10 +6142,9 @@ function coachAnFinish() {
   if (hb2) hb2.textContent = '🔄 Phân tích lại';
 
   /* Overlay: update cache + redraw badges + best arrow */
-  if (scan) {
-    var _dSqs = (scan.kingDanger >= 3 || scan.kingCramped) ? scan.kingerSqs : [];
-    coachSetBadgeCache(scan.hanging, scan.weak, _dSqs);
-  }
+  /* Vị trí chưa đổi kể từ lần quét ở đầu bước này → dùng lại cache đã tính,
+     không cần quét lại (đỡ tốn phép tính lặp cho cùng 1 thế cờ). */
+  coachSetBadgeCache(coachLastThreatened, coachLastMobility, coachLastDangerSqs);
   var arr1 = document.getElementById('svg-arrows');
   if (arr1) arr1.innerHTML = '';
   coachRedrawBadges();
@@ -6351,12 +6552,11 @@ function coachTrigger() {
   }
 
   var fenNow = boardToFen();
-  var scan   = coachScanPos(gB, gTurn);
+  var scan   = coachBuildBadgeData(gB, gTurn);
   coachLastScan = scan;
 
   /* Immediate overlay: draw badges */
-  var _dangerSqs = (scan.kingDanger >= 3 || scan.kingCramped) ? scan.kingerSqs : [];
-  coachSetBadgeCache(scan.hanging, scan.weak, _dangerSqs);
+  coachSetBadgeCache(coachLastThreatened, coachLastMobility, coachLastDangerSqs);
   var arr0 = document.getElementById('svg-arrows');
   if (arr0) arr0.innerHTML = '';
   var hi0  = document.getElementById('svg-sq-hi');
@@ -6435,7 +6635,7 @@ function coachRunPostEval(post, scanCurrent, fenNow) {
     coachRender(scanCurrent, null, fb, opening);
 
     /* Re-scan current position with mate+fork before chaining to analysis */
-    var scanFwd = coachScanPos(gB, gTurn);
+    var scanFwd = coachBuildBadgeData(gB, gTurn);
     var mateM = coachFindMateIn1(gB, gTurn, gEP, gCas);
     if (mateM) { scanFwd._mateMove = mateM; scanFwd._mateSan = uci2san(mateM, gB, gTurn); }
     scanFwd._forks = coachFindForks(gB, gTurn, gEP, gCas);
@@ -6443,8 +6643,7 @@ function coachRunPostEval(post, scanCurrent, fenNow) {
     coachLastScan = scanFwd;
 
     /* Redraw badges for current position */
-    var _dSqsFwd = (scanFwd.kingDanger >= 3 || scanFwd.kingCramped) ? scanFwd.kingerSqs : [];
-    coachSetBadgeCache(scanFwd.hanging, scanFwd.weak, _dSqsFwd);
+    coachSetBadgeCache(coachLastThreatened, coachLastMobility, coachLastDangerSqs);
     coachRedrawBadges();
 
     /* Chain into forward analysis for green arrow + candidates */
@@ -7631,28 +7830,12 @@ function go (maxPly) {
       }
       
       else {
-        // exact
+        // exact — đây LUÔN là PV1 (nước tốt nhất thật, single-PV search chuẩn).
+        // Không còn "track for MultiPV" giả ở đây nữa — PV2..N (nếu multiPV>1)
+        // được tìm bằng root-move-exclusion search THẬT sau khi vòng lặp
+        // iterative-deepening này kết thúc (xem bên dưới, sau vòng for ply).
 
-        // track for MultiPV
-
-        if (statsBestMove) {
-          multiPVMoves = multiPVMoves.filter(function(m){ return m.move !== statsBestMove; });
-          multiPVMoves.unshift({
-            move:  statsBestMove,
-            score: score,
-            pv:    rootNode.pv.slice(0, rootNode.pvLen),
-            pvLen: rootNode.pvLen
-          });
-        }
-
-
-        if (multiPV > 1) {
-
-          reportMultiPV(depth);
-
-        }
-
-        else if (Math.abs(score) > MINMATE) {
+        if (Math.abs(score) > MINMATE) {
 
           var mateScore = (MATE - Math.abs(score)) / 2 | 0;
           if (score < 0)
@@ -7680,6 +7863,60 @@ function go (maxPly) {
     if (statsTimeOut)
       break;
     
+  }
+
+  /* ── Root-move-exclusion MultiPV (PV2..N thật) ──────────────────────────
+     Chỉ chạy khi caller yêu cầu multiPV>1 (xem uci 'setoption name MultiPV').
+     PV1 đã có sẵn ở statsBestMove/statsBestScore/rootNode.pv từ vòng lặp
+     trên (tìm đủ tới maxPly). Với mỗi PV kế tiếp: loại các nước đã tìm ra
+     khỏi root rồi search lại CÙNG depth cuối (full window, không dùng
+     aspiration để đơn giản/an toàn) — đây là cách multipv chuẩn của các
+     engine UCI (Stockfish...), khác với suy đoán "đổi best-move giữa các
+     độ sâu" trước đây vốn gần như không bao giờ ra được PV2 thật. */
+  if (multiPV > 1 && !statsTimeOut && statsBestMove) {
+
+    multiPVMoves = [{
+      move:  statsBestMove,
+      score: statsBestScore,
+      pv:    rootNode.pv.slice(0, rootNode.pvLen),
+      pvLen: rootNode.pvLen
+    }];
+
+    excludedRootMoves = [statsBestMove];
+
+    for (var pvIdx = 2; pvIdx <= multiPV; pvIdx++) {
+
+      var mpScore = rootSearch(rootNode, depth, bdTurn, -INF, INF);
+
+      /* Lưu ý: rootSearch() cũng set statsTimeOut=1 khi vị trí (sau khi loại
+         trừ) chỉ còn ĐÚNG 1 nước hợp lệ ("only one legal move so don't waste
+         any more time") — đây KHÔNG phải timeout thật, statsBestMove vẫn
+         hoàn toàn hợp lệ trong trường hợp đó. Phải lưu kết quả TRƯỚC khi
+         kiểm tra statsTimeOut, nếu không sẽ mất oan PV cuối cùng (rất hay
+         xảy ra ở các thế cờ chiến thuật ít lựa chọn — đúng lúc cần multipv
+         chính xác nhất). */
+      if (!statsBestMove) break;
+
+      multiPVMoves.push({
+        move:  statsBestMove,
+        score: mpScore,
+        pv:    rootNode.pv.slice(0, rootNode.pvLen),
+        pvLen: rootNode.pvLen
+      });
+
+      excludedRootMoves.push(statsBestMove);
+
+      if (statsTimeOut) break;
+    }
+
+    excludedRootMoves = [];
+
+    reportMultiPV(depth);
+
+    /* Các search loại trừ ở trên đã ghi đè statsBestMove/statsBestScore —
+       khôi phục lại PV1 (nước thật sự tốt nhất) trước khi báo bestmove. */
+    statsBestMove  = multiPVMoves[0].move;
+    statsBestScore = multiPVMoves[0].score;
   }
 
   bestMoveStr = formatMove(statsBestMove);
@@ -7734,6 +7971,9 @@ function rootSearch (node, depth, turn, alpha, beta) {
   genMoves(node, turn);
 
   while ((move = getNextMove(node)) !== 0) {
+
+    if (excludedRootMoves.length !== 0 && excludedRootMoves.indexOf(move) !== -1)
+      continue;
 
     makeMoveA(node, move);
 
@@ -7814,7 +8054,14 @@ function rootSearch (node, depth, turn, alpha, beta) {
           addKiller(node, bestScore, bestMove);
           if ((move & MOVE_NOISY_MASK) === 0)
             addHistory(Math.imul(Math.imul(depth, depth), depth), bestMove);
-          ttPut(TT_BETA, depth, bestScore, bestMove, node.ply, alpha, beta, INF);
+          /* KHÔNG ghi TT khi đang search loại trừ (excludedRootMoves != rỗng) —
+             kết quả này chỉ đúng "với điều kiện đã loại 1 số nước ở root", ghi vào
+             TT sẽ làm hỏng entry cho các lần tra cứu BÌNH THƯỜNG sau này của
+             CHÍNH vị trí này (vd multipv backfill/mate_verify của 1 nước khác,
+             hoặc transposition từ nước đi khác dẫn tới cùng vị trí) — đây chính
+             là nguyên nhân gây điểm số/nước đi gợi ý vô lý phát hiện được. */
+          if (excludedRootMoves.length === 0)
+            ttPut(TT_BETA, depth, bestScore, bestMove, node.ply, alpha, beta, INF);
           return bestScore;
         }
 
@@ -7843,11 +8090,13 @@ function rootSearch (node, depth, turn, alpha, beta) {
   }
   
   if (bestScore > oAlpha) {
-    ttPut(TT_EXACT, depth, bestScore, bestMove, node.ply, alpha, beta, node.ev);
+    if (excludedRootMoves.length === 0)
+      ttPut(TT_EXACT, depth, bestScore, bestMove, node.ply, alpha, beta, node.ev);
     return bestScore;
   }
   else {
-    ttPut(TT_ALPHA, depth, bestScore, bestMove, node.ply, alpha, beta, node.ev);
+    if (excludedRootMoves.length === 0)
+      ttPut(TT_ALPHA, depth, bestScore, bestMove, node.ply, alpha, beta, node.ev);
     return bestScore;
   }
   
@@ -10708,6 +10957,11 @@ var statsBestScore = 0;
 
 var multiPV      = 1;
 var multiPVMoves = [];
+/* Root-move-exclusion multipv: khi khác rỗng, rootSearch() bỏ qua các nước
+   trong danh sách này ngay tại root — dùng để tìm PV2/PV3/PV4 THẬT sau khi
+   đã có PV1, thay vì suy đoán multipv từ các lần đổi best-move giữa các độ
+   sâu (cách cũ không đáng tin cậy). */
+var excludedRootMoves = [];
 
 // initStats
 
